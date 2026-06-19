@@ -1,0 +1,20 @@
+# Normalise line endings to LF in the repo (target is Linux).
+# Prevents CRLF from breaking shell scripts / configs on the box.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.js   text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+
+# Treat known binaries as binary (no EOL munging)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.deb binary
