@@ -109,6 +109,21 @@ bestehender Tabellen automatisch beim Start (additiv, NULL-fähig). So überlebt
 die Box App-Updates ohne manuellen Migrationsschritt. Umbenennungen/Typänderungen
 /Drops bräuchten weiterhin Alembic (`migrations/`).
 
+### Remote-Zugang (Tailscale)
+
+Für stabilen Fernzugriff (unabhängig vom lokalen Netz, durch NAT/Firewall):
+
+```bash
+sudo ./scripts/tailscale-setup.sh                 # interaktiv (Link im Browser bestätigen)
+sudo TS_AUTHKEY=tskey-... ./scripts/tailscale-setup.sh   # nicht-interaktiv
+# oder als Teil des Setups:
+sudo WITH_TAILSCALE=1 TS_AUTHKEY=tskey-... ./scripts/setup.sh
+```
+
+Aktiviert **Tailscale SSH** → danach `ssh photobooth@mkphotobox` aus dem eigenen
+Tailnet, ohne Schlüssel/Port-Freigabe. Ideal für eine Box hinter einer
+instabilen Leitung.
+
 ---
 
 ## Konfiguration

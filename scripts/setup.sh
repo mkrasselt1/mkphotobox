@@ -28,6 +28,7 @@ WITH_TRIGGERS="${WITH_TRIGGERS:-1}"      # evdev/pynput (host_keyboard, bluetoot
 WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
+WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
 
 echo ">>> MKPhotobox setup"
 echo "    app dir : $APP_DIR"
@@ -121,6 +122,12 @@ WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable --now mkphotobox.service
+
+# ── 4b) optional: Tailscale remote access ─────────────────────────────────
+if [[ "$WITH_TAILSCALE" == 1 ]]; then
+  echo ">>> [4b] Tailscale (Remote-Zugang)"
+  bash "$APP_DIR/scripts/tailscale-setup.sh" || echo "  (Tailscale-Setup übersprungen/fehlgeschlagen)"
+fi
 
 # ── 5) done ───────────────────────────────────────────────────────────────
 echo ">>> [5/5] Fertig"
