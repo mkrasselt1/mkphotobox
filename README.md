@@ -56,6 +56,10 @@ Weboberfläche (kein Verlassen des Browsers nötig).
   | WLAN-Verwaltung | `network-manager` (nmcli)                          | —                   |
   | Akustik-Auslöser| `libportaudio2`                                   | `.[audio]`          |
   | Serieller Auslöser | —                                              | `.[serial]`         |
+  | Tastatur/BT/evdev-Auslöser | Gruppe `input`                         | `.[triggers]`       |
+  | Bezahlung (SumUp) | —                                               | `.[payment]`        |
+  | Bluetooth-Versand | `bluez`, `gnome-bluetooth-sendto`               | —                   |
+  | KI-Hintergrund  | — (groß: onnxruntime)                              | `.[background-ai]`  |
 
 > **Wichtig (Versions-Pin):** Nur **`fastapi==0.135.3` + `starlette==1.0.0`**
 > verwenden. Neuere, untereinander inkompatible Versionen brechen `include_router`

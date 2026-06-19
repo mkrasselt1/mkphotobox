@@ -24,6 +24,10 @@ WITH_CDBURN="${WITH_CDBURN:-1}"
 WITH_WIFI="${WITH_WIFI:-1}"
 WITH_AUDIO="${WITH_AUDIO:-0}"
 WITH_OPENCV="${WITH_OPENCV:-1}"
+WITH_TRIGGERS="${WITH_TRIGGERS:-1}"      # evdev/pynput (host_keyboard, bluetooth, evdev triggers)
+WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
+WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
+WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 
 echo ">>> MKPhotobox setup"
 echo "    app dir : $APP_DIR"
@@ -41,6 +45,7 @@ PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl)
 [[ "$WITH_CDBURN"  == 1 ]] && PKGS+=(xorriso)
 [[ "$WITH_WIFI"    == 1 ]] && PKGS+=(network-manager)
 [[ "$WITH_AUDIO"   == 1 ]] && PKGS+=(libportaudio2)
+[[ "$WITH_BLUETOOTH" == 1 ]] && PKGS+=(bluez gnome-bluetooth-sendto)
 apt-get update -y
 apt-get install -y "${PKGS[@]}"
 
@@ -56,6 +61,9 @@ sudo -u "$RUN_USER" "$PIP" install "fastapi==0.135.3" "starlette==1.0.0"
 [[ "$WITH_OPENCV"  == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "opencv-python-headless>=4.8" || true
 [[ "$WITH_PRINTER" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "pycups>=2.0"    || true
 [[ "$WITH_AUDIO"   == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "sounddevice>=0.4" "numpy>=1.24" || true
+[[ "$WITH_TRIGGERS" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "evdev>=1.6" "pynput>=1.7" || true
+[[ "$WITH_PAYMENT"  == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "httpx>=0.27" || true
+[[ "$WITH_BG_AI"    == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "rembg>=2.0"  || true
 
 echo ">>> verify imports + route registration"
 sudo -u "$RUN_USER" "$PY" - <<PYEOF
@@ -71,6 +79,7 @@ sudo -u "$RUN_USER" mkdir -p "$APP_DIR/data/photos/thumbs" "$APP_DIR/data/assets
 # allow access to optical drive / serial without sudo
 [[ "$WITH_CDBURN" == 1 ]] && usermod -aG cdrom "$RUN_USER" 2>/dev/null || true
 usermod -aG dialout "$RUN_USER" 2>/dev/null || true   # serial touchscreen / triggers
+[[ "$WITH_TRIGGERS" == 1 ]] && usermod -aG input "$RUN_USER" 2>/dev/null || true   # evdev /dev/input access
 
 # ── 4) systemd service ────────────────────────────────────────────────────
 echo ">>> [4/5] systemd-Dienst"
