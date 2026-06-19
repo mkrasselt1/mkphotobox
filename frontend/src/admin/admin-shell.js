@@ -9,24 +9,25 @@ export function adminShell(contentHTML) {
     const isAdmin = auth.role === 'admin';
 
     // key = section key (matches backend MIETER_SECTIONS); adminOnly hides it from a Mieter
+    // group = nav grouping (top | interface | capture | process | output | other)
     let navItems = [
-        { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊' },
-        { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷' },
-        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', adminOnly: true },
-        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉' },
-        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄' },
-        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️' },
-        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱' },
-        { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', adminOnly: true },
-        { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️' },
-        { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿' },
-        { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌' },
-        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶' },
-        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', adminOnly: true },
-        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', adminOnly: true },
-        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', adminOnly: true },
-        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', adminOnly: true },
-        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', adminOnly: true },
+        { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊', group: 'top' },
+        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'interface', adminOnly: true },
+        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'interface' },
+        { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷', group: 'capture' },
+        { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', group: 'capture', adminOnly: true },
+        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'process' },
+        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️', group: 'process' },
+        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'process' },
+        { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️', group: 'output' },
+        { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿', group: 'output' },
+        { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'output' },
+        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'other', adminOnly: true },
+        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'other' },
+        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'other', adminOnly: true },
+        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'other', adminOnly: true },
+        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'other', adminOnly: true },
+        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'other', adminOnly: true },
     ];
 
     if (!isAdmin) {
@@ -35,15 +36,30 @@ export function adminShell(contentHTML) {
         navItems = navItems.filter(n => !n.adminOnly && sections.includes(n.key));
     }
 
+    // Render the nav grouped by stage; group headers shown only when non-empty.
+    const GROUPS = [
+        { id: 'interface', label: 'Oberfläche' },
+        { id: 'capture', label: 'Aufnehmen' },
+        { id: 'process', label: 'Verarbeiten' },
+        { id: 'output', label: 'Ausgeben' },
+        { id: 'other', label: 'Alles andere' },
+    ];
+    const itemHtml = (n) => `
+        <a href="${n.href}" class="nav-item ${hash === n.href.replace('#/', '') ? 'active' : ''}">
+            <span class="nav-icon">${n.icon}</span><span>${n.label}</span>
+        </a>`;
+    let navHtml = navItems.filter(n => n.group === 'top').map(itemHtml).join('');
+    for (const g of GROUPS) {
+        const items = navItems.filter(n => n.group === g.id);
+        if (!items.length) continue;
+        navHtml += `<div class="nav-group-label">${g.label}</div>` + items.map(itemHtml).join('');
+    }
+
     return `
     <div style="display:flex;height:100%;">
         <nav class="admin-nav">
             <div class="admin-brand"><span class="admin-brand-dot"></span> Photobox Admin</div>
-            ${navItems.map(n => `
-                <a href="${n.href}" class="nav-item ${hash === n.href.replace('#/', '') ? 'active' : ''}">
-                    <span class="nav-icon">${n.icon}</span><span>${n.label}</span>
-                </a>
-            `).join('')}
+            ${navHtml}
             <div style="flex:1;"></div>
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
@@ -68,6 +84,10 @@ export function adminShell(contentHTML) {
             display:flex;align-items:center;gap:0.7rem;padding:0.65rem 0.85rem;border-radius:10px;
             color:var(--pb-color-text);text-decoration:none;font-size:0.93rem;
             transition:background 0.15s, transform 0.05s;position:relative;
+        }
+        .nav-group-label {
+            font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+            color:var(--pb-color-text-muted);padding:0.85rem 0.85rem 0.3rem;opacity:0.75;
         }
         .nav-icon { width:1.4rem;text-align:center;font-size:1.05rem;flex-shrink:0; }
         .nav-item:hover { background:rgba(255,255,255,0.07); }
