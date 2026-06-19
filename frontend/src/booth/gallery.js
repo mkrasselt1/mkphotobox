@@ -11,6 +11,7 @@ export function render(container, state) {
     let deleteMode = 'off';
     let deleteRecentMinutes = 5;
     let shareBase = location.origin;
+    let availableOutputs = [];
 
     container.innerHTML = `
     <div style="display:flex;flex-direction:column;height:100%;padding:1.5rem;">
@@ -92,6 +93,9 @@ export function render(container, state) {
             try {
                 shareBase = await fetch('/api/v1/system/share-base').then(r => r.json()).then(r => r.base_url || location.origin);
             } catch {}
+            try {
+                availableOutputs = await fetch('/api/v1/outputs/available').then(r => r.json()).then(o => (o || []).map(x => x.name));
+            } catch { availableOutputs = []; }
 
             const event = await eventRes.json();
             if (!event || !event.slug) {
@@ -199,7 +203,7 @@ export function render(container, state) {
         const gifUrl = `/api/v1/photos/${photo.id}/gif`;
         let html = `<div class="pb-gallery-actions">
             <a href="${fileUrl}" download class="ga-btn" style="background:#4a90d9;"><span ${ico}>\u2B07</span> ${i18n.t('share.download')}</a>
-            <button class="ga-btn ga-print" data-id="${photo.id}" style="background:#8e44ad;"><span ${ico}>\uD83D\uDDA8</span> ${i18n.t('share.print')}</button>
+            ${availableOutputs.includes('output.printer') ? `<button class="ga-btn ga-print" data-id="${photo.id}" style="background:#8e44ad;"><span ${ico}>\uD83D\uDDA8</span> ${i18n.t('share.print')}</button>` : ''}
             <button class="ga-btn ga-qr" data-url="${shareBase}${fileUrl}" style="background:#2c3e50;"><span ${ico}>\uD83D\uDD17</span> ${i18n.t('share.qr_code')}</button>`;
         if (photo.gif_filename) {
             // The lightbox opens GIF photos as the animation by default \u2192 offer a still toggle

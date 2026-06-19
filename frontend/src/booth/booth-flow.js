@@ -33,6 +33,7 @@ let countdownSeconds = 3;   // configurable countdown duration
 let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
 let idleLivePreview = true; // show the live stream on the welcome screen (vs. a static page)
 let galleryEnabled = true;
+let availableOutputs = [];  // loaded output module names (only enabled+available ones)
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
 let boothInitiated = false;  // true while the booth drives its own capture sequence
@@ -117,6 +118,10 @@ export function render(container, state) {
         } catch {
             shareBase = location.origin;
         }
+        try {
+            const outs = await fetch('/api/v1/outputs/available').then(r => r.json());
+            availableOutputs = (outs || []).map(o => o.name);
+        } catch { availableOutputs = []; }
     }
 
     function transition(newState) {
@@ -594,18 +599,21 @@ export function render(container, state) {
                     <span style="font-size:1.8rem;">🎞️</span>
                     GIF aufs Handy
                 </button>` : ''}
+                ${availableOutputs.includes('output.email') ? `
                 <button id="card-email" class="share-card">
                     <span style="font-size:1.8rem;">✉️</span>
                     Per E-Mail
-                </button>
+                </button>` : ''}
+                ${availableOutputs.includes('output.bluetooth') ? `
                 <button id="card-bt" class="share-card">
                     <span style="font-size:1.8rem;">🔵</span>
                     Bluetooth
-                </button>
+                </button>` : ''}
+                ${availableOutputs.includes('output.printer') ? `
                 <button id="card-print" class="share-card">
                     <span style="font-size:1.8rem;">🖨️</span>
                     Drucken
-                </button>
+                </button>` : ''}
             </div>
             <button id="btn-done" class="pb-btn pb-btn-success" style="margin-top:0.5rem;">
                 ${i18n.t('booth.thanks')} &rarr;
