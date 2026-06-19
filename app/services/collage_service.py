@@ -11,12 +11,194 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
 from app.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+# ── Fonts ──────────────────────────────────────────────────────────────────
+# Label -> candidate filenames per style. We match against whatever is installed
+# (DejaVu ships with most Linux distros; Liberation/Arial are common fallbacks).
+FONT_FILES: dict[str, dict[str, list[str]]] = {
+    "Sans": {
+        "regular": ["DejaVuSans.ttf", "LiberationSans-Regular.ttf", "Arial.ttf", "arial.ttf"],
+        "bold": ["DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "arialbd.ttf"],
+        "italic": ["DejaVuSans-Oblique.ttf", "LiberationSans-Italic.ttf", "ariali.ttf"],
+        "bolditalic": ["DejaVuSans-BoldOblique.ttf", "LiberationSans-BoldItalic.ttf", "arialbi.ttf"],
+    },
+    "Serif": {
+        "regular": ["DejaVuSerif.ttf", "LiberationSerif-Regular.ttf", "times.ttf"],
+        "bold": ["DejaVuSerif-Bold.ttf", "LiberationSerif-Bold.ttf", "timesbd.ttf"],
+        "italic": ["DejaVuSerif-Italic.ttf", "LiberationSerif-Italic.ttf", "timesi.ttf"],
+        "bolditalic": ["DejaVuSerif-BoldItalic.ttf", "LiberationSerif-BoldItalic.ttf", "timesbi.ttf"],
+    },
+    "Mono": {
+        "regular": ["DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "cour.ttf"],
+        "bold": ["DejaVuSansMono-Bold.ttf", "LiberationMono-Bold.ttf", "courbd.ttf"],
+        "italic": ["DejaVuSansMono-Oblique.ttf", "LiberationMono-Italic.ttf", "couri.ttf"],
+        "bolditalic": ["DejaVuSansMono-BoldOblique.ttf", "LiberationMono-BoldItalic.ttf", "courbi.ttf"],
+    },
+    "Ubuntu": {
+        "regular": ["Ubuntu-R.ttf"], "bold": ["Ubuntu-B.ttf"],
+        "italic": ["Ubuntu-RI.ttf"], "bolditalic": ["Ubuntu-BI.ttf"],
+    },
+    "Comic": {
+        "regular": ["ComicNeue-Regular.ttf", "comic.ttf", "Comic Sans MS.ttf"],
+        "bold": ["ComicNeue-Bold.ttf", "comicbd.ttf"],
+        "italic": ["ComicNeue-Italic.ttf"], "bolditalic": ["ComicNeue-BoldItalic.ttf"],
+    },
+    # ── Script / handwriting (flowing) — install via scripts/install-fonts.sh ──
+    "Pacifico": {"regular": ["Pacifico-Regular.ttf", "Pacifico.ttf"]},
+    "Dancing Script": {"regular": ["DancingScript-Regular.ttf", "DancingScript[wght].ttf"],
+                       "bold": ["DancingScript-Bold.ttf"]},
+    "Great Vibes": {"regular": ["GreatVibes-Regular.ttf"]},
+    "Lobster": {"regular": ["Lobster-Regular.ttf"]},
+    "Sacramento": {"regular": ["Sacramento-Regular.ttf"]},
+    "Satisfy": {"regular": ["Satisfy-Regular.ttf"]},
+    "Parisienne": {"regular": ["Parisienne-Regular.ttf"]},
+}
+
+_FONT_INDEX: Optional[dict[str, Path]] = None
+
+
+def _font_dirs() -> list[Path]:
+    dirs = [
+        Path(__file__).resolve().parent.parent / "assets" / "fonts",  # bundled
+        Path("/usr/share/fonts"), Path("/usr/local/share/fonts"),
+        Path.home() / ".fonts" if Path.home() else None,
+        Path("/Library/Fonts"), Path("/System/Library/Fonts"),
+    ]
+    win = os.environ.get("WINDIR")
+    if win:
+        dirs.append(Path(win) / "Fonts")
+    return [d for d in dirs if d and d.exists()]
+
+
+def _font_index() -> dict[str, Path]:
+    """Build (once) a lowercase-filename -> path index of installed fonts."""
+    global _FONT_INDEX
+    if _FONT_INDEX is not None:
+        return _FONT_INDEX
+    idx: dict[str, Path] = {}
+    for d in _font_dirs():
+        for ext in ("*.ttf", "*.otf"):
+            try:
+                for p in d.rglob(ext):
+                    idx.setdefault(p.name.lower(), p)
+            except Exception:
+                continue
+    _FONT_INDEX = idx
+    return idx
+
+
+def _resolve_font_file(filenames: list[str]) -> Optional[Path]:
+    idx = _font_index()
+    for fn in filenames:
+        p = idx.get(fn.lower())
+        if p:
+            return p
+    return None
+
+
+def available_fonts() -> list[str]:
+    """Font labels whose regular variant resolves on this system."""
+    out = [label for label, spec in FONT_FILES.items() if _resolve_font_file(spec["regular"])]
+    return out or ["Sans"]
+
+
+def _load_font(label: str, size: int, bold: bool = False, italic: bool = False):
+    from PIL import ImageFont
+
+    size = max(6, int(size))
+    spec = FONT_FILES.get(label) or FONT_FILES["Sans"]
+    if bold and italic:
+        order = ["bolditalic", "bold", "italic", "regular"]
+    elif bold:
+        order = ["bold", "regular"]
+    elif italic:
+        order = ["italic", "regular"]
+    else:
+        order = ["regular"]
+    for variant in order:
+        p = _resolve_font_file(spec.get(variant, []))
+        if p:
+            try:
+                return ImageFont.truetype(str(p), size)
+            except Exception:
+                continue
+    p = _resolve_font_file(FONT_FILES["Sans"]["regular"])
+    if p:
+        try:
+            return ImageFont.truetype(str(p), size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def _wrap_lines(draw, text: str, font, max_w: int) -> list[str]:
+    """Word-wrap *text* to *max_w* px, honouring explicit newlines."""
+    lines: list[str] = []
+    for paragraph in str(text).split("\n"):
+        if not paragraph:
+            lines.append("")
+            continue
+        cur = ""
+        for word in paragraph.split(" "):
+            trial = (cur + " " + word).strip()
+            if not cur or draw.textlength(trial, font=font) <= max_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        lines.append(cur)
+    return lines
+
+
+def _render_text_item(item: dict[str, Any]):
+    """Render one text element to a transparent RGBA layer (box-sized)."""
+    from PIL import Image, ImageDraw
+
+    w = max(1, int(item.get("w", 100)))
+    h = max(1, int(item.get("h", 50)))
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+
+    font = _load_font(item.get("font", "Sans"), int(item.get("size", 48)),
+                      bool(item.get("bold")), bool(item.get("italic")))
+    text = str(item.get("text", ""))
+    color = item.get("color", "#000000") or "#000000"
+    align = item.get("align", "center")
+    valign = item.get("valign", "middle")
+    stroke_w = int(item.get("stroke_width", 0) or 0)
+    stroke_color = item.get("stroke_color", "#ffffff") or "#ffffff"
+
+    lines = _wrap_lines(draw, text, font, w)
+    asc, desc = font.getmetrics()
+    line_h = asc + desc
+    total_h = line_h * len(lines)
+    if valign == "top":
+        y = 0
+    elif valign == "bottom":
+        y = max(0, h - total_h)
+    else:
+        y = max(0, (h - total_h) // 2)
+
+    for line in lines:
+        lw = draw.textlength(line, font=font)
+        if align == "left":
+            x = 0
+        elif align == "right":
+            x = max(0, w - lw)
+        else:
+            x = max(0, (w - lw) / 2)
+        draw.text((x, y), line, font=font, fill=color,
+                  stroke_width=stroke_w, stroke_fill=stroke_color)
+        y += line_h
+    return layer
 
 
 def make_grid_slots(rows: int, cols: int, canvas_w: int, canvas_h: int,
@@ -113,6 +295,7 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         definition = json.loads(definition or "{}")
     slots = definition.get("slots", [])
     overlays = definition.get("overlays", [])
+    texts = definition.get("texts", [])
 
     canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
 
@@ -163,6 +346,19 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         if rot:
             placed = placed.rotate(-rot, expand=True, resample=Image.BICUBIC)
         canvas.alpha_composite(placed.convert("RGBA"), (cx - placed.width // 2, cy - placed.height // 2))
+
+    # 5) Text elements (rendered on top of everything)
+    for txt in texts:
+        try:
+            layer = _render_text_item(txt)
+            cx = int(txt.get("x", 0)) + int(txt.get("w", 0)) // 2
+            cy = int(txt.get("y", 0)) + int(txt.get("h", 0)) // 2
+            rot = txt.get("rotation", 0)
+            if rot:
+                layer = layer.rotate(-rot, expand=True, resample=Image.BICUBIC)
+            canvas.alpha_composite(layer, (cx - layer.width // 2, cy - layer.height // 2))
+        except Exception:
+            logger.exception("Failed to render text element")
 
     # Flatten onto white and save JPEG
     out_path.parent.mkdir(parents=True, exist_ok=True)

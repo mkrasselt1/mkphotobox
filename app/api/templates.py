@@ -37,6 +37,12 @@ def list_templates(session: Session = Depends(get_session),
     return {"templates": [_template_dict(t) for t in session.exec(select(Template)).all()]}
 
 
+@router.get("/fonts")
+def list_fonts(_user=Depends(require_role("admin", "organizer"))):
+    """Font labels available for text elements on this system."""
+    return {"fonts": collage_service.available_fonts()}
+
+
 @router.post("/grid-slots")
 def grid_slots(body: dict, _user=Depends(require_role("admin", "organizer"))):
     """Generate evenly spaced slots for a rows×cols grid (editor helper)."""

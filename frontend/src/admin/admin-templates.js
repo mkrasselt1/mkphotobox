@@ -3,6 +3,7 @@ import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
 const DISPLAY_W = 380;  // canvas preview width in px
 let headers;
 let assetsByType = { background: [], frame: [], logo: [], sticker: [] };
+let availableFonts = ['Sans', 'Serif', 'Mono'];
 
 async function loadAssets() {
     const out = {};
@@ -14,9 +15,37 @@ async function loadAssets() {
     assetsByType = out;
 }
 
+async function loadFonts() {
+    try {
+        const r = await fetch('/api/v1/templates/fonts', { headers }).then(r => r.json());
+        if (r.fonts && r.fonts.length) availableFonts = r.fonts;
+    } catch {}
+}
+
+// Approximate the backend fonts in the browser preview (authoritative render is server-side).
+// Script fonts: use the real family name (the .ttf is installed on the box) with a
+// cursive fallback so the preview at least looks flowing even on the dev machine.
+function fontCss(label) {
+    switch (label) {
+        case 'Serif': return 'Georgia, "Times New Roman", serif';
+        case 'Mono': return '"Courier New", monospace';
+        case 'Ubuntu': return 'Ubuntu, "Segoe UI", sans-serif';
+        case 'Comic': return '"Comic Sans MS", "Comic Neue", cursive';
+        case 'Pacifico': return 'Pacifico, cursive';
+        case 'Dancing Script': return '"Dancing Script", cursive';
+        case 'Great Vibes': return '"Great Vibes", cursive';
+        case 'Lobster': return 'Lobster, cursive';
+        case 'Sacramento': return 'Sacramento, cursive';
+        case 'Satisfy': return 'Satisfy, cursive';
+        case 'Parisienne': return 'Parisienne, cursive';
+        default: return 'Arial, Helvetica, sans-serif';
+    }
+}
+
 export async function render(container, state) {
     headers = getHeaders();
     await loadAssets();
+    await loadFonts();
     renderList(container, state);
 }
 
@@ -52,7 +81,7 @@ async function renderList(container, state) {
             id: null, name: 'Neue Vorlage', mode: 'grid',
             canvas_width: 1200, canvas_height: 1800,
             background_asset_id: null, overlay_asset_id: null,
-            slots: [], overlays: [],
+            slots: [], overlays: [], texts: [],
         });
     });
     container.querySelectorAll('.edit-tpl').forEach(b => b.addEventListener('click', async () => {
@@ -62,6 +91,7 @@ async function renderList(container, state) {
             canvas_width: t.canvas_width, canvas_height: t.canvas_height,
             background_asset_id: t.background_asset_id, overlay_asset_id: t.overlay_asset_id,
             slots: t.definition.slots || [], overlays: t.definition.overlays || [],
+            texts: t.definition.texts || [],
         });
     }));
     container.querySelectorAll('.del-tpl').forEach(b => b.addEventListener('click', async () => {
@@ -73,9 +103,11 @@ async function renderList(container, state) {
 
 // ── Editor view ────────────────────────────────────────────────────────────
 function renderEditor(container, state, ed) {
-    let selected = null;  // {kind:'slot'|'overlay', index}
+    let selected = null;  // {kind:'slot'|'overlay'|'text', index}
     const scale = DISPLAY_W / ed.canvas_width;
     let editMode = 'move';  // 'move' | 'resize' | 'rotate' — touch-friendly: drag anywhere
+    let snapEnabled = true;   // snap to guides + other elements while dragging
+    let showGuides = true;    // show the static division guide lines (½, ⅓, ⅔)
 
     const assetOptions = (list, selId) =>
         `<option value="">— keins —</option>` +
@@ -93,6 +125,10 @@ function renderEditor(container, state, ed) {
                     <button class="mode-btn admin-btn" data-mode="move" style="flex:1;">✋ Verschieben</button>
                     <button class="mode-btn admin-btn" data-mode="resize" style="flex:1;">⤡ Größe</button>
                     <button class="mode-btn admin-btn" data-mode="rotate" style="flex:1;">⟳ Drehen</button>
+                </div>
+                <div style="display:flex;gap:1rem;margin-bottom:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;"><input type="checkbox" id="t-snap" checked> Einrasten</label>
+                    <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;"><input type="checkbox" id="t-guides" checked> Hilfslinien</label>
                 </div>
                 <div id="canvas" style="position:relative;width:${DISPLAY_W}px;height:${Math.round(ed.canvas_height * scale)}px;background:#fff;border:1px solid #444;overflow:hidden;touch-action:none;"></div>
                 <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
@@ -152,6 +188,17 @@ function renderEditor(container, state, ed) {
                     </div>
                 </div>
 
+                <div class="admin-card">
+                    <h3>Text</h3>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <input id="f-text" class="admin-input" style="flex:1;" placeholder="Text eingeben…">
+                        <button id="btn-add-text" class="admin-btn admin-btn-outline">+ Text</button>
+                    </div>
+                    <p style="font-size:0.78rem;color:var(--pb-color-text-muted);margin-top:0.4rem;">
+                        Schriftart, Größe, Farbe und Stil werden nach dem Hinzufügen unten eingestellt.
+                    </p>
+                </div>
+
                 <button id="btn-save" class="admin-btn admin-btn-primary" style="width:100%;">Vorlage speichern</button>
                 <p id="msg" style="margin-top:0.5rem;font-size:0.9rem;"></p>
             </div>
@@ -198,18 +245,138 @@ function renderEditor(container, state, ed) {
             fr.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;opacity:0.9;z-index:3;';
             canvas.appendChild(fr);
         }
+
+        // Layer 4: text elements (on top of everything, draggable)
+        ed.texts.forEach((t, i) => {
+            const b = makeBox(t, i, 'text', '');
+            b.style.zIndex = '4';
+            canvas.appendChild(b);
+        });
+
+        // Static division guide lines (½, ⅓, ⅔)
+        if (showGuides) {
+            const g = document.createElement('div');
+            g.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:6;';
+            const W = ed.canvas_width, H = ed.canvas_height;
+            const verticals = [W / 3, W / 2, 2 * W / 3];
+            const horizontals = [H / 3, H / 2, 2 * H / 3];
+            verticals.forEach(v => {
+                const l = document.createElement('div');
+                l.style.cssText = `position:absolute;left:${v * scale}px;top:0;width:1px;height:100%;background:rgba(255,59,154,0.25);`;
+                g.appendChild(l);
+            });
+            horizontals.forEach(v => {
+                const l = document.createElement('div');
+                l.style.cssText = `position:absolute;top:${v * scale}px;left:0;height:1px;width:100%;background:rgba(255,59,154,0.25);`;
+                g.appendChild(l);
+            });
+            canvas.appendChild(g);
+        }
         drawSlotProps();
     }
+
+    // ── Snapping + dynamic guide lines ──────────────────────────────────
+    const SNAP = 8 / scale;  // snap threshold in canvas px (≈8 screen px)
+
+    function snapTargets(exKind, exIndex) {
+        const W = ed.canvas_width, H = ed.canvas_height;
+        const xs = [0, W / 4, W / 3, W / 2, 2 * W / 3, 3 * W / 4, W].map(Math.round);
+        const ys = [0, H / 4, H / 3, H / 2, 2 * H / 3, 3 * H / 4, H].map(Math.round);
+        const all = [
+            ...ed.slots.map((it, i) => ({ it, kind: 'slot', i })),
+            ...ed.overlays.map((it, i) => ({ it, kind: 'overlay', i })),
+            ...ed.texts.map((it, i) => ({ it, kind: 'text', i })),
+        ];
+        all.forEach(({ it, kind, i }) => {
+            if (kind === exKind && i === exIndex) return;
+            xs.push(it.x, it.x + it.w / 2, it.x + it.w);
+            ys.push(it.y, it.y + it.h / 2, it.y + it.h);
+        });
+        return { xs, ys };
+    }
+
+    function nearest(value, targets) {
+        let best = null;
+        targets.forEach(t => {
+            const d = Math.abs(value - t);
+            if (d <= SNAP && (best === null || d < best.d)) best = { d, t };
+        });
+        return best;
+    }
+
+    // Snap position (move): align left/center/right & top/middle/bottom edges
+    function applySnapMove(item, exKind, exIndex) {
+        if (!snapEnabled) return [];
+        const { xs, ys } = snapTargets(exKind, exIndex);
+        const guides = [];
+        const xc = [[item.x, 0], [item.x + item.w / 2, item.w / 2], [item.x + item.w, item.w]];
+        let bx = null;
+        xc.forEach(([val, off]) => { const n = nearest(val, xs); if (n && (!bx || n.d < bx.d)) bx = { ...n, off }; });
+        if (bx) { item.x = Math.round(bx.t - bx.off); guides.push({ axis: 'x', pos: bx.t }); }
+        const yc = [[item.y, 0], [item.y + item.h / 2, item.h / 2], [item.y + item.h, item.h]];
+        let by = null;
+        yc.forEach(([val, off]) => { const n = nearest(val, ys); if (n && (!by || n.d < by.d)) by = { ...n, off }; });
+        if (by) { item.y = Math.round(by.t - by.off); guides.push({ axis: 'y', pos: by.t }); }
+        return guides;
+    }
+
+    // Snap size (resize): align the right/bottom edges
+    function applySnapResize(item, exKind, exIndex) {
+        if (!snapEnabled) return [];
+        const { xs, ys } = snapTargets(exKind, exIndex);
+        const guides = [];
+        const nx = nearest(item.x + item.w, xs);
+        if (nx) { item.w = Math.max(40, Math.round(nx.t - item.x)); guides.push({ axis: 'x', pos: nx.t }); }
+        const ny = nearest(item.y + item.h, ys);
+        if (ny) { item.h = Math.max(40, Math.round(ny.t - item.y)); guides.push({ axis: 'y', pos: ny.t }); }
+        return guides;
+    }
+
+    function drawGuides(guides) {
+        let layer = canvas.querySelector('#guide-dyn');
+        if (!layer) {
+            layer = document.createElement('div');
+            layer.id = 'guide-dyn';
+            layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:10;';
+            canvas.appendChild(layer);
+        }
+        layer.innerHTML = '';
+        guides.forEach(g => {
+            const l = document.createElement('div');
+            l.style.cssText = g.axis === 'x'
+                ? `position:absolute;left:${g.pos * scale}px;top:0;width:1px;height:100%;background:#ff3b9a;box-shadow:0 0 4px #ff3b9a;`
+                : `position:absolute;top:${g.pos * scale}px;left:0;height:1px;width:100%;background:#ff3b9a;box-shadow:0 0 4px #ff3b9a;`;
+            layer.appendChild(l);
+        });
+    }
+    function clearGuides() { const l = canvas.querySelector('#guide-dyn'); if (l) l.innerHTML = ''; }
 
     function makeBox(item, index, kind, label, assetId) {
         const box = document.createElement('div');
         const isSel = selected && selected.kind === kind && selected.index === index;
+        const border = kind === 'slot' ? '#5b9bd5' : kind === 'text' ? '#70ad47' : '#ed7d31';
         box.style.cssText = `position:absolute;left:${item.x * scale}px;top:${item.y * scale}px;width:${item.w * scale}px;height:${item.h * scale}px;
-            border:2px solid ${kind === 'slot' ? '#5b9bd5' : '#ed7d31'};box-sizing:border-box;cursor:move;
-            background:${assetId ? `url(${assetThumb(assetId)}) center/contain no-repeat` : 'rgba(91,155,213,0.25)'};
+            border:2px ${kind === 'text' ? 'dashed' : 'solid'} ${border};box-sizing:border-box;cursor:move;
+            background:${assetId ? `url(${assetThumb(assetId)}) center/contain no-repeat` : kind === 'text' ? 'transparent' : 'rgba(91,155,213,0.25)'};
             transform:rotate(${item.rotation || 0}deg);transform-origin:center center;
             display:flex;align-items:center;justify-content:center;color:#1b3a5b;font-weight:bold;${isSel ? 'outline:2px dashed #fff;outline-offset:1px;' : ''}`;
-        if (label) box.textContent = label;
+        if (kind === 'text') {
+            box.style.color = item.color || '#000';
+            box.style.fontFamily = fontCss(item.font);
+            box.style.fontSize = ((item.size || 48) * scale) + 'px';
+            box.style.fontWeight = item.bold ? '700' : '400';
+            box.style.fontStyle = item.italic ? 'italic' : 'normal';
+            box.style.justifyContent = item.align === 'left' ? 'flex-start' : item.align === 'right' ? 'flex-end' : 'center';
+            box.style.alignItems = item.valign === 'top' ? 'flex-start' : item.valign === 'bottom' ? 'flex-end' : 'center';
+            box.style.textAlign = item.align || 'center';
+            box.style.overflow = 'hidden';
+            box.style.whiteSpace = 'pre-wrap';
+            box.style.lineHeight = '1.1';
+            box.style.padding = '0';
+            box.textContent = item.text || 'Text';
+        } else if (label) {
+            box.textContent = label;
+        }
 
         box.addEventListener('pointerdown', (e) => {
             e.preventDefault();
@@ -235,6 +402,7 @@ function renderEditor(container, state, ed) {
             if (editMode === 'resize') {
                 item.w = Math.max(40, Math.round(orig.w + dx));
                 item.h = Math.max(40, Math.round(orig.h + dy));
+                drawGuides(applySnapResize(item, selected.kind, selected.index));
                 box.style.width = item.w * scale + 'px';
                 box.style.height = item.h * scale + 'px';
             } else if (editMode === 'rotate') {
@@ -244,6 +412,7 @@ function renderEditor(container, state, ed) {
             } else {
                 item.x = Math.max(0, Math.min(ed.canvas_width - item.w, Math.round(orig.x + dx)));
                 item.y = Math.max(0, Math.min(ed.canvas_height - item.h, Math.round(orig.y + dy)));
+                drawGuides(applySnapMove(item, selected.kind, selected.index));
                 box.style.left = item.x * scale + 'px';
                 box.style.top = item.y * scale + 'px';
             }
@@ -252,6 +421,7 @@ function renderEditor(container, state, ed) {
             box.removeEventListener('pointermove', onMove);
             box.removeEventListener('pointerup', onUp);
             try { box.releasePointerCapture(ev.pointerId); } catch {}
+            clearGuides();
             drawSlotProps();
         };
         box.addEventListener('pointermove', onMove);
@@ -261,9 +431,50 @@ function renderEditor(container, state, ed) {
     function drawSlotProps() {
         const el = container.querySelector('#slot-props');
         if (!selected) { el.innerHTML = '<p style="font-size:0.8rem;color:var(--pb-color-text-muted);">Klicke einen Slot/Overlay zum Auswählen.</p>'; return; }
-        const list = selected.kind === 'slot' ? ed.slots : ed.overlays;
+        const list = selected.kind === 'slot' ? ed.slots : selected.kind === 'text' ? ed.texts : ed.overlays;
         const item = list[selected.index];
         if (!item) { selected = null; return drawSlotProps(); }
+
+        if (selected.kind === 'text') {
+            const fontOpts = availableFonts.map(f => `<option value="${f}" ${item.font === f ? 'selected' : ''}>${f}</option>`).join('');
+            el.innerHTML = `
+            <div style="font-size:0.8rem;background:#0e1a30;padding:0.5rem;border-radius:6px;display:flex;flex-direction:column;gap:0.45rem;">
+                <strong>Text</strong>
+                <textarea id="t-content" class="admin-input" style="width:100%;min-height:48px;resize:vertical;">${item.text || ''}</textarea>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;">
+                    <label>Schriftart<select id="t-font" class="admin-input" style="width:100%;">${fontOpts}</select></label>
+                    <label>Größe (px)<input id="t-size" type="number" class="admin-input" style="width:100%;" value="${item.size || 48}"></label>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;align-items:end;">
+                    <label>Farbe<input id="t-color" type="color" class="admin-input" style="width:100%;height:34px;padding:2px;" value="${item.color || '#000000'}"></label>
+                    <label>Ausrichtung<select id="t-align" class="admin-input" style="width:100%;">
+                        <option value="left" ${item.align === 'left' ? 'selected' : ''}>links</option>
+                        <option value="center" ${(item.align || 'center') === 'center' ? 'selected' : ''}>zentriert</option>
+                        <option value="right" ${item.align === 'right' ? 'selected' : ''}>rechts</option>
+                    </select></label>
+                    <label>Drehung°<input id="t-rot" type="number" class="admin-input" style="width:100%;" value="${item.rotation || 0}"></label>
+                </div>
+                <div style="display:flex;gap:1rem;align-items:center;">
+                    <label style="display:flex;gap:0.3rem;align-items:center;"><input type="checkbox" id="t-bold" ${item.bold ? 'checked' : ''}> Fett</label>
+                    <label style="display:flex;gap:0.3rem;align-items:center;"><input type="checkbox" id="t-italic" ${item.italic ? 'checked' : ''}> Kursiv</label>
+                    <label style="display:flex;gap:0.3rem;align-items:center;">Kontur<input type="number" id="t-stroke" class="admin-input" style="width:48px;" value="${item.stroke_width || 0}"></label>
+                </div>
+                <button id="p-del" class="admin-btn admin-btn-outline" style="font-size:0.75rem;color:var(--pb-color-error);">Entfernen</button>
+            </div>`;
+            const upd = (k, v) => { item[k] = v; drawCanvas(); };
+            el.querySelector('#t-content').addEventListener('input', e => upd('text', e.target.value));
+            el.querySelector('#t-font').addEventListener('change', e => upd('font', e.target.value));
+            el.querySelector('#t-size').addEventListener('change', e => upd('size', parseInt(e.target.value) || 48));
+            el.querySelector('#t-color').addEventListener('input', e => upd('color', e.target.value));
+            el.querySelector('#t-align').addEventListener('change', e => upd('align', e.target.value));
+            el.querySelector('#t-rot').addEventListener('change', e => upd('rotation', parseInt(e.target.value) || 0));
+            el.querySelector('#t-bold').addEventListener('change', e => upd('bold', e.target.checked));
+            el.querySelector('#t-italic').addEventListener('change', e => upd('italic', e.target.checked));
+            el.querySelector('#t-stroke').addEventListener('change', e => upd('stroke_width', Math.max(0, parseInt(e.target.value) || 0)));
+            el.querySelector('#p-del').addEventListener('click', () => { ed.texts.splice(selected.index, 1); selected = null; drawCanvas(); });
+            return;
+        }
+
         el.innerHTML = `
             <div style="font-size:0.8rem;background:#0e1a30;padding:0.5rem;border-radius:6px;">
                 <strong>${selected.kind === 'slot' ? 'Slot ' + (selected.index + 1) : 'Overlay'}</strong>
@@ -298,6 +509,23 @@ function renderEditor(container, state, ed) {
         b.addEventListener('click', () => { editMode = b.dataset.mode; updateModeButtons(); });
     });
     updateModeButtons();
+
+    container.querySelector('#t-snap')?.addEventListener('change', e => { snapEnabled = e.target.checked; });
+    container.querySelector('#t-guides')?.addEventListener('change', e => { showGuides = e.target.checked; drawCanvas(); });
+
+    container.querySelector('#btn-add-text')?.addEventListener('click', () => {
+        const input = container.querySelector('#f-text');
+        const txt = (input.value || '').trim() || 'Text';
+        ed.texts.push({
+            text: txt, x: Math.round(ed.canvas_width * 0.1), y: Math.round(ed.canvas_height * 0.4),
+            w: Math.round(ed.canvas_width * 0.8), h: Math.round(ed.canvas_height * 0.12),
+            rotation: 0, font: availableFonts[0] || 'Sans', size: Math.round(ed.canvas_width * 0.06),
+            color: '#000000', align: 'center', valign: 'middle', bold: false, italic: false, stroke_width: 0,
+        });
+        input.value = '';
+        selected = { kind: 'text', index: ed.texts.length - 1 };
+        drawCanvas();
+    });
 
     // Swap portrait <-> landscape (transpose canvas + slots + overlays)
     container.querySelector('#btn-orient')?.addEventListener('click', () => {
@@ -355,7 +583,7 @@ function renderEditor(container, state, ed) {
             name: ed.name, mode: ed.mode,
             canvas_width: ed.canvas_width, canvas_height: ed.canvas_height,
             background_asset_id: ed.background_asset_id, overlay_asset_id: ed.overlay_asset_id,
-            definition: { slots: ed.slots, overlays: ed.overlays },
+            definition: { slots: ed.slots, overlays: ed.overlays, texts: ed.texts },
         };
     }
 

@@ -94,6 +94,10 @@ else:
     print("  secret_key bereits gesetzt")
 PYEOF
 
+# ── 2c) nice script/handwriting fonts for template text (best effort) ─────
+echo ">>> [2c] Schriftarten für Text-Elemente"
+sudo -u "$RUN_USER" bash "$APP_DIR/scripts/install-fonts.sh" || echo "  (Font-Download übersprungen — kein Internet?)"
+
 # ── 3) data dirs + groups ─────────────────────────────────────────────────
 echo ">>> [3/5] Datenverzeichnisse + Gruppen"
 sudo -u "$RUN_USER" mkdir -p "$APP_DIR/data/photos/thumbs" "$APP_DIR/data/assets" "$APP_DIR/data/imports"
