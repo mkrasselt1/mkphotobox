@@ -39,16 +39,52 @@ class GPhoto2Camera(AbstractCamera):
         self._focus_mode = (config.get("focus_mode") or "").strip()
         self._autofocus = bool(config.get("autofocus", False))
         if self.is_available():
-            await asyncio.to_thread(self._connect)
+            # Don't raise if the camera is momentarily busy (e.g. the previous
+            # process hasn't released the USB/PTP session right after a restart):
+            # register anyway and self-heal on first capture/preview. Otherwise a
+            # restart leaves the box with zero cameras until a manual restart.
+            try:
+                await asyncio.to_thread(self._connect)
+            except Exception as e:
+                logger.warning("gphoto2 initial connect failed (%s); will retry on first use", e)
+                self._camera = None
+
+    def _free_camera_port(self):
+        """Release the camera from desktop auto-mounters (gvfs) that hold the
+        PTP session and cause '[-10] Timeout' on init. Best-effort."""
+        import subprocess
+        for proc in ("gvfsd-gphoto2", "gvfs-gphoto2-volume-monitor"):
+            try:
+                subprocess.run(["pkill", "-f", proc], capture_output=True, timeout=5)
+            except Exception:
+                pass
 
     def _connect(self):
+        import time as _t
+
         import gphoto2 as gp
 
-        # python-gphoto2 manages a default context internally; passing an
-        # explicit context positionally shifts other arguments and breaks
-        # methods like file_get on current binding versions.
-        self._camera = gp.Camera()
-        self._camera.init()
+        # A restart or a desktop auto-mounter can briefly hold the camera, giving
+        # "[-10] Timeout". Retry with backoff and free the port between tries.
+        self._free_camera_port()
+        last_err = None
+        for attempt in range(1, 4):
+            try:
+                # python-gphoto2 manages a default context internally; passing an
+                # explicit context positionally shifts other arguments and breaks
+                # methods like file_get on current binding versions.
+                self._camera = gp.Camera()
+                self._camera.init()
+                last_err = None
+                break
+            except gp.GPhoto2Error as e:
+                last_err = e
+                self._camera = None
+                logger.warning("gphoto2 init attempt %d/3 failed: %s", attempt, e)
+                _t.sleep(1.5 * attempt)
+                self._free_camera_port()
+        if last_err is not None:
+            raise last_err
 
         # Set capture target if supported
         try:
