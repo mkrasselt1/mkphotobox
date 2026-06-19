@@ -53,8 +53,14 @@ class GPhoto2Camera(AbstractCamera):
                     self._camera = None
 
     async def _async_connect(self):
+        # Hold the camera lock so the background connect can't race with a preview
+        # or capture request that arrives while we're (re)connecting.
+        def _locked_connect():
+            with self._lock:
+                if self._camera is None:
+                    self._connect()
         try:
-            await asyncio.to_thread(self._connect)
+            await asyncio.to_thread(_locked_connect)
         except Exception as e:
             logger.warning("gphoto2 connect failed (%s); will retry on next use", e)
             self._camera = None
