@@ -489,6 +489,22 @@ def delete_photo(
         if photo.captured_at < cutoff:
             raise HTTPException(status_code=403, detail="Foto ist zu alt zum Löschen")
 
+    # Remove dependent rows first (FK: OutputJob.photo_id, CollagePhoto.photo_id)
+    from app.models import CollagePhoto, OutputJob
+    for oj in session.exec(select(OutputJob).where(OutputJob.photo_id == photo_id)).all():
+        session.delete(oj)
+    for cp in session.exec(select(CollagePhoto).where(CollagePhoto.photo_id == photo_id)).all():
+        session.delete(cp)
+
+    # Delete the files from disk too
+    storage = Path(cfg["photos"]["storage_path"])
+    for rel in (photo.filename, photo.thumbnail, photo.gif_filename):
+        if rel:
+            try:
+                (storage / rel).unlink(missing_ok=True)
+            except OSError:
+                pass
+
     session.delete(photo)
     session.commit()
 

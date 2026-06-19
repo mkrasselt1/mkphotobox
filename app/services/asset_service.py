@@ -205,11 +205,38 @@ def get_asset_file(asset_id: int, thumb: bool = False) -> Optional[Path]:
 
 
 def delete_asset(asset_id: int) -> bool:
+    import json
+    from app.models import Template
+
     engine = get_engine()
     with Session(engine) as session:
         asset = session.get(Asset, asset_id)
         if asset is None:
             return False
+
+        # Clear references in templates first (FK: Template.*_asset_id -> asset.id)
+        for t in session.exec(select(Template)).all():
+            changed = False
+            if t.background_asset_id == asset_id:
+                t.background_asset_id = None
+                changed = True
+            if t.overlay_asset_id == asset_id:
+                t.overlay_asset_id = None
+                changed = True
+            try:
+                defn = json.loads(t.definition_json or "{}")
+                ovs = defn.get("overlays", [])
+                kept = [o for o in ovs if o.get("asset_id") != asset_id]
+                if len(kept) != len(ovs):
+                    defn["overlays"] = kept
+                    t.definition_json = json.dumps(defn)
+                    changed = True
+            except json.JSONDecodeError:
+                pass
+            if changed:
+                session.add(t)
+        session.commit()
+
         for rel in (asset.filename, asset.thumbnail):
             if rel:
                 f = _assets_root() / rel
