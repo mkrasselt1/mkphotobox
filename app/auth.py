@@ -125,3 +125,74 @@ def ensure_default_admin(session: Session) -> None:
     )
     session.add(admin)
     session.commit()
+
+
+# ── Mieter (renter / organizer) sections ─────────────────────────────────
+# Admin areas a Mieter can be granted. Sensitive areas (modules, triggers,
+# payment, settings, users, system/shutdown, tests, network) are admin-only.
+MIETER_SECTIONS: dict[str, str] = {
+    "dashboard": "Dashboard",
+    "events": "Veranstaltungen",
+    "templates": "Foto-Vorlagen",
+    "assets": "Vorlagen-Assets",
+    "background": "Hintergrund",
+    "cameras": "Kameras",
+    "printer": "Drucker",
+    "cd-burn": "CD/DVD brennen",
+    "usb-export": "Auf USB kopieren",
+    "wifi": "WLAN",
+}
+
+_SECTION_PREFIX = "section:"
+
+# URL prefix -> section key, for central enforcement of organizer access.
+SECTION_URL_PREFIXES: dict[str, str] = {
+    "/api/v1/events": "events",
+    "/api/v1/templates": "templates",
+    "/api/v1/assets": "assets",
+    "/api/v1/background": "background",
+    "/api/v1/camera": "cameras",
+    "/api/v1/printer": "printer",
+    "/api/v1/cd-burn": "cd-burn",
+    "/api/v1/usb-export": "usb-export",
+    "/api/v1/wifi": "wifi",
+}
+
+
+def ensure_default_mieter(session: Session) -> None:
+    """Create the default 'mieter' (organizer) account if it doesn't exist."""
+    existing = session.exec(select(User).where(User.username == "mieter")).first()
+    if existing is not None:
+        return
+    cfg = get_config()
+    default_pw = cfg.get("auth", {}).get("default_mieter_password", "mieter")
+    session.add(User(
+        username="mieter",
+        password_hash=hash_password(default_pw),
+        role="organizer",
+    ))
+    session.commit()
+
+
+def organizer_section_keys(user_id: int) -> set[str]:
+    """The section keys a given organizer user has been granted."""
+    from app.database import get_engine
+
+    with Session(get_engine()) as session:
+        perms = session.exec(select(Permission).where(Permission.user_id == user_id)).all()
+    return {p.setting_key[len(_SECTION_PREFIX):] for p in perms
+            if p.setting_key.startswith(_SECTION_PREFIX)}
+
+
+def allowed_sections(session: Session, user: User) -> list[str]:
+    """Section keys the user may see: admin -> all, organizer -> granted, user -> none."""
+    if user.role == "admin":
+        return list(MIETER_SECTIONS.keys())
+    if user.role == "organizer":
+        granted = {p.setting_key[len(_SECTION_PREFIX):]
+                   for p in session.exec(select(Permission).where(Permission.user_id == user.id)).all()
+                   if p.setting_key.startswith(_SECTION_PREFIX)}
+        # dashboard is always available to an organizer as a landing area
+        granted.add("dashboard")
+        return [k for k in MIETER_SECTIONS if k in granted]
+    return []

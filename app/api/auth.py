@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.auth import (
+    MIETER_SECTIONS,
+    allowed_sections,
     create_token,
     get_current_user,
     hash_password,
@@ -41,6 +43,52 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.get("/my-sections")
+def my_sections(session: Session = Depends(get_session), user: User = Depends(get_current_user)):
+    """Admin sections the current user may access (drives nav + routing)."""
+    return {"role": user.role, "sections": allowed_sections(session, user)}
+
+
+# ── Mieter (renter) rights management — admin only ───────────────────────
+
+def _mieter_user(session: Session) -> User:
+    user = session.exec(select(User).where(User.username == "mieter")).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Mieter-Konto nicht gefunden")
+    return user
+
+
+@router.get("/mieter-sections")
+def get_mieter_sections(session: Session = Depends(get_session),
+                        _admin: User = Depends(require_role("admin"))):
+    """All assignable sections + which ones the Mieter currently has."""
+    mieter = _mieter_user(session)
+    granted = {p.setting_key[len("section:"):]
+               for p in session.exec(select(Permission).where(Permission.user_id == mieter.id)).all()
+               if p.setting_key.startswith("section:")}
+    return {
+        "all": [{"key": k, "label": v} for k, v in MIETER_SECTIONS.items()],
+        "granted": [k for k in MIETER_SECTIONS if k in granted],
+    }
+
+
+@router.put("/mieter-sections")
+def set_mieter_sections(body: dict, session: Session = Depends(get_session),
+                        _admin: User = Depends(require_role("admin"))):
+    """Replace the Mieter's granted sections. Body: {sections: [keys]}."""
+    mieter = _mieter_user(session)
+    keys = [k for k in (body.get("sections") or []) if k in MIETER_SECTIONS]
+    # clear existing section perms, keep any non-section permissions intact
+    for p in session.exec(select(Permission).where(Permission.user_id == mieter.id)).all():
+        if p.setting_key.startswith("section:"):
+            session.delete(p)
+    for k in keys:
+        session.add(Permission(user_id=mieter.id, setting_key=f"section:{k}",
+                               can_read=True, can_write=True))
+    session.commit()
+    return {"granted": keys}
 
 
 # ── User management (admin only) ─────────────────────────────────────────

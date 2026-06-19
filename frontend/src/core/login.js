@@ -10,8 +10,11 @@ export function render(container, state) {
         <div style="background:var(--pb-color-surface);border-radius:var(--pb-radius);padding:2rem;width:100%;max-width:400px;">
             <h2 style="margin-bottom:1.5rem;text-align:center;">${i18n.t('auth.login')}</h2>
             <form id="login-form" style="display:flex;flex-direction:column;gap:1rem;">
-                <input type="text" id="username" placeholder="${i18n.t('auth.username')}"
+                <select id="role-select"
                     style="padding:12px;border-radius:8px;border:1px solid #333;background:#0e1a30;color:white;font-size:1rem;">
+                    <option value="admin">Admin</option>
+                    <option value="mieter">Mieter</option>
+                </select>
                 <input type="password" id="password" placeholder="${i18n.t('auth.password')}"
                     style="padding:12px;border-radius:8px;border:1px solid #333;background:#0e1a30;color:white;font-size:1rem;">
                 <button type="submit"
@@ -30,7 +33,8 @@ export function render(container, state) {
 
     container.querySelector('#login-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = container.querySelector('#username').value;
+        // Dropdown maps to the fixed accounts: Admin -> "admin", Mieter -> "mieter"
+        const username = container.querySelector('#role-select').value;
         const password = container.querySelector('#password').value;
         const errorEl = container.querySelector('#login-error');
 
@@ -43,15 +47,14 @@ export function render(container, state) {
             if (!res.ok) throw new Error(i18n.t('auth.invalid_credentials'));
             const data = await res.json();
             state.setAuth(data.token, data.role, data.username);
+            await state.loadSections();
 
             // Reconnect WS with new token
             window.pb.ws.connect();
 
-            // Navigate based on role
-            if (data.role === 'admin') {
+            // Admin and Mieter both use the admin interface (nav filtered by rights)
+            if (data.role === 'admin' || data.role === 'organizer') {
                 window.pb.router.navigate('admin');
-            } else if (data.role === 'organizer') {
-                window.pb.router.navigate('organizer');
             } else {
                 window.pb.router.navigate('booth');
             }

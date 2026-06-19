@@ -5,7 +5,7 @@
 export class AppState extends EventTarget {
     constructor() {
         super();
-        this.auth = { token: null, role: null, username: null };
+        this.auth = { token: null, role: null, username: null, sections: null };
         this.currentRoute = '';
         this.wsConnected = false;
         this.offline = !navigator.onLine;
@@ -17,15 +17,30 @@ export class AppState extends EventTarget {
     }
 
     setAuth(token, role, username) {
-        this.auth = { token, role, username };
+        this.auth = { token, role, username, sections: null };
         localStorage.setItem('pb_token', token);
         this._emit('auth');
     }
 
     clearAuth() {
-        this.auth = { token: null, role: null, username: null };
+        this.auth = { token: null, role: null, username: null, sections: null };
         localStorage.removeItem('pb_token');
         this._emit('auth');
+    }
+
+    /** Load the admin sections this user may access (for nav + routing). */
+    async loadSections() {
+        if (!this.auth.token) { this.auth.sections = []; return []; }
+        try {
+            const r = await fetch('/api/v1/auth/my-sections', {
+                headers: { 'Authorization': `Bearer ${this.auth.token}` },
+            }).then(res => res.json());
+            this.auth.sections = r.sections || [];
+        } catch {
+            this.auth.sections = [];
+        }
+        this._emit('auth');
+        return this.auth.sections;
     }
 
     setBoothState(s) {

@@ -10,6 +10,7 @@ auth:
   secret_key: ""
   token_expire_minutes: 480
   default_admin_password: "admin"
+  default_mieter_password: "mieter"   # Login "Mieter" (eingeschränkter Veranstalter)
 
 admin:
   local_only: false     # true = Admin-API nur von localhost + allowed_ips erreichbar

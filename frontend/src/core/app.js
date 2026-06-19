@@ -36,6 +36,7 @@ async function init() {
                 headers: { 'Authorization': `Bearer ${token}` }
             }).then(r => r.json());
             state.setAuth(token, me.role, me.username);
+            await state.loadSections();
         } catch {
             localStorage.removeItem('pb_token');
         }

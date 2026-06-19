@@ -26,6 +26,7 @@ export class Router {
             'admin/network':      () => import('../admin/admin-network.js'),
             'admin/payment':      () => import('../admin/admin-payment.js'),
             'admin/settings':     () => import('../admin/admin-settings.js'),
+            'admin/permissions':  () => import('../admin/admin-permissions.js'),
             'admin/background':   () => import('../admin/admin-background.js'),
             'admin/triggers':     () => import('../admin/admin-triggers.js'),
             'admin/tests':        () => import('../admin/admin-tests.js'),
@@ -45,9 +46,23 @@ export class Router {
         this.state.currentRoute = hash;
 
         // Auth gate
-        if (base === 'admin' && this.state.auth.role !== 'admin') {
-            this.navigate('login');
-            return;
+        if (base === 'admin') {
+            const role = this.state.auth.role;
+            if (role === 'admin') {
+                // full access
+            } else if (role === 'organizer') {
+                // Mieter: only the sections granted by the admin
+                const sub = hash.split('/')[1] || 'dashboard';
+                const sections = this.state.auth.sections || [];
+                if (!sections.includes(sub)) {
+                    const target = sections.find(s => s !== 'dashboard') || sections[0];
+                    this.navigate(target ? `admin/${target}` : 'booth');
+                    return;
+                }
+            } else {
+                this.navigate('login');
+                return;
+            }
         }
         if (base === 'organizer' && !['admin', 'organizer'].includes(this.state.auth.role)) {
             this.navigate('login');

@@ -5,25 +5,35 @@
 export function adminShell(contentHTML) {
     const { i18n } = window.pb;
     const hash = location.hash.replace('#/', '');
+    const auth = window.pb.state.auth || {};
+    const isAdmin = auth.role === 'admin';
 
-    const navItems = [
-        { href: '#/admin/dashboard', label: 'Dashboard', icon: '📊' },
-        { href: '#/admin/cameras', label: 'Kameras', icon: '📷' },
-        { href: '#/admin/modules', label: 'Module', icon: '🧩' },
-        { href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉' },
-        { href: '#/admin/background', label: 'Hintergrund', icon: '🪄' },
-        { href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️' },
-        { href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱' },
-        { href: '#/admin/triggers', label: 'Auslöser', icon: '⚡' },
-        { href: '#/admin/printer', label: 'Drucker', icon: '🖨️' },
-        { href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿' },
-        { href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌' },
-        { href: '#/admin/wifi', label: 'WLAN', icon: '📶' },
-        { href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐' },
-        { href: '#/admin/payment', label: 'Bezahlung', icon: '💳' },
-        { href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️' },
-        { href: '#/admin/tests', label: 'Tests', icon: '🧪' },
+    // key = section key (matches backend MIETER_SECTIONS); adminOnly hides it from a Mieter
+    let navItems = [
+        { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊' },
+        { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷' },
+        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', adminOnly: true },
+        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉' },
+        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄' },
+        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️' },
+        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱' },
+        { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', adminOnly: true },
+        { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️' },
+        { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿' },
+        { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌' },
+        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶' },
+        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', adminOnly: true },
+        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', adminOnly: true },
+        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', adminOnly: true },
+        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', adminOnly: true },
+        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', adminOnly: true },
     ];
+
+    if (!isAdmin) {
+        // Mieter: only the granted, non-admin-only sections
+        const sections = auth.sections || [];
+        navItems = navItems.filter(n => !n.adminOnly && sections.includes(n.key));
+    }
 
     return `
     <div style="display:flex;height:100%;">
@@ -37,7 +47,7 @@ export function adminShell(contentHTML) {
             <div style="flex:1;"></div>
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
-            <a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>
+            ${isAdmin ? '<a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>' : ''}
         </nav>
         <main style="flex:1;padding:2rem;overflow-y:auto;">
             ${contentHTML}

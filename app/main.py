@@ -38,11 +38,12 @@ async def lifespan(app: FastAPI):
     create_db()
 
     # Ensure default admin user and event exist
-    from app.auth import ensure_default_admin
+    from app.auth import ensure_default_admin, ensure_default_mieter
     from app.models import Event
     engine = get_engine()
     with Session(engine) as session:
         ensure_default_admin(session)
+        ensure_default_mieter(session)
 
         # Apply persisted DB setting overrides (3rd config layer) so admin-saved
         # settings (e.g. fullscreen preview) survive restarts/deploys.
@@ -157,6 +158,33 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Central Mieter (organizer) section guard: a logged-in organizer may only
+    # reach the admin sections an admin granted them. No token / admin / public
+    # booth requests pass straight through.
+    from starlette.responses import JSONResponse as _JSONResponse
+
+    from app.auth import SECTION_URL_PREFIXES, decode_token, organizer_section_keys
+
+    @app.middleware("http")
+    async def mieter_section_guard(request, call_next):
+        path = request.url.path
+        section = next((k for p, k in SECTION_URL_PREFIXES.items() if path.startswith(p)), None)
+        if section:
+            auth = request.headers.get("authorization", "")
+            if auth.startswith("Bearer "):
+                try:
+                    payload = decode_token(auth[7:])
+                    role = payload.get("role")
+                    uid = int(payload.get("sub"))
+                except Exception:
+                    role, uid = None, None
+                if role == "organizer" and uid is not None:
+                    if section not in organizer_section_keys(uid):
+                        return _JSONResponse(
+                            {"detail": f"Kein Zugriff auf diesen Bereich ({section})."},
+                            status_code=403)
+        return await call_next(request)
 
     # Register API routes
     from app.api import assets, auth, background, cd_burn, events, modules, photos, printer, settings, setup, system, templates, tests, triggers, usb_export, wifi, ws
