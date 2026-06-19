@@ -12,6 +12,7 @@ export function adminShell(contentHTML) {
     // group = nav grouping (top | interface | capture | process | output | other)
     let navItems = [
         { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊', group: 'top' },
+        { key: 'appearance', href: '#/admin/appearance', label: 'Design', icon: '🎨', group: 'interface', adminOnly: true },
         { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'interface', adminOnly: true },
         { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'interface' },
         { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷', group: 'capture' },

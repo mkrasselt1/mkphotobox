@@ -187,7 +187,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, cd_burn, events, modules, photos, printer, settings, setup, system, templates, tests, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, cd_burn, events, modules, photos, printer, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
@@ -203,6 +203,7 @@ def create_app() -> FastAPI:
     app.include_router(setup.router)
     app.include_router(templates.router)
     app.include_router(tests.router)
+    app.include_router(theme.router)
     app.include_router(triggers.router)
     app.include_router(usb_export.router)
     app.include_router(wifi.router)

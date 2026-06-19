@@ -9,6 +9,7 @@ import { WSClient } from './ws-client.js';
 import { I18n } from './i18n.js';
 import { BrowserTriggers } from './browser-triggers.js';
 import { initOSK } from './osk.js';
+import { applyTheme } from './theme.js';
 
 const state = new AppState();
 const i18n = new I18n();
@@ -24,6 +25,9 @@ async function init() {
     const cfg = await fetch('/api/v1/i18n').then(r => r.json()).catch(() => ({ locales: ['de'] }));
     const lang = cfg.locales?.includes('de') ? 'de' : (cfg.locales?.[0] || 'de');
     await i18n.load(lang);
+
+    // Apply the configured theme (colours, sizes, background) before showing UI
+    await applyTheme();
 
     // Check setup status
     const setup = await fetch('/api/v1/setup/status').then(r => r.json()).catch(() => ({ completed: true }));

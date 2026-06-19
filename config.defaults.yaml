@@ -167,6 +167,21 @@ payment:
     serial_port: "/dev/ttyUSB1"
     baud: 9600
 
+theme:                    # Oberfläche/Design (über Admin → Design einstellbar)
+  primary: "#6c8cff"
+  secondary: "#ff8a5b"
+  accent: "#2dd4bf"
+  background: "#0f1426"
+  surface: "#1a2138"
+  text: "#f1f4ff"
+  text_muted: "#97a3c4"
+  radius: 14              # Eckenrundung (px)
+  ui_scale: 1.0           # globale UI-Größe
+  heading_scale: 1.0      # Überschriften-Größe
+  heading_font: ""        # CSS-Schriftart für Überschriften
+  background_image: ""    # globales Hintergrundbild (URL)
+  background_dim: 0.0     # Abdunklung 0..1 über dem Hintergrundbild
+
 display:
   preview_size: "medium"  # small (320px), medium (640px), large (960px), fullscreen
   idle_live_preview: true # true = Live-Bild auf der Willkommensseite, false =

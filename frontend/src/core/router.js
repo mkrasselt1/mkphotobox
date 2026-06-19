@@ -26,6 +26,7 @@ export class Router {
             'admin/network':      () => import('../admin/admin-network.js'),
             'admin/payment':      () => import('../admin/admin-payment.js'),
             'admin/settings':     () => import('../admin/admin-settings.js'),
+            'admin/appearance':   () => import('../admin/admin-appearance.js'),
             'admin/permissions':  () => import('../admin/admin-permissions.js'),
             'admin/background':   () => import('../admin/admin-background.js'),
             'admin/triggers':     () => import('../admin/admin-triggers.js'),
