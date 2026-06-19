@@ -11,6 +11,10 @@ auth:
   token_expire_minutes: 480
   default_admin_password: "admin"
 
+admin:
+  local_only: false     # true = Admin-API nur von localhost + allowed_ips erreichbar
+  allowed_ips: []       # zusätzliche erlaubte Client-IPs, z.B. ["192.168.16.50"]
+
 i18n:
   default_locale: "de"
   available:

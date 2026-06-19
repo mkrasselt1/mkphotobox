@@ -8,6 +8,11 @@ export async function render(container, state) {
         settings = await fetch('/api/v1/settings/', { headers }).then(r => r.json());
     } catch {}
 
+    let adminAccess = { local_only: false, allowed_ips: [], your_ip: '' };
+    try {
+        adminAccess = await fetch('/api/v1/system/admin-access', { headers }).then(r => r.json());
+    } catch {}
+
     const currentPreview = settings?.display?.preview_size || 'medium';
     const galleryEnabled = settings?.gallery?.enabled !== false;
     const deleteMode = settings?.gallery?.delete_mode || 'off';
@@ -66,6 +71,30 @@ export async function render(container, state) {
                 </div>
             </div>
 
+            <div class="admin-card" style="margin-bottom:1.5rem;">
+                <h3>Admin-Zugriff (Sicherheit)</h3>
+                <div style="margin-top:1rem;display:flex;flex-direction:column;gap:1rem;">
+                    <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                        <input type="checkbox" id="admin-local-only" ${adminAccess.local_only ? 'checked' : ''}
+                            style="width:20px;height:20px;accent-color:var(--pb-color-primary);cursor:pointer;">
+                        <span>Admin nur lokal erreichbar (localhost + erlaubte IPs)</span>
+                    </label>
+                    <div>
+                        <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Erlaubte IP-Adressen (kommagetrennt)</label>
+                        <input type="text" id="admin-allowed-ips" value="${(adminAccess.allowed_ips || []).join(', ')}"
+                            placeholder="z.B. 192.168.16.50, 192.168.16.51"
+                            style="padding:0.6rem;border-radius:6px;border:1px solid #333;background:#0e1a30;color:white;font-size:1rem;width:100%;max-width:420px;">
+                        <p style="margin-top:0.25rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                            Deine aktuelle IP (<code>${adminAccess.your_ip || '?'}</code>) wird beim Aktivieren automatisch ergänzt — damit du dich nicht aussperrst.
+                        </p>
+                    </div>
+                    <div>
+                        <button id="btn-save-admin-access" class="admin-btn admin-btn-primary">Admin-Zugriff speichern</button>
+                        <span id="admin-access-status" style="margin-left:0.75rem;font-size:0.85rem;"></span>
+                    </div>
+                </div>
+            </div>
+
             <button id="btn-save-all" style="
                 padding:0.75rem 2rem;border-radius:8px;border:none;
                 background:var(--pb-color-primary);color:white;cursor:pointer;font-size:1rem;
@@ -81,6 +110,25 @@ export async function render(container, state) {
     `);
 
     setupLogout(container);
+
+    // Admin-Zugriff (local-only) speichern
+    container.querySelector('#btn-save-admin-access')?.addEventListener('click', async () => {
+        const st = container.querySelector('#admin-access-status');
+        const payload = {
+            local_only: container.querySelector('#admin-local-only').checked,
+            allowed_ips: container.querySelector('#admin-allowed-ips').value,
+        };
+        try {
+            const res = await fetch('/api/v1/system/admin-access', { method: 'POST', headers, body: JSON.stringify(payload) });
+            if (!res.ok) throw new Error((await res.json()).detail || 'Fehler');
+            const r = await res.json();
+            st.textContent = `Gespeichert (erlaubt: ${r.allowed_ips.join(', ') || 'nur localhost'})`;
+            st.style.color = 'var(--pb-color-success)';
+        } catch (err) {
+            st.textContent = 'Fehler: ' + err.message;
+            st.style.color = 'var(--pb-color-error)';
+        }
+    });
 
     // Show/hide minutes input based on delete mode
     container.querySelector('#delete-mode-select')?.addEventListener('change', (e) => {

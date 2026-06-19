@@ -7,7 +7,7 @@ from fnmatch import fnmatch
 from typing import Optional
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlmodel import Session, select
@@ -68,10 +68,23 @@ async def get_current_user(
     return user
 
 
-def require_role(*roles: str):
-    """FastAPI dependency factory: require the user to have one of the given roles."""
+_LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
 
-    async def _check(user: User = Depends(get_current_user)):
+
+def require_role(*roles: str):
+    """FastAPI dependency factory: require one of the given roles, and — when
+    `admin.local_only` is enabled — restrict to localhost + configured IPs."""
+
+    async def _check(request: Request, user: User = Depends(get_current_user)):
+        admin_cfg = get_config().get("admin", {})
+        if admin_cfg.get("local_only"):
+            client = request.client.host if request.client else ""
+            allowed = _LOCAL_IPS | set(admin_cfg.get("allowed_ips", []) or [])
+            if client not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin-Zugriff nur lokal erlaubt (local_only aktiv)",
+                )
         if user.role not in roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return user

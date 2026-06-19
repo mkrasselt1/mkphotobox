@@ -73,6 +73,25 @@ assert len(m.app.routes) > 80, "too few routes — check fastapi/starlette versi
 print("OK")
 PYEOF
 
+# ── 2b) ensure a real JWT secret_key (avoid the public dev fallback) ──────
+echo ">>> [2b] secret_key sicherstellen"
+sudo -u "$RUN_USER" "$PY" - "$APP_DIR/config.yaml" <<'PYEOF'
+import os, sys, secrets, yaml
+p = sys.argv[1]
+data = {}
+if os.path.exists(p):
+    with open(p, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+auth = data.setdefault("auth", {})
+if not auth.get("secret_key"):
+    auth["secret_key"] = secrets.token_urlsafe(48)
+    with open(p, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+    print("  secret_key generiert -> config.yaml")
+else:
+    print("  secret_key bereits gesetzt")
+PYEOF
+
 # ── 3) data dirs + groups ─────────────────────────────────────────────────
 echo ">>> [3/5] Datenverzeichnisse + Gruppen"
 sudo -u "$RUN_USER" mkdir -p "$APP_DIR/data/photos/thumbs" "$APP_DIR/data/assets" "$APP_DIR/data/imports"

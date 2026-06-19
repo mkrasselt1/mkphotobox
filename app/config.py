@@ -97,3 +97,15 @@ def save_user_config(overrides: dict) -> None:
     user_path = _BASE_DIR / "config.yaml"
     with open(user_path, "w", encoding="utf-8") as f:
         yaml.dump(overrides, f, default_flow_style=False, allow_unicode=True)
+
+
+def update_user_config(dotted_key: str, value: Any) -> None:
+    """Persist a single nested value to config.yaml (merging, not clobbering)."""
+    user_path = _BASE_DIR / "config.yaml"
+    existing = _load_yaml(user_path)
+    set_nested(existing, dotted_key, value)
+    with open(user_path, "w", encoding="utf-8") as f:
+        yaml.dump(existing, f, default_flow_style=False, allow_unicode=True)
+    # keep the in-memory config in sync
+    if _config:
+        set_nested(_config, dotted_key, value)

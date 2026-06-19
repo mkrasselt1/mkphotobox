@@ -270,6 +270,20 @@ export function render(container, state) {
         el.querySelector('#btn-tpl-cancel')?.addEventListener('click', () => transition('idle'));
     }
 
+    async function showStorage(el) {
+        let s;
+        try { s = await fetch('/api/v1/system/storage').then(r => r.json()); } catch { return; }
+        if (!s || s.photos_remaining == null) return;
+        const badge = document.createElement('div');
+        badge.style.cssText = `position:absolute;top:12px;left:12px;z-index:5;padding:0.45rem 0.85rem;
+            border-radius:10px;font-size:0.85rem;font-weight:600;color:#fff;backdrop-filter:blur(4px);pointer-events:none;
+            background:${s.low ? 'rgba(249,105,90,0.92)' : 'rgba(0,0,0,0.45)'};`;
+        badge.textContent = s.low
+            ? `⚠️ Speicher fast voll — noch ca. ${s.photos_remaining} Fotos`
+            : `📸 noch ca. ${s.photos_remaining} Fotos`;
+        el.appendChild(badge);
+    }
+
     function renderIdle(el) {
         seq = null;
         boothInitiated = false;
@@ -313,6 +327,7 @@ export function render(container, state) {
         }
 
         activatePreview();
+        showStorage(el);
 
         const btn = el.querySelector('#btn-start');
         btn.addEventListener('click', () => beginFlow());
@@ -576,6 +591,22 @@ export function render(container, state) {
         // ── Fullscreen modal overlay (above everything; OSK stays on top) ──
         const fullUrl = (u) => `${shareBase || location.origin}${u}`;
 
+        // Double-click guard + per-action cooldown (avoids "nothing happens" re-taps)
+        const cooldownUntil = {};
+        const COOLDOWN = { print: 10000, email: 4000, bluetooth: 4000 };
+        function tooSoon(action) {
+            const now = Date.now();
+            if (cooldownUntil[action] && now < cooldownUntil[action]) {
+                return Math.ceil((cooldownUntil[action] - now) / 1000);
+            }
+            cooldownUntil[action] = now + (COOLDOWN[action] || 4000);
+            return 0;
+        }
+        const toast = (text) => {
+            const o = openOverlay(`<p style="margin:0;font-size:1.1rem;">${text}</p><button class="pb-btn pb-btn-outline" data-close>OK</button>`);
+            setTimeout(() => { if (document.getElementById('pb-overlay') === o) closeOverlay(); }, 1800);
+        };
+
         const showQR = (url, title) => {
             let qrHtml;
             try {
@@ -616,6 +647,10 @@ export function render(container, state) {
                 if (!email || !email.includes('@')) {
                     msg.textContent = 'Bitte eine gültige E-Mail eingeben'; msg.style.color = 'var(--pb-color-error)'; return;
                 }
+                const w = tooSoon('email');
+                if (w) { msg.textContent = `Bitte warten… (${w}s)`; msg.style.color = 'var(--pb-color-text-muted)'; return; }
+                const sendBtn = o.querySelector('#m-send');
+                sendBtn.disabled = true;  // in-flight guard against double-tap
                 msg.textContent = 'Wird gesendet…'; msg.style.color = 'var(--pb-color-text-muted)';
                 try {
                     const res = await fetch('/api/v1/outputs/send', {
@@ -629,12 +664,14 @@ export function render(container, state) {
                     } else throw new Error(r.message || r.detail || 'Senden fehlgeschlagen');
                 } catch (err) {
                     msg.textContent = 'Fehler: ' + err.message; msg.style.color = 'var(--pb-color-error)';
+                    sendBtn.disabled = false;  // allow retry after a failure
                 }
             });
         });
 
         el.querySelector('#card-bt')?.addEventListener('click', async () => {
             if (!photoId) return;
+            const w = tooSoon('bluetooth'); if (w) return toast(`Bitte warten… (${w}s)`);
             const o = openOverlay(`
                 <h2 style="margin:0;">Per Bluetooth senden</h2>
                 <p id="m-msg" style="color:var(--pb-color-text-muted);margin:0;">Sende… (Gerät am Handy bestätigen)</p>
@@ -654,6 +691,7 @@ export function render(container, state) {
 
         el.querySelector('#card-print')?.addEventListener('click', async () => {
             if (!photoId) return;
+            const w = tooSoon('print'); if (w) return toast(`Bitte warten… (${w}s)`);
             const o = openOverlay(`
                 <h2 style="margin:0;">Drucken</h2>
                 <p id="m-msg" style="color:var(--pb-color-text-muted);margin:0;">Sende an Drucker…</p>

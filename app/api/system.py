@@ -24,6 +24,65 @@ router = APIRouter(prefix="/api/v1", tags=["system"])
 _start_time = time.time()
 
 
+@router.get("/system/storage")
+def get_storage_status(request: Request, session: Session = Depends(get_session)):
+    """Free disk space + estimated remaining photos (public; for the booth)."""
+    import os
+    cfg = request.app.state.config
+    path = cfg["photos"]["storage_path"]
+    if not os.path.isdir(path):
+        path = "."
+    usage = shutil.disk_usage(path)
+
+    # average captured-photo size from the DB; fall back to ~8 MB
+    avg = session.exec(select(func.avg(Photo.file_size)).where(Photo.file_size != None)).one()
+    avg_bytes = int(avg) if avg else 8 * 1024 * 1024
+    # add ~35% headroom for the accompanying GIF/thumbnail
+    per_photo = int(avg_bytes * 1.35)
+
+    remaining = int(usage.free / per_photo) if per_photo > 0 else 0
+    low = usage.free < 1_000_000_000 or remaining < 30  # <1 GB or <30 shots
+    return {
+        "free_bytes": usage.free,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "avg_photo_bytes": per_photo,
+        "photos_remaining": remaining,
+        "low": low,
+    }
+
+
+@router.get("/system/admin-access")
+def get_admin_access(request: Request, _user=Depends(require_role("admin"))):
+    """Current local-only setting + allowed IPs + the caller's IP."""
+    admin_cfg = get_config().get("admin", {})
+    return {
+        "local_only": bool(admin_cfg.get("local_only", False)),
+        "allowed_ips": admin_cfg.get("allowed_ips", []) or [],
+        "your_ip": request.client.host if request.client else "",
+    }
+
+
+@router.post("/system/admin-access")
+def set_admin_access(body: dict, request: Request, _user=Depends(require_role("admin"))):
+    """Enable/disable local-only admin + manage allowed IPs (persisted)."""
+    from app.config import update_user_config
+
+    local_only = bool(body.get("local_only", False))
+    ips = body.get("allowed_ips", []) or []
+    if isinstance(ips, str):
+        ips = [x.strip() for x in ips.replace("\n", ",").split(",") if x.strip()]
+
+    # Safety: don't let the admin lock themselves out — always keep their IP.
+    your_ip = request.client.host if request.client else ""
+    if local_only and your_ip and your_ip not in ips and your_ip not in ("127.0.0.1", "::1"):
+        ips.append(your_ip)
+
+    update_user_config("admin.local_only", local_only)
+    update_user_config("admin.allowed_ips", ips)
+    return {"local_only": local_only, "allowed_ips": ips, "your_ip": your_ip}
+
+
 @router.get("/system/share-base")
 def get_share_base(request: Request):
     """Base URL a guest's phone can use to reach this booth (for QR codes).
