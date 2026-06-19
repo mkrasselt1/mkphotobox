@@ -9,7 +9,7 @@ import signal
 import sys
 import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, func, select
 
@@ -142,6 +142,93 @@ def set_admin_access(body: dict, request: Request, _user=Depends(require_role("a
     update_user_config("admin.local_only", local_only)
     update_user_config("admin.allowed_ips", ips)
     return {"local_only": local_only, "allowed_ips": ips, "your_ip": your_ip}
+
+
+@router.get("/system/network")
+def get_network(_user=Depends(require_role("admin"))):
+    """Network status: interfaces + IPs, default gateway, internet reachability,
+    and Tailscale state. Best-effort — every probe is wrapped so a missing tool
+    never breaks the whole response."""
+    import json
+    import socket
+    import subprocess
+
+    info = {
+        "hostname": socket.gethostname(),
+        "interfaces": [],
+        "gateway": "",
+        "internet": False,
+        "tailscale": {"available": False},
+    }
+
+    # ── interfaces (IPv4) ──────────────────────────────────────────────
+    try:
+        r = subprocess.run(["ip", "-j", "-4", "addr"], capture_output=True, text=True, timeout=8)
+        for iface in json.loads(r.stdout or "[]"):
+            name = iface.get("ifname")
+            if name == "lo":
+                continue
+            addrs = [a.get("local") for a in iface.get("addr_info", []) if a.get("local")]
+            if not addrs and iface.get("operstate") != "UP":
+                continue
+            info["interfaces"].append({
+                "name": name,
+                "state": iface.get("operstate", ""),
+                "addresses": addrs,
+            })
+    except Exception:
+        # fallback: just the primary outbound IP
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            info["interfaces"].append({"name": "?", "state": "UP", "addresses": [s.getsockname()[0]]})
+            s.close()
+        except Exception:
+            pass
+
+    # ── default gateway ────────────────────────────────────────────────
+    try:
+        r = subprocess.run(["ip", "-j", "route", "show", "default"],
+                           capture_output=True, text=True, timeout=8)
+        routes = json.loads(r.stdout or "[]")
+        if routes:
+            info["gateway"] = routes[0].get("gateway", "")
+    except Exception:
+        pass
+
+    # ── internet reachability (quick TCP to a public DNS) ──────────────
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.5)
+        s.connect(("1.1.1.1", 53))
+        s.close()
+        info["internet"] = True
+    except Exception:
+        info["internet"] = False
+
+    # ── Tailscale ──────────────────────────────────────────────────────
+    try:
+        r = subprocess.run(["tailscale", "status", "--json"],
+                           capture_output=True, text=True, timeout=8)
+        ts = json.loads(r.stdout or "{}")
+        self_ = ts.get("Self", {}) or {}
+        peers = (ts.get("Peer") or {}).values()
+        info["tailscale"] = {
+            "available": True,
+            "backend_state": ts.get("BackendState", ""),   # "Running" when connected
+            "self_ip": (self_.get("TailscaleIPs") or [""])[0],
+            "hostname": self_.get("HostName", ""),
+            "dns_name": (self_.get("DNSName", "") or "").rstrip("."),
+            "online": bool(self_.get("Online", False)),
+            "peers_total": len(list(peers)),
+            "peers_online": sum(1 for p in (ts.get("Peer") or {}).values() if p.get("Online")),
+        }
+    except FileNotFoundError:
+        info["tailscale"] = {"available": False, "reason": "Tailscale nicht installiert"}
+    except Exception as e:
+        info["tailscale"] = {"available": False, "reason": str(e)}
+
+    return info
 
 
 @router.get("/system/share-base")

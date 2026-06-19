@@ -19,6 +19,7 @@ export function adminShell(contentHTML) {
         { href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿' },
         { href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌' },
         { href: '#/admin/wifi', label: 'WLAN', icon: '📶' },
+        { href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐' },
         { href: '#/admin/payment', label: 'Bezahlung', icon: '💳' },
         { href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️' },
         { href: '#/admin/tests', label: 'Tests', icon: '🧪' },
