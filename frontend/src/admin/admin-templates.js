@@ -75,6 +75,7 @@ async function renderList(container, state) {
 function renderEditor(container, state, ed) {
     let selected = null;  // {kind:'slot'|'overlay', index}
     const scale = DISPLAY_W / ed.canvas_width;
+    let editMode = 'move';  // 'move' | 'resize' | 'rotate' — touch-friendly: drag anywhere
 
     const assetOptions = (list, selId) =>
         `<option value="">— keins —</option>` +
@@ -88,7 +89,12 @@ function renderEditor(container, state, ed) {
         <div style="display:flex;gap:1.5rem;flex-wrap:wrap;">
 
             <div style="flex:0 0 ${DISPLAY_W}px;">
-                <div id="canvas" style="position:relative;width:${DISPLAY_W}px;height:${Math.round(ed.canvas_height * scale)}px;background:#fff;border:1px solid #444;overflow:hidden;"></div>
+                <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
+                    <button class="mode-btn admin-btn" data-mode="move" style="flex:1;">✋ Verschieben</button>
+                    <button class="mode-btn admin-btn" data-mode="resize" style="flex:1;">⤡ Größe</button>
+                    <button class="mode-btn admin-btn" data-mode="rotate" style="flex:1;">⟳ Drehen</button>
+                </div>
+                <div id="canvas" style="position:relative;width:${DISPLAY_W}px;height:${Math.round(ed.canvas_height * scale)}px;background:#fff;border:1px solid #444;overflow:hidden;touch-action:none;"></div>
                 <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
                     <button id="btn-preview" class="admin-btn admin-btn-primary" style="flex:1;">Vorschau rendern</button>
                     <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.8rem;"><input type="checkbox" id="use-photos"> echte Fotos</label>
@@ -206,32 +212,35 @@ function renderEditor(container, state, ed) {
         if (label) box.textContent = label;
 
         box.addEventListener('pointerdown', (e) => {
-            if (e.target.classList.contains('rsz')) return;
             e.preventDefault();
             selected = { kind, index };
-            startDrag(e, item, box, false);
+            startDrag(e, item, box);
             drawSlotProps();
         });
-
-        const handle = document.createElement('div');
-        handle.className = 'rsz';
-        handle.style.cssText = 'position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;background:#fff;border:2px solid #333;border-radius:50%;cursor:nwse-resize;';
-        handle.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); selected = { kind, index }; startDrag(e, item, box, true); });
-        box.appendChild(handle);
         return box;
     }
 
-    function startDrag(e, item, box, resizing) {
+    // Touch-friendly: the WHOLE box is the drag target; the active mode
+    // (move/resize/rotate) decides what dragging does — no tiny corner handle.
+    function startDrag(e, item, box) {
         const startX = e.clientX, startY = e.clientY;
-        const orig = { x: item.x, y: item.y, w: item.w, h: item.h };
+        const orig = { x: item.x, y: item.y, w: item.w, h: item.h, rotation: item.rotation || 0 };
+        const rect = box.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        const startAng = Math.atan2(startY - cy, startX - cx) * 180 / Math.PI;
+        try { box.setPointerCapture(e.pointerId); } catch {}
         const onMove = (ev) => {
             const dx = (ev.clientX - startX) / scale;
             const dy = (ev.clientY - startY) / scale;
-            if (resizing) {
+            if (editMode === 'resize') {
                 item.w = Math.max(40, Math.round(orig.w + dx));
                 item.h = Math.max(40, Math.round(orig.h + dy));
                 box.style.width = item.w * scale + 'px';
                 box.style.height = item.h * scale + 'px';
+            } else if (editMode === 'rotate') {
+                const ang = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+                item.rotation = Math.round(orig.rotation + (ang - startAng));
+                box.style.transform = `rotate(${item.rotation}deg)`;
             } else {
                 item.x = Math.max(0, Math.min(ed.canvas_width - item.w, Math.round(orig.x + dx)));
                 item.y = Math.max(0, Math.min(ed.canvas_height - item.h, Math.round(orig.y + dy)));
@@ -239,13 +248,14 @@ function renderEditor(container, state, ed) {
                 box.style.top = item.y * scale + 'px';
             }
         };
-        const onUp = () => {
-            document.removeEventListener('pointermove', onMove);
-            document.removeEventListener('pointerup', onUp);
+        const onUp = (ev) => {
+            box.removeEventListener('pointermove', onMove);
+            box.removeEventListener('pointerup', onUp);
+            try { box.releasePointerCapture(ev.pointerId); } catch {}
             drawSlotProps();
         };
-        document.addEventListener('pointermove', onMove);
-        document.addEventListener('pointerup', onUp);
+        box.addEventListener('pointermove', onMove);
+        box.addEventListener('pointerup', onUp);
     }
 
     function drawSlotProps() {
@@ -275,6 +285,19 @@ function renderEditor(container, state, ed) {
 
     // Controls
     container.querySelector('#btn-back')?.addEventListener('click', () => renderList(container, state));
+
+    // Mode switch: move / resize / rotate (touch-friendly)
+    function updateModeButtons() {
+        container.querySelectorAll('.mode-btn').forEach(b => {
+            const on = b.dataset.mode === editMode;
+            b.classList.toggle('admin-btn-primary', on);
+            b.classList.toggle('admin-btn-outline', !on);
+        });
+    }
+    container.querySelectorAll('.mode-btn').forEach(b => {
+        b.addEventListener('click', () => { editMode = b.dataset.mode; updateModeButtons(); });
+    });
+    updateModeButtons();
 
     // Swap portrait <-> landscape (transpose canvas + slots + overlays)
     container.querySelector('#btn-orient')?.addEventListener('click', () => {

@@ -303,7 +303,7 @@ export function render(container, state) {
                         ">${i18n.t('booth.start')}</button>
                         <div style="display:flex;gap:1.5rem;font-size:0.85rem;">
                             ${galleryEnabled ? `<a href="#/gallery" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">${i18n.t('gallery.title')}</a>` : ''}
-                            <a href="#/login" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">Admin</a>
+                            <a href="#/admin" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">Admin</a>
                         </div>
                     </div>
                 </div>
@@ -321,7 +321,7 @@ export function render(container, state) {
                 ">${i18n.t('booth.start')}</button>
                 <div style="display:flex;gap:1.5rem;color:var(--pb-color-text-muted);font-size:0.85rem;">
                     ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">${i18n.t('gallery.title')}</a>` : ''}
-                    <a href="#/login" style="color:inherit;text-decoration:none;">Admin</a>
+                    <a href="#/admin" style="color:inherit;text-decoration:none;">Admin</a>
                 </div>
             </div>`;
         }
