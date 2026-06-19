@@ -172,7 +172,10 @@ display:
 session:
   auto_end_seconds: 120
   photos_per_session: 0
-  countdown_seconds: 3
+  countdown_seconds: 3       # Dauer des Countdowns in Sekunden
+  capture_lead_ms: 0         # ms vor der Null, an denen ausgelöst wird (gleicht
+                             # die Auslöseverzögerung der Kamera aus, damit das
+                             # Foto genau bei Null entsteht)
 
 gallery:
   public: false

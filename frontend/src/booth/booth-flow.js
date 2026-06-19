@@ -21,6 +21,7 @@ const STATES = {
 
 let currentState = 'idle';
 let countdownTimer = null;
+let captureLeadTimer = null;  // fires the capture a configurable lead before "0"
 let stateTimer = null;
 let lastPhoto = null;
 let pendingPayment = null;
@@ -28,6 +29,8 @@ let cameraMode = 'webrtc'; // 'webrtc' | 'server'
 let webrtcStream = null;    // keep stream alive across state transitions
 let capturedBlob = null;    // JPEG blob captured from video before DOM changes
 let previewSize = 'medium'; // 'small' | 'medium' | 'large' | 'fullscreen'
+let countdownSeconds = 3;   // configurable countdown duration
+let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
 let galleryEnabled = true;
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
@@ -93,6 +96,10 @@ export function render(container, state) {
                 const displayData = await displayRes.json();
                 const val = displayData.preview_size;
                 if (val && PREVIEW_MAX_WIDTHS[val]) previewSize = val;
+                if (Number.isFinite(displayData.countdown_seconds) && displayData.countdown_seconds > 0)
+                    countdownSeconds = Math.round(displayData.countdown_seconds);
+                if (Number.isFinite(displayData.capture_lead_ms) && displayData.capture_lead_ms >= 0)
+                    captureLeadMs = displayData.capture_lead_ms;
                 galleryEnabled = displayData.gallery_enabled !== false;
             }
         } catch {
@@ -115,6 +122,7 @@ export function render(container, state) {
         state.setBoothState(newState);
         if (stateTimer) clearTimeout(stateTimer);
         if (countdownTimer) clearInterval(countdownTimer);
+        if (captureLeadTimer) { clearTimeout(captureLeadTimer); captureLeadTimer = null; }
         document.getElementById('pb-overlay')?.remove(); // clear any open modal
 
         const stateConfig = STATES[newState];
@@ -430,7 +438,7 @@ export function render(container, state) {
     function renderCountdown(el) {
         const isFS = previewSize === 'fullscreen';
         const containerStyle = previewContainerStyle();
-        let count = 3;
+        let count = countdownSeconds;
         const shotLabel = (seq && seq.total > 1) ? ` (Foto ${seq.index + 1} von ${seq.total})` : '';
         const previewContent = cameraMode === 'server'
             ? `<img id="preview-img" src="/api/v1/camera/stream" style="width:100%;height:100%;object-fit:cover;" alt="Preview">`
@@ -471,7 +479,8 @@ export function render(container, state) {
 
         activatePreview();
 
-        countdownTimer = setInterval(async () => {
+        // Visible countdown ticks once per second (only updates the number).
+        countdownTimer = setInterval(() => {
             count--;
             const overlay = document.getElementById('countdown-overlay');
             if (count > 0 && overlay) {
@@ -481,11 +490,20 @@ export function render(container, state) {
                 overlay.style.animation = 'pulse 0.5s ease-out';
             } else {
                 clearInterval(countdownTimer);
-                // Capture frame from video BEFORE we destroy the DOM
-                await grabFrameFromVideo();
-                transition('capture');
+                if (overlay) overlay.textContent = '0';
             }
         }, 1000);
+
+        // The actual capture is fired captureLeadMs BEFORE the "0" moment, so the
+        // photo (after camera latency) lands exactly at zero. Lead 0 = at zero.
+        const fireAt = Math.max(0, countdownSeconds * 1000 - captureLeadMs);
+        captureLeadTimer = setTimeout(async () => {
+            captureLeadTimer = null;
+            if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+            // Capture frame from video BEFORE we destroy the DOM
+            await grabFrameFromVideo();
+            transition('capture');
+        }, fireAt);
     }
 
     function renderCapture(el) {

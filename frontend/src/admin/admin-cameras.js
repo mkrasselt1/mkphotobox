@@ -64,6 +64,9 @@ export async function render(container, state) {
     const flipH = camSettings.flip_horizontal || false;
     const flipV = camSettings.flip_vertical || false;
 
+    const countdownSeconds = settings?.session?.countdown_seconds ?? 3;
+    const captureLeadMs = settings?.session?.capture_lead_ms ?? 0;
+
     // DSLR focus modes (gphoto2) — only meaningful when a gphoto2 camera is active
     let focus = { available: false, choices: [], current: '' };
     try { focus = await fetch('/api/v1/camera/focus-modes').then(r => r.json()); } catch {}
@@ -128,6 +131,30 @@ export async function render(container, state) {
                         </label>
                     </div>
                 </div>
+            </div>
+
+            <div class="admin-card">
+                <h3>Countdown &amp; Auslösung</h3>
+                <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start;">
+                    <div>
+                        <label style="display:block;margin-bottom:0.3rem;font-size:0.9rem;">Countdown-Dauer</label>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <input id="countdown-seconds" type="number" min="1" max="10" step="1" value="${countdownSeconds}" class="admin-input" style="width:90px;">
+                            <span style="color:var(--pb-color-text-muted);font-size:0.9rem;">Sekunden</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display:block;margin-bottom:0.3rem;font-size:0.9rem;">Auslöse-Vorlauf</label>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <input id="capture-lead" type="number" min="0" max="2000" step="50" value="${captureLeadMs}" class="admin-input" style="width:90px;">
+                            <span style="color:var(--pb-color-text-muted);font-size:0.9rem;">ms vor der Null</span>
+                        </div>
+                    </div>
+                </div>
+                <p style="color:var(--pb-color-text-muted);font-size:0.82rem;margin-top:0.6rem;">
+                    Der Vorlauf gleicht die Auslöseverzögerung der Kamera aus, damit das Foto genau bei „0" entsteht.
+                    Typisch: DSLR 200–600&nbsp;ms, Webcam 0–100&nbsp;ms.
+                </p>
             </div>
 
             <div class="admin-card">
@@ -243,6 +270,18 @@ export async function render(container, state) {
             await fetch('/api/v1/settings/cameras/transform', {
                 method: 'PUT', headers,
                 body: JSON.stringify({ key: 'cameras.transform', value: transform }),
+            });
+
+            // Countdown duration + capture lead time
+            const cdSecs = Math.max(1, Math.min(10, parseInt(container.querySelector('#countdown-seconds').value) || 3));
+            const leadMs = Math.max(0, Math.min(2000, parseInt(container.querySelector('#capture-lead').value) || 0));
+            await fetch('/api/v1/settings/session.countdown_seconds', {
+                method: 'PUT', headers,
+                body: JSON.stringify({ key: 'session.countdown_seconds', value: cdSecs }),
+            });
+            await fetch('/api/v1/settings/session.capture_lead_ms', {
+                method: 'PUT', headers,
+                body: JSON.stringify({ key: 'session.capture_lead_ms', value: leadMs }),
             });
 
             msg.style.color = 'var(--pb-color-success)';
