@@ -29,6 +29,7 @@ WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
+DISABLE_IPV6="${DISABLE_IPV6:-0}"        # IPv6 systemweit abschalten (hilft bei kaputtem IPv6-Routing)
 
 echo ">>> MKPhotobox setup"
 echo "    app dir : $APP_DIR"
