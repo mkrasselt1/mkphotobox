@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+#
+# MKPhotobox setup — installs system deps, a Python venv, and a systemd service.
+# Idempotent: safe to re-run. Tested on Ubuntu 24.04 (x86_64).
+#
+#   sudo ./scripts/setup.sh
+#
+# Optional env toggles (default 1 = install):
+#   WITH_GPHOTO2=1 WITH_PRINTER=1 WITH_CDBURN=1 WITH_WIFI=1 WITH_AUDIO=1 WITH_OPENCV=1
+#   RUN_USER=<user>   (default: the invoking sudo user)
+#
+set -euo pipefail
+
+# ── locate repo + run user ────────────────────────────────────────────────
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_USER="${RUN_USER:-${SUDO_USER:-$(id -un)}}"
+VENV="$APP_DIR/.venv"
+PY="$VENV/bin/python"
+PIP="$VENV/bin/pip"
+
+WITH_GPHOTO2="${WITH_GPHOTO2:-1}"
+WITH_PRINTER="${WITH_PRINTER:-1}"
+WITH_CDBURN="${WITH_CDBURN:-1}"
+WITH_WIFI="${WITH_WIFI:-1}"
+WITH_AUDIO="${WITH_AUDIO:-0}"
+WITH_OPENCV="${WITH_OPENCV:-1}"
+
+echo ">>> MKPhotobox setup"
+echo "    app dir : $APP_DIR"
+echo "    user    : $RUN_USER"
+
+if [[ $EUID -ne 0 ]]; then
+  echo "!! Bitte mit sudo ausführen (für apt + systemd)."; exit 1
+fi
+
+# ── 1) system packages ────────────────────────────────────────────────────
+echo ">>> [1/5] System-Pakete (apt)"
+PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl)
+[[ "$WITH_GPHOTO2" == 1 ]] && PKGS+=(libgphoto2-dev)
+[[ "$WITH_PRINTER" == 1 ]] && PKGS+=(cups libcups2-dev)
+[[ "$WITH_CDBURN"  == 1 ]] && PKGS+=(xorriso)
+[[ "$WITH_WIFI"    == 1 ]] && PKGS+=(network-manager)
+[[ "$WITH_AUDIO"   == 1 ]] && PKGS+=(libportaudio2)
+apt-get update -y
+apt-get install -y "${PKGS[@]}"
+
+# ── 2) python venv + dependencies ─────────────────────────────────────────
+echo ">>> [2/5] Python-venv + Abhängigkeiten"
+[[ -d "$VENV" ]] || sudo -u "$RUN_USER" python3 -m venv "$VENV"
+sudo -u "$RUN_USER" "$PIP" install --upgrade pip
+sudo -u "$RUN_USER" "$PIP" install -e "$APP_DIR"
+# CRITICAL: pin compatible fastapi/starlette (newer versions silently break include_router)
+sudo -u "$RUN_USER" "$PIP" install "fastapi==0.135.3" "starlette==1.0.0"
+# optional extras (best effort)
+[[ "$WITH_GPHOTO2" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "gphoto2>=2.5"   || true
+[[ "$WITH_OPENCV"  == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "opencv-python-headless>=4.8" || true
+[[ "$WITH_PRINTER" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "pycups>=2.0"    || true
+[[ "$WITH_AUDIO"   == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "sounddevice>=0.4" "numpy>=1.24" || true
+
+echo ">>> verify imports + route registration"
+sudo -u "$RUN_USER" "$PY" - <<PYEOF
+import app.main as m
+print("routes:", len(m.app.routes))
+assert len(m.app.routes) > 80, "too few routes — check fastapi/starlette versions!"
+print("OK")
+PYEOF
+
+# ── 3) data dirs + groups ─────────────────────────────────────────────────
+echo ">>> [3/5] Datenverzeichnisse + Gruppen"
+sudo -u "$RUN_USER" mkdir -p "$APP_DIR/data/photos/thumbs" "$APP_DIR/data/assets" "$APP_DIR/data/imports"
+# allow access to optical drive / serial without sudo
+[[ "$WITH_CDBURN" == 1 ]] && usermod -aG cdrom "$RUN_USER" 2>/dev/null || true
+usermod -aG dialout "$RUN_USER" 2>/dev/null || true   # serial touchscreen / triggers
+
+# ── 4) systemd service ────────────────────────────────────────────────────
+echo ">>> [4/5] systemd-Dienst"
+cat > /etc/systemd/system/mkphotobox.service <<UNIT
+[Unit]
+Description=MKPhotobox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$RUN_USER
+Group=$RUN_USER
+WorkingDirectory=$APP_DIR
+ExecStart=$PY -m app.main
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now mkphotobox.service
+
+# ── 5) done ───────────────────────────────────────────────────────────────
+echo ">>> [5/5] Fertig"
+sleep 4
+systemctl is-active --quiet mkphotobox.service \
+  && echo "    Dienst läuft: http://$(hostname -I | awk '{print $1}'):8080" \
+  || { echo "!! Dienst nicht aktiv — Log:"; journalctl -u mkphotobox.service -n 20 --no-pager; }
+echo "    Admin-Login: admin / admin  (bitte ändern)"
+echo "    Optional Kiosk: sudo ./scripts/kiosk-setup.sh"
