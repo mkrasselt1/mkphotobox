@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from sqlalchemy import event as sa_event
+from sqlalchemy import event as sa_event, inspect as sa_inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import get_config
+
+logger = logging.getLogger(__name__)
 
 _engine = None
 
@@ -45,9 +48,47 @@ def get_engine():
 
 
 def create_db():
-    """Create all tables from SQLModel metadata."""
+    """Create missing tables, then additively migrate missing columns.
+
+    SQLModel's create_all only creates *missing tables* — it never adds new
+    columns to an existing table. _auto_migrate() closes that gap for the common
+    case (new model fields), so the box self-heals across app updates without a
+    manual migration step. (Renames/drops/type-changes still need Alembic.)
+    """
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
+    _auto_migrate(engine)
+
+
+def _auto_migrate(engine) -> None:
+    insp = sa_inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    for table in SQLModel.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # freshly created by create_all
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in have:
+                continue
+            coltype = col.type.compile(dialect=engine.dialect)
+            default_clause = ""
+            d = col.default
+            if d is not None and getattr(d, "is_scalar", False):
+                val = d.arg
+                if isinstance(val, bool):
+                    default_clause = f" DEFAULT {1 if val else 0}"
+                elif isinstance(val, (int, float)):
+                    default_clause = f" DEFAULT {val}"
+                elif isinstance(val, str):
+                    default_clause = " DEFAULT '" + val.replace("'", "''") + "'"
+            # Add as NULLable (no NOT NULL) so existing rows stay valid.
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}{default_clause}'
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+                logger.info("auto-migrate: added column %s.%s", table.name, col.name)
+            except Exception:
+                logger.exception("auto-migrate: could not add %s.%s", table.name, col.name)
 
 
 def get_session():

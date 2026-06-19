@@ -71,7 +71,7 @@ Weboberfläche (kein Verlassen des Browsers nötig).
 ## Schnellstart (Entwicklung)
 
 ```bash
-git clone <repo> mkphotobox && cd mkphotobox
+git clone https://github.com/mkrasselt1/mkphotobox.git && cd mkphotobox
 python3 -m venv .venv
 .venv/bin/pip install -e .                 # Kern-Abhängigkeiten
 .venv/bin/pip install "fastapi==0.135.3" "starlette==1.0.0"
@@ -89,6 +89,25 @@ sudo ./scripts/kiosk-setup.sh      # optional: Vollbild-Browser-Kiosk + Autologi
 
 Details siehe [`scripts/setup.sh`](scripts/setup.sh) und
 [`scripts/kiosk-setup.sh`](scripts/kiosk-setup.sh).
+
+### Update
+
+```bash
+sudo ./scripts/update.sh      # git pull + Deps + Neustart
+```
+
+Holt den neuesten Stand aus dem Repo, aktualisiert Abhängigkeiten und startet
+neu. Beim **ersten** Lauf wird ein per Tarball deploytes Verzeichnis als
+git-Checkout übernommen. `config.yaml`, `data/` und `.venv` sind gitignored und
+bleiben erhalten. **Schema-Migrationen laufen automatisch beim Start**
+(`database.py` ergänzt fehlende Spalten additiv — siehe unten).
+
+### Datenbank-Migration
+
+`create_db()` legt fehlende Tabellen an **und** ergänzt fehlende Spalten
+bestehender Tabellen automatisch beim Start (additiv, NULL-fähig). So überlebt
+die Box App-Updates ohne manuellen Migrationsschritt. Umbenennungen/Typänderungen
+/Drops bräuchten weiterhin Alembic (`migrations/`).
 
 ---
 
