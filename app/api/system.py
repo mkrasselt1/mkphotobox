@@ -52,6 +52,67 @@ def get_storage_status(request: Request, session: Session = Depends(get_session)
     }
 
 
+def _pending_print_jobs() -> list[str]:
+    import subprocess
+    try:
+        r = subprocess.run(["lpstat", "-o"], capture_output=True, text=True, timeout=8)
+        return [ln for ln in r.stdout.splitlines() if ln.strip()]
+    except Exception:
+        return []
+
+
+@router.get("/system/shutdown-check")
+def shutdown_check(_user=Depends(require_role("admin"))):
+    """Pre-shutdown status: any pending print jobs?"""
+    jobs = _pending_print_jobs()
+    return {"pending_jobs": len(jobs), "jobs": jobs[:20]}
+
+
+def _power_action(action: str) -> dict:
+    """Run systemctl poweroff/reboot via sudo (needs the NOPASSWD sudoers rule
+    that setup.sh installs). Delayed slightly so the HTTP response is sent."""
+    import subprocess
+    import threading
+    import time as _t
+
+    def _run():
+        _t.sleep(1)
+        subprocess.run(["sudo", "-n", "systemctl", action], capture_output=True)
+
+    # verify we *can* (dry sudo check) before promising
+    try:
+        chk = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=8)
+    except Exception as e:
+        return {"status": "error", "message": f"sudo nicht verfügbar: {e}"}
+    if chk.returncode != 0:
+        return {"status": "error",
+                "message": "Kein berechtigtes sudo — setup.sh ausführen (sudoers-Regel)."}
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "ok", "action": action}
+
+
+@router.post("/system/shutdown")
+def shutdown(body: dict | None = None, _user=Depends(require_role("admin"))):
+    """Shut the box down — refuses if print jobs are pending (unless force)."""
+    body = body or {}
+    jobs = _pending_print_jobs()
+    if jobs and not body.get("force"):
+        raise HTTPException(status_code=409,
+                            detail=f"{len(jobs)} Druckauftrag/-aufträge offen — abwarten oder 'force'.")
+    res = _power_action("poweroff")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=500, detail=res["message"])
+    return {"status": "shutting_down", "pending_jobs": len(jobs), "forced": bool(body.get("force"))}
+
+
+@router.post("/system/reboot")
+def reboot(_user=Depends(require_role("admin"))):
+    res = _power_action("reboot")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=500, detail=res["message"])
+    return {"status": "rebooting"}
+
+
 @router.get("/system/admin-access")
 def get_admin_access(request: Request, _user=Depends(require_role("admin"))):
     """Current local-only setting + allowed IPs + the caller's IP."""

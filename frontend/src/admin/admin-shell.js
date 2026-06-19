@@ -36,6 +36,7 @@ export function adminShell(contentHTML) {
             <div style="flex:1;"></div>
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
+            <a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>
         </nav>
         <main style="flex:1;padding:2rem;overflow-y:auto;">
             ${contentHTML}
@@ -99,5 +100,48 @@ export function setupLogout(container) {
         e.preventDefault();
         window.pb.state.clearAuth();
         window.pb.router.navigate('booth');
+    });
+
+    container.querySelector('#btn-shutdown')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const h = getHeaders();
+        let check = { pending_jobs: 0 };
+        try { check = await fetch('/api/v1/system/shutdown-check', { headers: h }).then(r => r.json()); } catch {}
+        const pending = check.pending_jobs || 0;
+        const status = pending > 0
+            ? `<p style="color:var(--pb-color-error);margin:0;">⚠️ ${pending} offene(r) Druckauftrag/-aufträge — bitte erst fertig drucken lassen.</p>`
+            : `<p style="color:var(--pb-color-success);margin:0;">✓ Keine offenen Druckaufträge.</p>`;
+        const o = document.createElement('div');
+        o.id = 'pb-shutdown';
+        o.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:1.5rem;';
+        o.innerHTML = `<div style="background:var(--pb-color-surface);border:1px solid var(--pb-color-border,#2a3a5e);border-radius:16px;padding:1.75rem;max-width:440px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,0.6);">
+            <h2 style="margin:0 0 0.75rem;">Box herunterfahren?</h2>
+            ${status}
+            <p style="color:var(--pb-color-text-muted);font-size:0.9rem;margin:0.5rem 0 0;">Die Box wird sauber ausgeschaltet. Zum Einschalten den Power-Knopf drücken.</p>
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.25rem;">
+                <button id="sd-cancel" class="admin-btn admin-btn-outline">Abbrechen</button>
+                <button id="sd-go" class="admin-btn admin-btn-primary" style="background:var(--pb-color-error);">${pending > 0 ? 'Trotzdem ausschalten' : 'Herunterfahren'}</button>
+            </div>
+            <p id="sd-msg" style="margin:0.75rem 0 0;font-size:0.9rem;"></p>
+        </div>`;
+        document.body.appendChild(o);
+        o.querySelector('#sd-cancel').addEventListener('click', () => o.remove());
+        o.querySelector('#sd-go').addEventListener('click', async () => {
+            const msg = o.querySelector('#sd-msg');
+            msg.style.color = 'var(--pb-color-text-muted)';
+            msg.textContent = 'Fahre herunter…';
+            try {
+                const res = await fetch('/api/v1/system/shutdown', {
+                    method: 'POST', headers: h, body: JSON.stringify({ force: pending > 0 }),
+                });
+                const r = await res.json();
+                if (!res.ok) throw new Error(r.detail || 'Fehler');
+                msg.style.color = 'var(--pb-color-success)';
+                msg.textContent = 'Box fährt herunter…';
+            } catch (err) {
+                msg.style.color = 'var(--pb-color-error)';
+                msg.textContent = 'Fehler: ' + err.message;
+            }
+        });
     });
 }

@@ -124,6 +124,17 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now mkphotobox.service
 
+# allow the app user to power off / reboot without a password (admin button)
+echo ">>> sudoers: Herunterfahren/Neustart ohne Passwort"
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
+if visudo -cf /tmp/mkphotobox-sudoers >/dev/null 2>&1; then
+  install -m 440 -o root -g root /tmp/mkphotobox-sudoers /etc/sudoers.d/mkphotobox
+  echo "  sudoers-Regel installiert"
+else
+  echo "  WARN: sudoers-Regel ungültig — übersprungen"
+fi
+rm -f /tmp/mkphotobox-sudoers
+
 # ── 4b) optional: Tailscale remote access ─────────────────────────────────
 if [[ "$WITH_TAILSCALE" == 1 ]]; then
   echo ">>> [4b] Tailscale (Remote-Zugang)"
