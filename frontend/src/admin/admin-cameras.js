@@ -66,6 +66,7 @@ export async function render(container, state) {
 
     const countdownSeconds = settings?.session?.countdown_seconds ?? 3;
     const captureLeadMs = settings?.session?.capture_lead_ms ?? 0;
+    const idleLivePreview = settings?.display?.idle_live_preview !== false;
 
     // DSLR focus modes (gphoto2) — only meaningful when a gphoto2 camera is active
     let focus = { available: false, choices: [], current: '' };
@@ -154,6 +155,18 @@ export async function render(container, state) {
                 <p style="color:var(--pb-color-text-muted);font-size:0.82rem;margin-top:0.6rem;">
                     Der Vorlauf gleicht die Auslöseverzögerung der Kamera aus, damit das Foto genau bei „0" entsteht.
                     Typisch: DSLR 200–600&nbsp;ms, Webcam 0–100&nbsp;ms.
+                </p>
+            </div>
+
+            <div class="admin-card">
+                <h3>Willkommensseite</h3>
+                <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="idle-live-preview" ${idleLivePreview ? 'checked' : ''}>
+                    <span>Live-Bild auf der Willkommensseite zeigen</span>
+                </label>
+                <p style="color:var(--pb-color-text-muted);font-size:0.82rem;margin-top:0.5rem;">
+                    Aus = normale Willkommensseite ohne Live-Vorschau. Die Kamera ruht dann bis „Start" —
+                    schont bei DSLRs Sensor und Akku im Dauerbetrieb.
                 </p>
             </div>
 
@@ -282,6 +295,13 @@ export async function render(container, state) {
             await fetch('/api/v1/settings/session.capture_lead_ms', {
                 method: 'PUT', headers,
                 body: JSON.stringify({ key: 'session.capture_lead_ms', value: leadMs }),
+            });
+
+            // Idle live preview on/off
+            const idlePreview = container.querySelector('#idle-live-preview').checked;
+            await fetch('/api/v1/settings/display.idle_live_preview', {
+                method: 'PUT', headers,
+                body: JSON.stringify({ key: 'display.idle_live_preview', value: idlePreview }),
             });
 
             msg.style.color = 'var(--pb-color-success)';

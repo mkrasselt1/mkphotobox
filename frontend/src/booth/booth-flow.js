@@ -31,6 +31,7 @@ let capturedBlob = null;    // JPEG blob captured from video before DOM changes
 let previewSize = 'medium'; // 'small' | 'medium' | 'large' | 'fullscreen'
 let countdownSeconds = 3;   // configurable countdown duration
 let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
+let idleLivePreview = true; // show the live stream on the welcome screen (vs. a static page)
 let galleryEnabled = true;
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
@@ -100,6 +101,7 @@ export function render(container, state) {
                     countdownSeconds = Math.round(displayData.countdown_seconds);
                 if (Number.isFinite(displayData.capture_lead_ms) && displayData.capture_lead_ms >= 0)
                     captureLeadMs = displayData.capture_lead_ms;
+                idleLivePreview = displayData.idle_live_preview !== false;
                 galleryEnabled = displayData.gallery_enabled !== false;
             }
         } catch {
@@ -296,7 +298,24 @@ export function render(container, state) {
         seq = null;
         boothInitiated = false;
         const isFS = previewSize === 'fullscreen';
-        if (isFS) {
+        if (!idleLivePreview) {
+            // Normal welcome page without live view — the camera rests until "Start"
+            el.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:2rem;padding:2rem;text-align:center;">
+                <div style="font-size:clamp(3rem,12vw,6rem);line-height:1;">📸</div>
+                <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;">${i18n.t('booth.welcome')}</h1>
+                <button id="btn-start" style="
+                    padding:1.5rem 3rem;border-radius:var(--pb-radius);border:none;
+                    background:var(--pb-color-primary);color:white;font-size:1.5rem;
+                    cursor:pointer;min-height:var(--pb-touch-target);
+                    transition:transform 0.1s;box-shadow:0 4px 20px rgba(74,144,217,0.4);
+                ">${i18n.t('booth.start')}</button>
+                <div style="display:flex;gap:1.5rem;color:var(--pb-color-text-muted);font-size:0.85rem;">
+                    ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">${i18n.t('gallery.title')}</a>` : ''}
+                    <a href="#/admin" style="color:inherit;text-decoration:none;">Admin</a>
+                </div>
+            </div>`;
+        } else if (isFS) {
             el.innerHTML = `
             <div style="width:100%;height:100%;position:relative;">
                 ${cameraPreviewHTML()}

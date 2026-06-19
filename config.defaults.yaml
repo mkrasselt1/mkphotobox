@@ -168,6 +168,8 @@ payment:
 
 display:
   preview_size: "medium"  # small (320px), medium (640px), large (960px), fullscreen
+  idle_live_preview: true # true = Live-Bild auf der Willkommensseite, false =
+                          # normale Willkommensseite (Kamera ruht bis "Start")
 
 session:
   auto_end_seconds: 120

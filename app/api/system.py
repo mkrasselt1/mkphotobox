@@ -306,6 +306,7 @@ def get_display_config():
     cfg = get_config()
     return {
         "preview_size": get_nested(cfg, "display.preview_size", "medium"),
+        "idle_live_preview": get_nested(cfg, "display.idle_live_preview", True),
         "countdown_seconds": get_nested(cfg, "session.countdown_seconds", 3),
         "capture_lead_ms": get_nested(cfg, "session.capture_lead_ms", 0),
         "gallery_enabled": get_nested(cfg, "gallery.enabled", True),
