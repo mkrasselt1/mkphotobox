@@ -87,6 +87,19 @@ export async function render(container, state) {
             </div>
             <p id="msg" style="margin-top:0.75rem;font-size:0.9rem;"></p>
 
+            <div class="admin-card" style="margin-top:1rem;">
+                <h3>⚙️ Einstellungen sichern / laden</h3>
+                <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-bottom:0.75rem;">
+                    Sichert alle Einstellungen als <code>${'photobox-settings.json'}</code> auf den oben gewählten Datenträger
+                    (ohne geheimen Schlüssel) — z. B. zum Übertragen auf eine andere Box.
+                </p>
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                    <button id="btn-settings-export" class="admin-btn admin-btn-outline" ${drives.length ? '' : 'disabled'}>⬆ Auf USB sichern</button>
+                    <button id="btn-settings-import" class="admin-btn admin-btn-outline" ${drives.length ? '' : 'disabled'}>⬇ Von USB laden</button>
+                </div>
+                <p id="settings-msg" style="margin-top:0.6rem;font-size:0.9rem;"></p>
+            </div>
+
             <details class="admin-card" style="margin-top:1rem;">
                 <summary style="cursor:pointer;color:var(--pb-color-primary);">Einstellungen</summary>
                 <div style="margin-top:1rem;">
@@ -162,6 +175,44 @@ export async function render(container, state) {
     container.querySelector('#btn-cancel')?.addEventListener('click', async () => {
         await fetch('/api/v1/usb-export/cancel', { method: 'POST', headers });
         setMsg('Abbruch angefordert…');
+    });
+
+    const settingsMsg = (text, kind) => {
+        const m = container.querySelector('#settings-msg');
+        if (!m) return;
+        m.textContent = text;
+        m.style.color = kind === 'error' ? 'var(--pb-color-error)'
+            : kind === 'ok' ? 'var(--pb-color-success)' : 'var(--pb-color-text-muted)';
+    };
+    const currentMount = () => decodeURIComponent(container.querySelector('#drive-select')?.value || '');
+
+    container.querySelector('#btn-settings-export')?.addEventListener('click', async () => {
+        const mountpoint = currentMount();
+        if (!mountpoint) { settingsMsg('Bitte ein Zielmedium auswählen.', 'error'); return; }
+        settingsMsg('Sichere Einstellungen…');
+        try {
+            const res = await fetch('/api/v1/usb-export/settings/export', {
+                method: 'POST', headers, body: JSON.stringify({ mountpoint }),
+            });
+            const r = await res.json();
+            if (!res.ok) throw new Error(r.detail || 'Fehler');
+            settingsMsg(`Gesichert: ${r.db_settings} Einstellung(en) → ${r.path}`, 'ok');
+        } catch (err) { settingsMsg('Fehler: ' + err.message, 'error'); }
+    });
+
+    container.querySelector('#btn-settings-import')?.addEventListener('click', async () => {
+        const mountpoint = currentMount();
+        if (!mountpoint) { settingsMsg('Bitte das Medium auswählen.', 'error'); return; }
+        if (!confirm('Einstellungen vom Datenträger laden? Bestehende Einstellungen werden überschrieben.')) return;
+        settingsMsg('Lade Einstellungen…');
+        try {
+            const res = await fetch('/api/v1/usb-export/settings/import', {
+                method: 'POST', headers, body: JSON.stringify({ mountpoint }),
+            });
+            const r = await res.json();
+            if (!res.ok) throw new Error(r.detail || 'Fehler');
+            settingsMsg(`Geladen: ${r.db_settings} Einstellung(en). Für Kamera/Drucker ggf. Neustart nötig.`, 'ok');
+        } catch (err) { settingsMsg('Fehler: ' + err.message, 'error'); }
     });
 
     container.querySelector('#btn-save-cfg')?.addEventListener('click', async () => {

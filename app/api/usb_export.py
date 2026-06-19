@@ -3,15 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.auth import require_role
-from app.config import get_config, set_nested
+from app.config import (
+    export_settings_bundle,
+    get_config,
+    import_settings_bundle,
+    set_nested,
+)
+from app.database import get_session
 from app.services.photo_export import gather_files, list_event_sources
 from app.services.usb_export_service import get_export_service, list_drives
 
 router = APIRouter(prefix="/api/v1/usb-export", tags=["usb-export"])
+
+SETTINGS_FILENAME = "photobox-settings.json"
 
 
 def _cfg() -> dict:
@@ -94,6 +105,69 @@ async def usb_copy(body: dict, request: Request,
 @router.post("/cancel")
 async def usb_cancel(_user=Depends(require_role("admin", "organizer"))):
     return await get_export_service().cancel()
+
+
+async def _require_drive(mountpoint: str) -> None:
+    if not mountpoint:
+        raise HTTPException(status_code=400, detail="Kein Zielmedium ausgewählt.")
+    drives = await asyncio.to_thread(list_drives)
+    if not any(d["mountpoint"] == mountpoint for d in drives):
+        raise HTTPException(status_code=400, detail="Zielmedium nicht (mehr) verfügbar.")
+
+
+@router.get("/settings/check")
+async def usb_settings_check(mountpoint: str,
+                            _user=Depends(require_role("admin", "organizer"))):
+    """Report whether a settings file exists on the given medium (for import)."""
+    sub = _cfg().get("subfolder", "Photobox")
+    for path in (Path(mountpoint) / SETTINGS_FILENAME, Path(mountpoint) / sub / SETTINGS_FILENAME):
+        if path.is_file():
+            return {"found": True, "path": str(path)}
+    return {"found": False}
+
+
+@router.post("/settings/export")
+async def usb_export_settings(body: dict, session: Session = Depends(get_session),
+                             _user=Depends(require_role("admin", "organizer"))):
+    """Write a settings backup (config + DB settings) to the chosen medium."""
+    mountpoint = body.get("mountpoint", "")
+    await _require_drive(mountpoint)
+    bundle = export_settings_bundle(session, include_secret=bool(body.get("include_secret")))
+    dest = Path(mountpoint) / SETTINGS_FILENAME
+
+    def _write() -> None:
+        dest.write_text(json.dumps(bundle, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    try:
+        await asyncio.to_thread(_write)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Schreiben fehlgeschlagen: {e}")
+    return {"status": "ok", "path": str(dest), "db_settings": len(bundle["db_settings"])}
+
+
+@router.post("/settings/import")
+async def usb_import_settings(body: dict, request: Request,
+                             session: Session = Depends(get_session),
+                             _user=Depends(require_role("admin"))):
+    """Restore settings from a backup file on the chosen medium."""
+    mountpoint = body.get("mountpoint", "")
+    if not mountpoint:
+        raise HTTPException(status_code=400, detail="Kein Medium ausgewählt.")
+    sub = _cfg().get("subfolder", "Photobox")
+    path = next((p for p in (Path(mountpoint) / SETTINGS_FILENAME,
+                             Path(mountpoint) / sub / SETTINGS_FILENAME) if p.is_file()), None)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Keine Einstellungs-Datei auf dem Medium gefunden.")
+    try:
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        result = import_settings_bundle(session, bundle)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import fehlgeschlagen: {e}")
+    # make the freshly merged config live for endpoints reading app.state.config
+    request.app.state.config = get_config()
+    return {"status": "ok", **result}
 
 
 @router.post("/configure")

@@ -125,6 +125,79 @@ def apply_db_settings(session) -> int:
     return count
 
 
+def export_settings_bundle(session, include_secret: bool = False) -> dict[str, Any]:
+    """Build a portable settings bundle: config.yaml overrides + DB setting rows.
+
+    The JWT secret_key is excluded by default (it's a secret and box-specific).
+    """
+    import json
+
+    from sqlmodel import select
+
+    from app.models import Setting
+
+    user_cfg = _load_yaml(_BASE_DIR / "config.yaml")
+    if not include_secret and isinstance(user_cfg.get("auth"), dict):
+        user_cfg["auth"].pop("secret_key", None)
+
+    db_settings: dict[str, Any] = {}
+    for setting in session.exec(select(Setting)).all():
+        try:
+            db_settings[setting.key] = json.loads(setting.value_json)
+        except (ValueError, TypeError):
+            continue
+
+    return {
+        "mkphotobox_settings": 1,
+        "config_yaml": user_cfg,
+        "db_settings": db_settings,
+    }
+
+
+def import_settings_bundle(session, bundle: dict[str, Any]) -> dict[str, Any]:
+    """Apply a settings bundle (from export_settings_bundle): merge config.yaml,
+    upsert DB settings, then reload so it takes effect immediately."""
+    import json
+    from datetime import datetime
+
+    from sqlmodel import select
+
+    from app.models import Setting
+
+    if not isinstance(bundle, dict) or "mkphotobox_settings" not in bundle:
+        raise ValueError("Keine gültige Einstellungs-Datei.")
+
+    # 1) Merge config.yaml (imported values win) — never drop an existing secret_key
+    cfg_in = bundle.get("config_yaml") or {}
+    if isinstance(cfg_in, dict) and cfg_in:
+        existing = _load_yaml(_BASE_DIR / "config.yaml")
+        merged = deep_merge(existing, cfg_in)
+        existing_secret = (existing.get("auth") or {}).get("secret_key")
+        if existing_secret and not (cfg_in.get("auth") or {}).get("secret_key"):
+            merged.setdefault("auth", {})["secret_key"] = existing_secret
+        with open(_BASE_DIR / "config.yaml", "w", encoding="utf-8") as f:
+            yaml.dump(merged, f, default_flow_style=False, allow_unicode=True)
+
+    # 2) Upsert DB settings
+    count = 0
+    for key, value in (bundle.get("db_settings") or {}).items():
+        row = session.exec(select(Setting).where(Setting.key == key)).first()
+        value_json = json.dumps(value)
+        if row:
+            row.value_json = value_json
+            row.updated_at = datetime.utcnow()
+        else:
+            row = Setting(key=key, value_json=value_json)
+        session.add(row)
+        count += 1
+    session.commit()
+
+    # 3) Reload merged config + re-apply DB layer so changes are live now
+    load_config(reload=True)
+    apply_db_settings(session)
+    return {"config_imported": bool(cfg_in), "db_settings": count}
+
+
 def update_user_config(dotted_key: str, value: Any) -> None:
     """Persist a single nested value to config.yaml (merging, not clobbering)."""
     user_path = _BASE_DIR / "config.yaml"
