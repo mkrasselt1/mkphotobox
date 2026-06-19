@@ -47,17 +47,43 @@ case "$BROWSER" in
   *) CMD="$BROWSER --kiosk --noerrordialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --no-first-run --no-default-browser-check --incognito --check-for-update-interval=31536000 --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --overscroll-history-navigation=0 --disable-pinch $KIOSK_URL" ;;
 esac
 
-# ── openbox autostart (waits for app, then browser) ───────────────────────
+# ── openbox autostart: respawn loop + health watchdog (unattended) ────────
+# Quoted heredoc keeps runtime $-vars literal; __CMD__/__URL__ injected via sed.
 install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$HOME_DIR/.config/openbox"
-cat > "$HOME_DIR/.config/openbox/autostart" <<AUTO
+cat > "$HOME_DIR/.config/openbox/autostart" <<'AUTO'
 #!/bin/sh
 xset s off
 xset -dpms
 xset s noblank
 unclutter -idle 0.5 -root &
-until curl -s -o /dev/null $KIOSK_URL; do sleep 1; done
-exec $CMD
+
+# Watchdog: if the app is unreachable for ~30s, kill the browser so the
+# respawn loop relaunches it fresh (recovers from frozen pages / app restarts).
+(
+  fails=0
+  while true; do
+    if curl -s -o /dev/null --max-time 5 __URL__; then
+      fails=0
+    else
+      fails=$((fails + 1))
+    fi
+    if [ "$fails" -ge 6 ]; then
+      pkill -f 'google-chrome|chromium|firefox' 2>/dev/null
+      fails=0
+    fi
+    sleep 5
+  done
+) &
+
+# Respawn loop: wait for the app, launch the browser (blocks until it exits),
+# then relaunch — survives browser crashes/closes.
+while true; do
+  until curl -s -o /dev/null __URL__; do sleep 1; done
+  __CMD__
+  sleep 2
+done
 AUTO
+sed -i "s|__URL__|$KIOSK_URL|g; s|__CMD__|$CMD|g" "$HOME_DIR/.config/openbox/autostart"
 chmod +x "$HOME_DIR/.config/openbox/autostart"
 chown -R "$KIOSK_USER:$KIOSK_USER" "$HOME_DIR/.config/openbox"
 
