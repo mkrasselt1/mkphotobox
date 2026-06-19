@@ -53,9 +53,12 @@ export function render(container, state) {
         .gallery-item:hover img { transform:scale(1.06); }
         .gallery-item .gif-badge {
             position:absolute; top:6px; right:6px; background:rgba(108,140,255,0.92);
-            color:#fff; font-size:0.7rem; font-weight:700; padding:2px 7px;
-            border-radius:6px; letter-spacing:0.5px; pointer-events:none;
+            color:#fff; font-size:0.8rem; font-weight:700; padding:6px 10px;
+            border:none; border-radius:8px; letter-spacing:0.5px; cursor:pointer;
+            z-index:2; min-height:32px; box-shadow:0 2px 8px rgba(0,0,0,0.35);
         }
+        .gallery-item .gif-badge.playing { background:rgba(231,76,60,0.95); }
+        .gallery-item .gif-badge:active { transform:scale(0.94); }
         .gslide-description { background:transparent !important; }
         .gdesc-inner { padding:0.5rem 0 !important; }
         .pb-gallery-actions {
@@ -120,17 +123,29 @@ export function render(container, state) {
             <div class="gallery-item" data-idx="${idx}" ${hasGif ? `data-gif="${gifUrl}" data-thumb="${thumbUrl}"` : ''}>
                 <img src="${thumbUrl}" alt="Foto ${p.id}"
                      onerror="this.src='${fileUrl}'" loading="lazy">
-                ${hasGif ? '<span class="gif-badge">GIF ▶</span>' : ''}
+                ${hasGif ? '<button class="gif-badge" data-state="still">GIF&nbsp;▶</button>' : ''}
             </div>`;
         }).join('');
 
         grid.querySelectorAll('.gallery-item').forEach(item => {
             item.addEventListener('click', () => openLightbox(parseInt(item.dataset.idx)));
-            // Animate GIF items: play on hover, restore the still thumbnail on leave
+            // GIF items: hover-play on desktop + a tappable badge to toggle on touch
             if (item.dataset.gif) {
                 const img = item.querySelector('img');
-                item.addEventListener('pointerenter', () => { img.src = item.dataset.gif; });
-                item.addEventListener('pointerleave', () => { img.src = item.dataset.thumb; });
+                const badge = item.querySelector('.gif-badge');
+                const playing = () => badge.dataset.state === 'playing';
+                item.addEventListener('pointerenter', () => { if (!playing()) img.src = item.dataset.gif; });
+                item.addEventListener('pointerleave', () => { if (!playing()) img.src = item.dataset.thumb; });
+                badge.addEventListener('click', (e) => {
+                    e.stopPropagation();   // don't open the lightbox
+                    if (playing()) {
+                        badge.dataset.state = 'still'; badge.classList.remove('playing');
+                        badge.innerHTML = 'GIF&nbsp;▶'; img.src = item.dataset.thumb;
+                    } else {
+                        badge.dataset.state = 'playing'; badge.classList.add('playing');
+                        badge.innerHTML = 'Foto'; img.src = item.dataset.gif;
+                    }
+                });
             }
         });
     }
@@ -181,10 +196,15 @@ export function render(container, state) {
     function buildActions(photo) {
         const fileUrl = `/api/v1/photos/${photo.id}/file`;
         const ico = `style="font-size:2.5rem;line-height:1;"`;
+        const gifUrl = `/api/v1/photos/${photo.id}/gif`;
         let html = `<div class="pb-gallery-actions">
             <a href="${fileUrl}" download class="ga-btn" style="background:#4a90d9;"><span ${ico}>\u2B07</span> ${i18n.t('share.download')}</a>
             <button class="ga-btn ga-print" data-id="${photo.id}" style="background:#8e44ad;"><span ${ico}>\uD83D\uDDA8</span> ${i18n.t('share.print')}</button>
             <button class="ga-btn ga-qr" data-url="${shareBase}${fileUrl}" style="background:#2c3e50;"><span ${ico}>\uD83D\uDD17</span> ${i18n.t('share.qr_code')}</button>`;
+        if (photo.gif_filename) {
+            // The lightbox opens GIF photos as the animation by default \u2192 offer a still toggle
+            html += `<button class="ga-btn ga-toggle" data-still="${fileUrl}" data-gif="${gifUrl}" data-showing="gif" style="background:#16a085;"><span ${ico}>\uD83D\uDCF7</span> Standbild</button>`;
+        }
         if (canDelete(photo)) {
             html += `<button class="ga-btn ga-delete" data-id="${photo.id}" style="background:#e74c3c;"><span ${ico}>\uD83D\uDDD1</span> L\u00f6schen</button>`;
         }
@@ -235,6 +255,23 @@ export function render(container, state) {
             return;
         }
 
+        const toggleBtn = e.target.closest('.ga-toggle');
+        if (toggleBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const img = document.querySelector('.gslide.current .gslide-media img')
+                || document.querySelector('.gslide.current img');
+            if (img) {
+                const next = toggleBtn.dataset.showing === 'gif' ? 'still' : 'gif';
+                img.src = next === 'gif' ? toggleBtn.dataset.gif : toggleBtn.dataset.still;
+                toggleBtn.dataset.showing = next;
+                toggleBtn.innerHTML = next === 'gif'
+                    ? '<span style="font-size:2.5rem;line-height:1;">📷</span> Standbild'
+                    : '<span style="font-size:2.5rem;line-height:1;">🎞</span> GIF';
+            }
+            return;
+        }
+
         const deleteBtn = e.target.closest('.ga-delete');
         if (deleteBtn) {
             e.preventDefault();
@@ -243,7 +280,7 @@ export function render(container, state) {
             if (!confirm('Foto wirklich löschen?')) return;
             deleteBtn.disabled = true;
             deleteBtn.innerHTML = '...';
-            fetch(`/api/v1/photos/${photoId}`, { method: 'DELETE' }).then(res => {
+            fetch(`/api/v1/photos/${photoId}`, { method: 'DELETE' }).then(async res => {
                 if (res.ok) {
                     photos = photos.filter(p => p.id !== photoId);
                     if (lightbox) lightbox.close();
@@ -253,11 +290,16 @@ export function render(container, state) {
                         else grid.innerHTML = `<p style="color:var(--pb-color-text-muted);grid-column:1/-1;text-align:center;padding:2rem;">${i18n.t('gallery.empty')}</p>`;
                     }
                 } else {
+                    let detail = `HTTP ${res.status}`;
+                    try { detail = (await res.json()).detail || detail; } catch {}
                     deleteBtn.innerHTML = '&#10007; Fehler';
                     deleteBtn.style.background = 'var(--pb-color-error)';
+                    deleteBtn.title = detail;
+                    alert('Löschen fehlgeschlagen: ' + detail);
                 }
-            }).catch(() => {
+            }).catch((err) => {
                 deleteBtn.innerHTML = '&#10007; Fehler';
+                alert('Löschen fehlgeschlagen: ' + err.message);
             });
         }
     }

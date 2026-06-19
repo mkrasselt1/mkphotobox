@@ -286,6 +286,18 @@ async def camera_status(request: Request):
     }
 
 
+@router.get("/camera/focus-modes")
+async def camera_focus_modes(request: Request):
+    """List the gphoto2 capture camera's available focus modes (for the admin UI)."""
+    cameras = request.app.state.cameras
+    cam = cameras.capture_camera or cameras.preview_camera
+    fn = getattr(cam, "list_focus_modes", None)
+    if cam is None or fn is None:
+        return {"available": False, "reason": "Kein gphoto2-Kamera aktiv", "choices": [], "current": ""}
+    import asyncio
+    return await asyncio.to_thread(fn)
+
+
 @router.post("/camera/switch/{camera_id:path}")
 async def switch_camera(
     camera_id: str,
@@ -489,24 +501,30 @@ def delete_photo(
         if photo.captured_at < cutoff:
             raise HTTPException(status_code=403, detail="Foto ist zu alt zum Löschen")
 
-    # Remove dependent rows first (FK: OutputJob.photo_id, CollagePhoto.photo_id)
-    from app.models import CollagePhoto, OutputJob
-    for oj in session.exec(select(OutputJob).where(OutputJob.photo_id == photo_id)).all():
-        session.delete(oj)
-    for cp in session.exec(select(CollagePhoto).where(CollagePhoto.photo_id == photo_id)).all():
-        session.delete(cp)
+    try:
+        # Remove dependent rows first (FK: OutputJob.photo_id, CollagePhoto.photo_id)
+        from app.models import CollagePhoto, OutputJob
+        for oj in session.exec(select(OutputJob).where(OutputJob.photo_id == photo_id)).all():
+            session.delete(oj)
+        for cp in session.exec(select(CollagePhoto).where(CollagePhoto.photo_id == photo_id)).all():
+            session.delete(cp)
 
-    # Delete the files from disk too
-    storage = Path(cfg["photos"]["storage_path"])
-    for rel in (photo.filename, photo.thumbnail, photo.gif_filename):
-        if rel:
-            try:
-                (storage / rel).unlink(missing_ok=True)
-            except OSError:
-                pass
+        # Delete the files from disk too
+        storage = Path(cfg["photos"]["storage_path"])
+        for rel in (photo.filename, photo.thumbnail, photo.gif_filename):
+            if rel:
+                try:
+                    (storage / rel).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
-    session.delete(photo)
-    session.commit()
+        session.delete(photo)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        import logging
+        logging.getLogger(__name__).exception("delete_photo failed for id=%s", photo_id)
+        raise HTTPException(status_code=500, detail=f"Löschen fehlgeschlagen: {e}")
 
 
 # ── Gallery ───────────────────────────────────────────────────────────────

@@ -44,6 +44,13 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         ensure_default_admin(session)
 
+        # Apply persisted DB setting overrides (3rd config layer) so admin-saved
+        # settings (e.g. fullscreen preview) survive restarts/deploys.
+        from app.config import apply_db_settings
+        n = apply_db_settings(session)
+        if n:
+            logger.info("Applied %d DB setting override(s)", n)
+
         # Ensure at least one active event exists
         from sqlmodel import select
         active_event = session.exec(select(Event).where(Event.is_active == True)).first()

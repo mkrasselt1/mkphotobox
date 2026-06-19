@@ -99,6 +99,32 @@ def save_user_config(overrides: dict) -> None:
         yaml.dump(overrides, f, default_flow_style=False, allow_unicode=True)
 
 
+def apply_db_settings(session) -> int:
+    """Merge persisted DB Setting overrides into the in-memory config.
+
+    This is the third (highest-priority) config layer the docstring of
+    load_config() promises: defaults < config.yaml < DB settings. It must run
+    once at startup so settings saved via the admin UI survive a restart.
+    Returns the number of overrides applied.
+    """
+    import json
+
+    from sqlmodel import select
+
+    from app.models import Setting
+
+    cfg = get_config()
+    count = 0
+    for setting in session.exec(select(Setting)).all():
+        try:
+            value = json.loads(setting.value_json)
+        except (ValueError, TypeError):
+            continue
+        set_nested(cfg, setting.key, value)
+        count += 1
+    return count
+
+
 def update_user_config(dotted_key: str, value: Any) -> None:
     """Persist a single nested value to config.yaml (merging, not clobbering)."""
     user_path = _BASE_DIR / "config.yaml"

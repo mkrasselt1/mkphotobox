@@ -64,6 +64,17 @@ export async function render(container, state) {
     const flipH = camSettings.flip_horizontal || false;
     const flipV = camSettings.flip_vertical || false;
 
+    // DSLR focus modes (gphoto2) — only meaningful when a gphoto2 camera is active
+    let focus = { available: false, choices: [], current: '' };
+    try { focus = await fetch('/api/v1/camera/focus-modes').then(r => r.json()); } catch {}
+    const gphotoActive = (captureId || previewId || '').includes('gphoto2');
+    const focusField = focus.available && (focus.choices || []).length
+        ? `<select id="focus-mode" class="admin-input" style="width:220px;">
+               <option value="">— Kamera-Standard —</option>
+               ${focus.choices.map(c => `<option value="${c}" ${c === focus.current ? 'selected' : ''}>${c}</option>`).join('')}
+           </select>`
+        : `<input id="focus-mode" class="admin-input" style="width:220px;" placeholder="z. B. One Shot / Manual" value="${focus.current || ''}">`;
+
     container.innerHTML = adminShell(`
         <h1 style="margin-bottom:1.5rem;">Kamera-Einstellungen</h1>
         <div style="max-width:650px;">
@@ -120,6 +131,26 @@ export async function render(container, state) {
             </div>
 
             <div class="admin-card">
+                <h3>DSLR-Fokus (gPhoto2)</h3>
+                ${gphotoActive
+                    ? `<p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.5rem;">
+                          ${focus.available ? 'Fokus-Modus der angeschlossenen Kamera.' : (focus.reason || 'Kamera meldet keine Fokus-Modi — Wert wird direkt übergeben.')}
+                       </p>`
+                    : `<p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.5rem;">
+                          Gilt nur, wenn eine gPhoto2-DSLR als Aufnahme-Kamera aktiv ist. Wird beim Aktivieren mitgespeichert.
+                       </p>`}
+                <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center;">
+                    <div>
+                        <label style="display:block;margin-bottom:0.3rem;font-size:0.9rem;">Fokus-Modus</label>
+                        ${focusField}
+                    </div>
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:1rem;">
+                        <input type="checkbox" id="focus-af"> Vor jeder Aufnahme autofokussieren
+                    </label>
+                </div>
+            </div>
+
+            <div class="admin-card">
                 <h3>Vorschau</h3>
                 <div style="width:100%;max-width:480px;aspect-ratio:4/3;background:#000;border-radius:8px;overflow:hidden;">
                     ${camStatus.mode === 'server'
@@ -168,13 +199,20 @@ export async function render(container, state) {
         if (!previewRadio) { msg.textContent = 'Bitte Kamera wählen'; return; }
         const separateCapture = container.querySelector('#separate-capture').checked;
 
+        // DSLR focus settings — attached to gphoto2 payloads
+        const focusMode = container.querySelector('#focus-mode')?.value || '';
+        const autofocus = container.querySelector('#focus-af')?.checked || false;
+        const withFocus = (payload) => payload.type === 'gphoto2'
+            ? { ...payload, focus_mode: focusMode, autofocus }
+            : payload;
+
         try {
             // Activate preview camera
-            const previewPayload = {
+            const previewPayload = withFocus({
                 type: previewRadio.dataset.type,
                 role: separateCapture ? 'preview' : 'both',
                 ...JSON.parse(previewRadio.dataset.config),
-            };
+            });
             const r1 = await fetch('/api/v1/camera/activate', {
                 method: 'POST', headers, body: JSON.stringify(previewPayload),
             });
@@ -184,11 +222,11 @@ export async function render(container, state) {
             if (separateCapture) {
                 const captureRadio = container.querySelector('input[name="capture_cam"]:checked');
                 if (captureRadio) {
-                    const capturePayload = {
+                    const capturePayload = withFocus({
                         type: captureRadio.dataset.type,
                         role: 'capture',
                         ...JSON.parse(captureRadio.dataset.config),
-                    };
+                    });
                     const r2 = await fetch('/api/v1/camera/activate', {
                         method: 'POST', headers, body: JSON.stringify(capturePayload),
                     });
