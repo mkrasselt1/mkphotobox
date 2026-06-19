@@ -11,8 +11,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import urllib.parse
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
 from app.auth import require_role
@@ -69,6 +71,46 @@ def _save_setting(session: Session, key: str, value) -> None:
 def get_theme():
     """Current theme (public — used by the booth and admin)."""
     return current_theme()
+
+
+# filename (lowercase) -> (css family, font-weight, font-style)
+_FONT_FACE_MAP: dict = {
+    "pacifico-regular.ttf": ("Pacifico", "400", "normal"),
+    "greatvibes-regular.ttf": ("Great Vibes", "400", "normal"),
+    "lobster-regular.ttf": ("Lobster", "400", "normal"),
+    "sacramento-regular.ttf": ("Sacramento", "400", "normal"),
+    "satisfy-regular.ttf": ("Satisfy", "400", "normal"),
+    "parisienne-regular.ttf": ("Parisienne", "400", "normal"),
+    "dancingscript[wght].ttf": ("Dancing Script", "400 700", "normal"),
+    "dancingscript-regular.ttf": ("Dancing Script", "400", "normal"),
+    "comicneue-regular.ttf": ("Comic Neue", "400", "normal"),
+    "comicneue-bold.ttf": ("Comic Neue", "700", "normal"),
+}
+
+
+@router.get("/fonts.css")
+def fonts_css():
+    """@font-face rules for the bundled fonts, served from /fonts (public).
+
+    Self-hosted so script fonts work in any browser, online or offline.
+    """
+    from pathlib import Path as _Path
+
+    bundled = _Path(__file__).resolve().parent.parent / "assets" / "fonts"
+    faces: list[str] = []
+    if bundled.exists():
+        for f in sorted(bundled.glob("*.ttf")):
+            family, weight, style = _FONT_FACE_MAP.get(
+                f.name.lower(),
+                (f.stem.replace("-Regular", "").replace("[wght]", ""), "400 700", "normal"),
+            )
+            url = "/fonts/" + urllib.parse.quote(f.name)
+            faces.append(
+                f"@font-face{{font-family:'{family}';"
+                f"src:url('{url}') format('truetype');"
+                f"font-weight:{weight};font-style:{style};font-display:swap;}}"
+            )
+    return Response("\n".join(faces), media_type="text/css")
 
 
 @router.put("")

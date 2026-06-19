@@ -209,6 +209,12 @@ def create_app() -> FastAPI:
     app.include_router(wifi.router)
     app.include_router(ws.router)
 
+    # Serve bundled fonts as web fonts (@font-face) so script fonts render in any
+    # browser without a local install — offline-capable (no Google CDN).
+    fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+    if fonts_dir.exists():
+        app.mount("/fonts", StaticFiles(directory=str(fonts_dir)), name="fonts")
+
     # Serve frontend static files on a sub-path so it doesn't interfere with API routes
     frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
     if frontend_dir.exists():

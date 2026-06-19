@@ -30,7 +30,6 @@ function fontCss(label) {
         case 'Serif': return 'Georgia, "Times New Roman", serif';
         case 'Mono': return '"Courier New", monospace';
         case 'Ubuntu': return 'Ubuntu, "Segoe UI", sans-serif';
-        case 'Comic': return '"Comic Sans MS", "Comic Neue", cursive';
         case 'Pacifico': return 'Pacifico, cursive';
         case 'Dancing Script': return '"Dancing Script", cursive';
         case 'Great Vibes': return '"Great Vibes", cursive';
@@ -38,6 +37,7 @@ function fontCss(label) {
         case 'Sacramento': return 'Sacramento, cursive';
         case 'Satisfy': return 'Satisfy, cursive';
         case 'Parisienne': return 'Parisienne, cursive';
+        case 'Comic': return '"Comic Neue", "Comic Sans MS", cursive';
         default: return 'Arial, Helvetica, sans-serif';
     }
 }
