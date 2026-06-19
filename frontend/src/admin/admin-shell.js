@@ -1,0 +1,103 @@
+/**
+ * Admin Shell — Sidebar + content area. Used by all admin sub-pages.
+ */
+
+export function adminShell(contentHTML) {
+    const { i18n } = window.pb;
+    const hash = location.hash.replace('#/', '');
+
+    const navItems = [
+        { href: '#/admin/dashboard', label: 'Dashboard', icon: '📊' },
+        { href: '#/admin/cameras', label: 'Kameras', icon: '📷' },
+        { href: '#/admin/modules', label: 'Module', icon: '🧩' },
+        { href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉' },
+        { href: '#/admin/background', label: 'Hintergrund', icon: '🪄' },
+        { href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️' },
+        { href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱' },
+        { href: '#/admin/triggers', label: 'Auslöser', icon: '⚡' },
+        { href: '#/admin/printer', label: 'Drucker', icon: '🖨️' },
+        { href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿' },
+        { href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌' },
+        { href: '#/admin/wifi', label: 'WLAN', icon: '📶' },
+        { href: '#/admin/payment', label: 'Bezahlung', icon: '💳' },
+        { href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️' },
+        { href: '#/admin/tests', label: 'Tests', icon: '🧪' },
+    ];
+
+    return `
+    <div style="display:flex;height:100%;">
+        <nav class="admin-nav">
+            <div class="admin-brand"><span class="admin-brand-dot"></span> Photobox Admin</div>
+            ${navItems.map(n => `
+                <a href="${n.href}" class="nav-item ${hash === n.href.replace('#/', '') ? 'active' : ''}">
+                    <span class="nav-icon">${n.icon}</span><span>${n.label}</span>
+                </a>
+            `).join('')}
+            <div style="flex:1;"></div>
+            <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
+            <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
+        </nav>
+        <main style="flex:1;padding:2rem;overflow-y:auto;">
+            ${contentHTML}
+        </main>
+    </div>
+    <style>
+        .admin-nav {
+            width:240px;background:linear-gradient(180deg, var(--pb-color-surface) 0%, var(--pb-color-background) 100%);
+            padding:1rem 0.75rem;display:flex;flex-direction:column;gap:0.15rem;overflow-y:auto;flex-shrink:0;
+            border-right:1px solid var(--pb-color-border);
+        }
+        .admin-brand {
+            display:flex;align-items:center;gap:0.5rem;font-size:1.15rem;font-weight:700;
+            padding:0.5rem 0.75rem 1rem;letter-spacing:0.2px;
+        }
+        .admin-brand-dot { width:12px;height:12px;border-radius:50%;background:var(--pb-gradient);box-shadow:0 0 12px var(--pb-color-primary); }
+        .nav-item {
+            display:flex;align-items:center;gap:0.7rem;padding:0.65rem 0.85rem;border-radius:10px;
+            color:var(--pb-color-text);text-decoration:none;font-size:0.93rem;
+            transition:background 0.15s, transform 0.05s;position:relative;
+        }
+        .nav-icon { width:1.4rem;text-align:center;font-size:1.05rem;flex-shrink:0; }
+        .nav-item:hover { background:rgba(255,255,255,0.07); }
+        .nav-item:active { transform:scale(0.98); }
+        .nav-item.active { background:var(--pb-gradient);color:#fff;box-shadow:var(--pb-shadow-sm); }
+        .nav-muted { color:var(--pb-color-text-muted); }
+        .nav-danger { color:var(--pb-color-error); }
+        .admin-card {
+            background:var(--pb-color-surface);border:1px solid var(--pb-color-border);
+            border-radius:var(--pb-radius);padding:1.25rem;margin-bottom:1rem;box-shadow:var(--pb-shadow-sm);
+        }
+        .admin-card h3 { margin-bottom:0.75rem;font-size:1rem;color:var(--pb-color-primary); }
+        .admin-card p { font-size:0.9rem;margin-bottom:0.25rem;color:var(--pb-color-text-muted); }
+        .admin-btn {
+            padding:0.6rem 1.2rem;border-radius:10px;border:none;font-size:0.9rem;font-weight:600;
+            cursor:pointer;color:white;transition:filter 0.15s, transform 0.05s, background 0.15s;
+        }
+        .admin-btn:hover { filter:brightness(1.08); }
+        .admin-btn:active { transform:scale(0.97); }
+        .admin-btn-primary { background:var(--pb-gradient);box-shadow:0 4px 14px rgba(108,140,255,0.35); }
+        .admin-btn-outline {
+            background:rgba(108,140,255,0.10);border:1.5px solid var(--pb-color-primary);color:var(--pb-color-text);
+        }
+        .admin-btn-outline:hover { background:rgba(108,140,255,0.22); }
+        .admin-input {
+            padding:0.6rem 0.7rem;border-radius:10px;border:1px solid var(--pb-color-border);
+            background:rgba(0,0,0,0.25);color:var(--pb-color-text);font-size:0.9rem;transition:border-color 0.15s;
+        }
+        .admin-input:focus { border-color:var(--pb-color-primary);outline:none; }
+        h1 { font-weight:700;letter-spacing:0.2px; }
+    </style>`;
+}
+
+export function getHeaders() {
+    const token = window.pb.state.auth.token;
+    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+}
+
+export function setupLogout(container) {
+    container.querySelector('#btn-logout')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.pb.state.clearAuth();
+        window.pb.router.navigate('booth');
+    });
+}

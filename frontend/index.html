@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <title>Photobox</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --pb-color-primary: #6c8cff;
+            --pb-color-primary-hover: #5577f5;
+            --pb-color-primary-contrast: #ffffff;
+            --pb-color-secondary: #ff8a5b;
+            --pb-color-accent: #2dd4bf;
+            --pb-color-background: #0f1426;
+            --pb-color-surface: #1a2138;
+            --pb-color-surface-2: #232c4a;
+            --pb-color-border: rgba(255,255,255,0.10);
+            --pb-color-text: #f1f4ff;
+            --pb-color-text-muted: #97a3c4;
+            --pb-color-error: #f9695a;
+            --pb-color-success: #34d399;
+            --pb-color-warning: #fbbf24;
+            --pb-gradient: linear-gradient(135deg, #6c8cff 0%, #9d6cff 100%);
+            --pb-gradient-warm: linear-gradient(135deg, #ff8a5b 0%, #ff5b9d 100%);
+            --pb-shadow: 0 8px 28px rgba(0,0,0,0.40);
+            --pb-shadow-sm: 0 2px 10px rgba(0,0,0,0.25);
+            --pb-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            --pb-radius: 14px;
+            --pb-touch-target: 48px;
+        }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: var(--pb-font-family);
+            background:
+                radial-gradient(1200px 600px at 100% -10%, rgba(108,140,255,0.12), transparent 60%),
+                radial-gradient(900px 500px at -10% 110%, rgba(255,138,91,0.10), transparent 55%),
+                var(--pb-color-background);
+            color: var(--pb-color-text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            -webkit-font-smoothing: antialiased;
+        }
+        ::selection { background: var(--pb-color-primary); color: #fff; }
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: var(--pb-color-surface-2); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: #2f3a60; }
+        :focus-visible { outline: 2px solid var(--pb-color-primary); outline-offset: 2px; }
+        button { font-family: inherit; }
+        /* Kiosk: no text/element selection, no long-press callout, no tap highlight */
+        * {
+            -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+            -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+        }
+        input, textarea, [contenteditable] {
+            -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text;
+        }
+        img, a { -webkit-user-drag: none; user-drag: none; }
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+        .loading .spinner {
+            width: 48px; height: 48px;
+            border: 4px solid var(--pb-color-surface);
+            border-top-color: var(--pb-color-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    <link rel="stylesheet" href="/vendor/glightbox.min.css">
+    <script src="/vendor/glightbox.min.js"></script>
+    <script src="/vendor/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Photobox wird geladen...</p>
+    </div>
+
+    <div id="app" style="display:none; width:100%; height:100%;"></div>
+
+    <script type="module" src="/src/core/app.js"></script>
+</body>
+</html>

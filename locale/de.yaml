@@ -1,0 +1,101 @@
+app:
+  title: "Photobox"
+  loading: "Wird geladen..."
+
+auth:
+  login: "Anmelden"
+  logout: "Abmelden"
+  username: "Benutzername"
+  password: "Passwort"
+  invalid_credentials: "Ungültige Anmeldedaten"
+
+booth:
+  welcome: "Willkommen!"
+  start: "Foto aufnehmen"
+  get_ready: "Achtung!"
+  smile: "Lächeln!"
+  countdown: "{seconds}"
+  processing: "Dein Foto wird verarbeitet..."
+  review_title: "Dein Foto"
+  retake: "Nochmal"
+  continue: "Weiter"
+  thanks: "Vielen Dank!"
+  return_soon: "Bis bald!"
+  tap_to_start: "Tippen um neu zu starten"
+
+share:
+  title: "Foto teilen"
+  download: "Herunterladen"
+  email: "Per E-Mail senden"
+  email_placeholder: "E-Mail-Adresse eingeben"
+  email_sent: "Foto wurde an {email} gesendet"
+  print: "Drucken"
+  print_started: "Druckauftrag gesendet"
+  qr_code: "QR-Code scannen"
+  bluetooth: "Per Bluetooth senden"
+  usb: "Auf USB-Stick kopieren"
+
+payment:
+  title: "Bezahlung"
+  prompt: "Bitte {amount} bezahlen"
+  waiting: "Warte auf Zahlung..."
+  success: "Zahlung erfolgreich!"
+  failed: "Zahlung fehlgeschlagen"
+  retry: "Erneut versuchen"
+
+collage:
+  title: "Collage erstellen"
+  select_template: "Vorlage wählen"
+  select_frame: "Rahmen wählen"
+  no_frame: "Kein Rahmen"
+
+gallery:
+  title: "Galerie"
+  empty: "Noch keine Fotos"
+  download_all: "Alle herunterladen"
+
+admin:
+  dashboard: "Dashboard"
+  modules: "Module"
+  events: "Veranstaltungen"
+  users: "Benutzer"
+  permissions: "Berechtigungen"
+  settings: "Einstellungen"
+  gallery: "Galerie"
+  collage_editor: "Collage-Editor"
+  system: "System"
+  settings_saved: "Einstellungen gespeichert"
+
+organizer:
+  dashboard: "Übersicht"
+  event_setup: "Veranstaltung einrichten"
+  theme: "Design anpassen"
+
+setup:
+  welcome: "Willkommen bei der Photobox!"
+  step_language: "Sprache wählen"
+  step_admin: "Admin-Konto einrichten"
+  step_camera: "Kamera auswählen"
+  step_event: "Erste Veranstaltung erstellen"
+  complete: "Einrichtung abgeschlossen!"
+  next: "Weiter"
+  back: "Zurück"
+  finish: "Fertig"
+
+error:
+  camera_unavailable: "Kamera nicht verfügbar"
+  capture_failed: "Aufnahme fehlgeschlagen"
+  no_active_event: "Keine aktive Veranstaltung"
+  permission_denied: "Zugriff verweigert"
+  not_found: "Nicht gefunden"
+  server_error: "Serverfehler"
+
+module:
+  camera: "Kamera"
+  trigger: "Auslöser"
+  output: "Ausgabe"
+  payment: "Bezahlung"
+  enabled: "Aktiviert"
+  disabled: "Deaktiviert"
+  available: "Verfügbar"
+  unavailable: "Nicht verfügbar"

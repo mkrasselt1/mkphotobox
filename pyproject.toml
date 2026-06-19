@@ -1,0 +1,33 @@
+[project]
+name = "mkphotobox"
+version = "0.1.0"
+description = "Modular photo booth software for events"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.29,<1.0",
+    "sqlmodel>=0.0.16,<1.0",
+    "pyyaml>=6.0,<7.0",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "bcrypt>=4.0,<6.0",
+    "pillow>=10.0",
+    "python-multipart>=0.0.9",
+    "aiofiles>=23.0,<24.0",
+    "alembic>=1.13,<2.0",
+]
+
+[project.optional-dependencies]
+gphoto2 = ["gphoto2>=2.5"]
+opencv = ["opencv-python-headless>=4.8"]
+gpio = ["RPi.GPIO>=0.7"]
+serial = ["pyserial>=3.5"]
+audio = ["sounddevice>=0.4", "numpy>=1.24"]
+printer-linux = ["pycups>=2.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

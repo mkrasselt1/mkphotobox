@@ -1,0 +1,101 @@
+app:
+  title: "Photobox"
+  loading: "Loading..."
+
+auth:
+  login: "Sign in"
+  logout: "Sign out"
+  username: "Username"
+  password: "Password"
+  invalid_credentials: "Invalid credentials"
+
+booth:
+  welcome: "Welcome!"
+  start: "Take a photo"
+  get_ready: "Get ready!"
+  smile: "Smile!"
+  countdown: "{seconds}"
+  processing: "Processing your photo..."
+  review_title: "Your photo"
+  retake: "Retake"
+  continue: "Continue"
+  thanks: "Thank you!"
+  return_soon: "See you soon!"
+  tap_to_start: "Tap to start again"
+
+share:
+  title: "Share your photo"
+  download: "Download"
+  email: "Send by email"
+  email_placeholder: "Enter your email address"
+  email_sent: "Photo sent to {email}"
+  print: "Print"
+  print_started: "Print job sent"
+  qr_code: "Scan QR code"
+  bluetooth: "Send via Bluetooth"
+  usb: "Copy to USB drive"
+
+payment:
+  title: "Payment"
+  prompt: "Please pay {amount}"
+  waiting: "Waiting for payment..."
+  success: "Payment successful!"
+  failed: "Payment failed"
+  retry: "Try again"
+
+collage:
+  title: "Create collage"
+  select_template: "Choose template"
+  select_frame: "Choose frame"
+  no_frame: "No frame"
+
+gallery:
+  title: "Gallery"
+  empty: "No photos yet"
+  download_all: "Download all"
+
+admin:
+  dashboard: "Dashboard"
+  modules: "Modules"
+  events: "Events"
+  users: "Users"
+  permissions: "Permissions"
+  settings: "Settings"
+  gallery: "Gallery"
+  collage_editor: "Collage Editor"
+  system: "System"
+  settings_saved: "Settings saved"
+
+organizer:
+  dashboard: "Overview"
+  event_setup: "Set up event"
+  theme: "Customize theme"
+
+setup:
+  welcome: "Welcome to Photobox!"
+  step_language: "Choose language"
+  step_admin: "Set up admin account"
+  step_camera: "Select camera"
+  step_event: "Create first event"
+  complete: "Setup complete!"
+  next: "Next"
+  back: "Back"
+  finish: "Finish"
+
+error:
+  camera_unavailable: "Camera not available"
+  capture_failed: "Capture failed"
+  no_active_event: "No active event"
+  permission_denied: "Access denied"
+  not_found: "Not found"
+  server_error: "Server error"
+
+module:
+  camera: "Camera"
+  trigger: "Trigger"
+  output: "Output"
+  payment: "Payment"
+  enabled: "Enabled"
+  disabled: "Disabled"
+  available: "Available"
+  unavailable: "Not available"

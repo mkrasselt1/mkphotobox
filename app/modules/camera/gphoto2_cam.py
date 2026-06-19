@@ -1,0 +1,149 @@
+"""gPhoto2 DSLR camera module (Linux only).
+
+Requires: pip install gphoto2
+Supports: Canon, Nikon, Sony, and most PTP-compatible DSLRs.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import logging
+import threading
+from typing import Any
+
+from app.modules.camera.base import AbstractCamera
+
+logger = logging.getLogger(__name__)
+
+
+class GPhoto2Camera(AbstractCamera):
+    name = "camera.gphoto2"
+
+    def __init__(self):
+        self._camera = None
+        self._context = None
+        self._capture_target = 1  # 1 = card, 0 = RAM
+        # gphoto2 is NOT thread-safe — serialise all camera access so the
+        # live-preview stream and a still capture never run concurrently
+        # (that triggers "[-110] I/O in progress").
+        self._lock = threading.RLock()
+
+    async def initialize(self, config: dict[str, Any]) -> None:
+        self._capture_target = config.get("capture_target", 1)
+        if self.is_available():
+            await asyncio.to_thread(self._connect)
+
+    def _connect(self):
+        import gphoto2 as gp
+
+        # python-gphoto2 manages a default context internally; passing an
+        # explicit context positionally shifts other arguments and breaks
+        # methods like file_get on current binding versions.
+        self._camera = gp.Camera()
+        self._camera.init()
+
+        # Set capture target if supported
+        try:
+            config = self._camera.get_config()
+            target = config.get_child_by_name("capturetarget")
+            target.set_value(str(self._capture_target))
+            self._camera.set_config(config)
+        except Exception:
+            logger.debug("Could not set capture target (camera may not support it)")
+
+        summary = self._camera.get_summary()
+        logger.info("gPhoto2 connected: %s", str(summary)[:100])
+
+    async def shutdown(self) -> None:
+        if self._camera is not None:
+            try:
+                await asyncio.to_thread(self._camera.exit)
+            except Exception:
+                pass
+            self._camera = None
+            self._context = None
+
+    def is_available(self) -> bool:
+        try:
+            import gphoto2  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    async def capture(self) -> bytes:
+        """Capture a full-resolution photo from the DSLR."""
+        return await asyncio.to_thread(self._capture_sync)
+
+    def _capture_sync(self) -> bytes:
+        import gphoto2 as gp
+
+        with self._lock:
+            for attempt in (1, 2):
+                try:
+                    if self._camera is None:
+                        self._connect()
+                    file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+                    logger.info("Captured: %s/%s", file_path.folder, file_path.name)
+                    camera_file = self._camera.file_get(
+                        file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL
+                    )
+                    return bytes(camera_file.get_data_and_size())
+                except gp.GPhoto2Error as e:
+                    logger.warning("Capture attempt %d failed (%s); re-init camera", attempt, e)
+                    self._reset()
+                    if attempt == 2:
+                        raise
+            return b""
+
+    def _reset(self):
+        """Drop and re-acquire the camera handle (recovers from I/O errors)."""
+        try:
+            if self._camera is not None:
+                self._camera.exit()
+        except Exception:
+            pass
+        self._camera = None
+
+    async def get_preview_frame(self) -> bytes:
+        """Get a live preview frame from the DSLR viewfinder."""
+        return await asyncio.to_thread(self._preview_sync)
+
+    def _preview_sync(self) -> bytes:
+        with self._lock:
+            for attempt in (1, 2):
+                try:
+                    if self._camera is None:
+                        self._connect()
+                    camera_file = self._camera.capture_preview()
+                    data = bytes(camera_file.get_data_and_size())
+                    if data:
+                        return data
+                    logger.debug("Empty preview frame; re-init camera (attempt %d)", attempt)
+                except Exception as e:
+                    logger.debug("Preview error: %s; re-init camera (attempt %d)", e, attempt)
+                self._reset()  # drop the bad handle so the next try reconnects
+            return b""
+
+    def get_config_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "capture_target": {
+                    "type": "integer",
+                    "default": 1,
+                    "description": "0 = RAM (faster), 1 = Memory Card",
+                    "enum": [0, 1],
+                },
+            },
+        }
+
+    def get_status(self) -> dict[str, Any]:
+        status = super().get_status()
+        if self._camera is not None:
+            try:
+                summary = str(self._camera.get_summary())
+                status["model"] = summary.split("\n")[0] if summary else "Connected"
+            except Exception:
+                status["model"] = "Connected (status unavailable)"
+        return status

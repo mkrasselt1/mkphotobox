@@ -1,0 +1,185 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  workers: 1
+
+database:
+  path: "data/photobox.db"
+
+auth:
+  secret_key: ""
+  token_expire_minutes: 480
+  default_admin_password: "admin"
+
+i18n:
+  default_locale: "de"
+  available:
+    - "de"
+    - "en"
+
+photos:
+  storage_path: "data/photos"
+  thumbnail_size: [320, 240]
+  max_resolution: [3000, 2000]
+  jpeg_quality: 85
+  filename_template: "{event}_{date}_{time}_{seq}"  # placeholders: {event}, {date}, {time}, {seq}, {random}
+  download_filename_template: "{event}_{date}_{time}"
+
+background_removal:
+  enabled: false
+  mode: "none"               # none | ai | chromakey
+  chromakey_hue: 60          # HSV hue (60=green, 120=blue)
+  chromakey_tolerance: 30
+  chromakey_saturation_min: 50
+  replacement_color: "#000000"
+  replacement_image: ""
+  feather: 3
+
+gif:
+  enabled: true
+  buffer_seconds: 5
+  fps: 10
+  width: 480
+  height: 360
+
+collages:
+  templates_path: "templates/collages"
+
+cameras:
+  transform:
+    rotation: 0           # 0, 90, 180, 270
+    flip_horizontal: false
+    flip_vertical: false
+  gphoto2:
+    enabled: false
+    capture_target: 1
+  digicamcontrol:
+    enabled: false
+    host: "localhost"
+    port: 5513
+  webrtc:
+    enabled: true
+  opencv:
+    enabled: false
+    device_index: 0
+
+triggers:
+  touchscreen:
+    enabled: true
+  gpio:
+    enabled: false
+    pin: 17
+    pull_up: true
+    debounce_ms: 300
+  acoustic:
+    enabled: false
+    threshold: 0.7
+    cooldown_ms: 2000
+    device_index: null        # null = System-Standard, oder Index des Audiogeräts
+  keyboard:
+    enabled: false
+    key: "space"
+  host_keyboard:
+    enabled: false
+    key_code: ""              # leer = jede Taste löst aus, oder z.B. "KEY_ENTER"
+    device_name: ""           # leer = alle Keyboards, oder Teilname des Geräts
+  serial:
+    enabled: false
+    port: "/dev/ttyUSB0"
+    baud: 9600
+    trigger_string: "\n"
+  bluetooth:
+    enabled: false
+    device_name: ""
+
+outputs:
+  download:
+    enabled: true
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    smtp_user: ""
+    smtp_pass: ""
+    from_address: ""
+  printer:
+    enabled: false
+    mode: "browser"          # browser = Client-Druckdialog, server = serverseitig
+    printer_name: ""         # leer = Systemstandard (nur bei mode=server)
+    paper_size: "4x6"        # 4x6, A6, 10x15, A4
+    copies: 1
+    orientation: "portrait"  # portrait | landscape
+    fit_to_page: true
+    margin_mm: 0             # 0 = randlos
+  web_upload:
+    enabled: false
+    base_url: ""
+  bluetooth:
+    enabled: false
+  quickshare:
+    enabled: false
+  usb_copy:
+    enabled: false
+    mount_path: "/media/usb"
+
+cd_burn:
+  device: "/dev/sr0"          # internes SATA-Laufwerk (CD/DVD wird automatisch erkannt)
+  volume_label: "PHOTOBOX"    # Datenträgerbezeichnung
+  speed: ""                   # leer = automatisch, sonst z.B. "8" (8x)
+  include_gifs: true          # animierte GIFs mit auf die Disc brennen
+  eject_when_done: true       # Disc nach dem Brennen auswerfen
+
+usb_export:
+  subfolder: "Photobox"       # Zielordner auf dem Datenträger (leer = Wurzel)
+  include_gifs: true          # animierte GIFs mitkopieren
+
+payment:
+  enabled: false
+  required_before_capture: false
+  default_amount_cents: 200
+  currency: "EUR"
+  prices:
+    capture: 200            # Preis fürs Foto machen (Cent)
+    print: 100              # Preis fürs Drucken (Cent)
+    gif: 100                # Preis fürs GIF erstellen (Cent)
+    collage: 150            # Preis für Collage (Cent)
+  stripe_qr:
+    enabled: false
+    api_key: ""
+  sumup_qr:
+    enabled: false
+    api_key: ""
+    merchant_code: ""
+    currency: "EUR"
+  sumup_terminal:
+    enabled: false
+    api_key: ""
+    merchant_code: ""
+    terminal_id: ""
+    currency: "EUR"
+  mdb:
+    enabled: false
+    serial_port: "/dev/ttyUSB1"
+    baud: 9600
+
+display:
+  preview_size: "medium"  # small (320px), medium (640px), large (960px), fullscreen
+
+session:
+  auto_end_seconds: 120
+  photos_per_session: 0
+  countdown_seconds: 3
+
+gallery:
+  public: false
+  require_event_slug: true
+  enabled: true                # false = Galerie-Link wird ausgeblendet
+  delete_mode: "off"           # off | recent | all — recent = nur Fotos der letzten 5 Min
+  delete_recent_minutes: 5     # Zeitfenster für "recent"-Modus
+
+offline:
+  sync_interval_seconds: 60
+  sync_url: ""
+
+setup:
+  completed: false
