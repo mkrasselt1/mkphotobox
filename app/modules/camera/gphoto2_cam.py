@@ -39,19 +39,33 @@ class GPhoto2Camera(AbstractCamera):
         self._focus_mode = (config.get("focus_mode") or "").strip()
         self._autofocus = bool(config.get("autofocus", False))
         if self.is_available():
-            # Don't raise if the camera is momentarily busy (e.g. the previous
-            # process hasn't released the USB/PTP session right after a restart):
-            # register anyway and self-heal on first capture/preview. Otherwise a
-            # restart leaves the box with zero cameras until a manual restart.
+            # Connect in the BACKGROUND so a wedged camera (PTP timeout + USB
+            # reset recovery can take ~15s) never blocks app startup. The module
+            # is registered immediately and self-heals on first capture/preview.
             try:
-                await asyncio.to_thread(self._connect)
-            except Exception as e:
-                logger.warning("gphoto2 initial connect failed (%s); will retry on first use", e)
-                self._camera = None
+                self._connect_task = asyncio.create_task(self._async_connect())
+            except RuntimeError:
+                # no running loop (e.g. tests) — fall back to a guarded sync attempt
+                try:
+                    self._connect()
+                except Exception as e:
+                    logger.warning("gphoto2 initial connect failed (%s)", e)
+                    self._camera = None
+
+    async def _async_connect(self):
+        try:
+            await asyncio.to_thread(self._connect)
+        except Exception as e:
+            logger.warning("gphoto2 connect failed (%s); will retry on next use", e)
+            self._camera = None
+
+    # Known camera USB vendor IDs (for USB-reset recovery of a wedged PTP session):
+    # Canon, Nikon, Sony, Fujifilm, Panasonic, Olympus
+    _CAMERA_VENDORS = ("04a9", "04b0", "054c", "04cb", "04da", "07b4")
 
     def _free_camera_port(self):
-        """Release the camera from desktop auto-mounters (gvfs) that hold the
-        PTP session and cause '[-10] Timeout' on init. Best-effort."""
+        """Release the camera from desktop auto-mounters (gvfs) that may hold the
+        PTP session. Best-effort (usually a no-op; AutoMount is off on the box)."""
         import subprocess
         for proc in ("gvfsd-gphoto2", "gvfs-gphoto2-volume-monitor"):
             try:
@@ -59,14 +73,44 @@ class GPhoto2Camera(AbstractCamera):
             except Exception:
                 pass
 
+    def _usb_reset(self):
+        """Reset the camera's USB device (equivalent to a physical replug) to
+        recover a wedged PTP session — the reliable fix when init/summary times
+        out. Best-effort, Linux-only; needs usbfs write access (the same access
+        gphoto2 already uses)."""
+        import fcntl
+        import os
+        import re
+        import subprocess
+
+        USBDEVFS_RESET = (ord("U") << 8) | 20  # _IO('U', 20)
+        try:
+            out = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=5).stdout
+        except Exception:
+            return
+        for line in out.splitlines():
+            m = re.match(r"Bus (\d+) Device (\d+): ID ([0-9a-fA-F]{4}):", line)
+            if not m or m.group(3).lower() not in self._CAMERA_VENDORS:
+                continue
+            path = f"/dev/bus/usb/{m.group(1)}/{m.group(2)}"
+            try:
+                fd = os.open(path, os.O_WRONLY)
+                try:
+                    fcntl.ioctl(fd, USBDEVFS_RESET, 0)
+                    logger.info("USB reset issued on %s (camera recovery)", path)
+                finally:
+                    os.close(fd)
+            except Exception as e:
+                logger.debug("USB reset failed on %s: %s", path, e)
+
     def _connect(self):
         import time as _t
 
         import gphoto2 as gp
 
-        # A restart or a desktop auto-mounter can briefly hold the camera, giving
-        # "[-10] Timeout". Retry with backoff and free the port between tries.
-        self._free_camera_port()
+        # Recovery ladder for a busy/wedged camera: plain retry → free gvfs →
+        # USB reset (replug). USB reset re-enumerates the device and also wakes a
+        # camera that auto-powered-off, so it fixes the common PTP-timeout case.
         last_err = None
         for attempt in range(1, 4):
             try:
@@ -81,8 +125,12 @@ class GPhoto2Camera(AbstractCamera):
                 last_err = e
                 self._camera = None
                 logger.warning("gphoto2 init attempt %d/3 failed: %s", attempt, e)
-                _t.sleep(1.5 * attempt)
-                self._free_camera_port()
+                if attempt == 1:
+                    self._free_camera_port()
+                    _t.sleep(1.5)
+                else:
+                    self._usb_reset()      # heavier: replug via ioctl
+                    _t.sleep(4.0)          # allow re-enumeration
         if last_err is not None:
             raise last_err
 
