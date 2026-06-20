@@ -1,6 +1,6 @@
 import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
 
-const DISPLAY_W = 380;  // canvas preview width in px
+const DISPLAY_W = 520;  // canvas preview width in px
 let headers;
 let assetsByType = { background: [], frame: [], logo: [], sticker: [] };
 let availableFonts = ['Sans', 'Serif', 'Mono'];
@@ -118,6 +118,10 @@ function renderEditor(container, state, ed) {
             <h1 style="margin:0;">Vorlage bearbeiten</h1>
             <button id="btn-back" class="admin-btn admin-btn-outline">← Zurück</button>
         </div>
+        <div class="admin-card" style="margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;">
+            <label style="font-size:0.9rem;white-space:nowrap;">Name der Vorlage</label>
+            <input id="f-name" class="admin-input" style="flex:1;" value="${ed.name}">
+        </div>
         <div style="display:flex;gap:1.5rem;flex-wrap:wrap;">
 
             <div style="flex:0 0 ${DISPLAY_W}px;">
@@ -140,8 +144,6 @@ function renderEditor(container, state, ed) {
 
             <div style="flex:1;min-width:280px;max-width:420px;">
                 <div class="admin-card">
-                    <label style="font-size:0.9rem;">Name</label>
-                    <input id="f-name" class="admin-input" style="width:100%;margin:0.25rem 0 0.75rem;" value="${ed.name}">
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
                         <div><label style="font-size:0.85rem;">Breite (px)</label><input id="f-w" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_width}"></div>
                         <div><label style="font-size:0.85rem;">Höhe (px)</label><input id="f-h" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_height}"></div>
