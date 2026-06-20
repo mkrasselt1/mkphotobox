@@ -79,17 +79,31 @@ function render() {
 
     panel.querySelectorAll('.osk-key').forEach(btn => {
         // pointerdown + preventDefault keeps the caret in the input.
-        // Dedupe duplicate pointer/mouse events some touchscreens emit
-        // (otherwise every character would be entered twice).
+        // Dedupe duplicate events some touchscreens emit (otherwise every
+        // character is entered twice). We use performance.now() — a monotonic
+        // clock — because e.timeStamp can have different time origins for touch
+        // vs. mouse-compatibility events, which made the old guard unreliable.
         btn.addEventListener('pointerdown', (e) => {
             e.preventDefault();
-            const key = btn.dataset.key;
-            if (key === lastPressKey && (e.timeStamp - lastPressTs) < 60) return;
-            lastPressTs = e.timeStamp;
-            lastPressKey = key;
-            press(key);
+            e.stopImmediatePropagation();
+            handlePress(btn.dataset.key);
         });
+        // A real device "bounce" / duplicate can also arrive as a mouse event;
+        // pointerdown already handled it, so suppress these to avoid a 2nd char.
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopImmediatePropagation(); });
+        btn.addEventListener('click', (e) => { e.preventDefault(); e.stopImmediatePropagation(); });
     });
+}
+
+function handlePress(key) {
+    // Drop a duplicate of the SAME key within a short window (device bounce /
+    // duplicated event). 180ms is comfortably below a deliberate double-tap of
+    // the same character but absorbs hardware double-fires.
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (key === lastPressKey && (now - lastPressTs) < 180) return;
+    lastPressTs = now;
+    lastPressKey = key;
+    press(key);
 }
 
 function press(key) {
