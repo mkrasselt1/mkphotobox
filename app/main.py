@@ -173,6 +173,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Force revalidation of the unbundled frontend assets (no build step → no
+    # content hashing). Without this, browsers heuristically cache JS/CSS and
+    # keep serving a stale UI after a self-update. ``no-cache`` + StaticFiles'
+    # ETag means a cheap 304 when unchanged, fresh bytes the moment it changes.
+    @app.middleware("http")
+    async def revalidate_static(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(("/src/", "/vendor/", "/assets/")):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     # Central Mieter (organizer) section guard: a logged-in organizer may only
     # reach the admin sections an admin granted them. No token / admin / public
     # booth requests pass straight through.
