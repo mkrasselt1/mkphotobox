@@ -340,6 +340,11 @@ $pd.Dispose()
             state_name = {3: "idle", 4: "processing", 5: "stopped"}.get(state, "unknown")
             has_error = any(a["severity"] == "error" for a in alerts)
             ready = bool(accepting) and state != 5 and not has_error
+            # Remaining media (dye-sub printers report it via CUPS markers)
+            media = PrinterOutput._read_media(attrs)
+            if media.get("remaining_prints") is not None and media["remaining_prints"] <= 5:
+                alerts.append({"reason": "media-low", "severity": "warning",
+                               "message": f"Nur noch {media['remaining_prints']} Drucke"})
             if alerts:
                 message = "; ".join(a["message"] for a in alerts)
             elif state == 5:
@@ -350,13 +355,47 @@ $pd.Dispose()
                 message = "Bereit"
             return {"available": True, "printer": name, "state": state_name,
                     "ready": ready, "accepting": bool(accepting),
-                    "alerts": alerts, "message": message,
+                    "alerts": alerts, "message": message, "media": media,
                     "state_message": attrs.get("printer-state-message", "")}
         except Exception as e:
             logger.exception("CUPS status query failed")
             return {"available": False, "state": "error", "ready": False,
                     "alerts": [{"severity": "error", "message": str(e), "reason": "exception"}],
                     "message": str(e)}
+
+    @staticmethod
+    def _read_media(attrs: dict) -> dict[str, Any]:
+        """Remaining media from CUPS markers (dye-sub printers report e.g.
+        ``marker-message='7 native prints remaining on 8x12 media'`` and
+        ``marker-levels=[6]`` as a percentage of the roll)."""
+        import re
+
+        def first(v):
+            if isinstance(v, (list, tuple)):
+                return v[0] if v else None
+            return v
+
+        msg = first(attrs.get("marker-message")) or ""
+        name = first(attrs.get("marker-names"))
+        level = first(attrs.get("marker-levels"))
+        low = first(attrs.get("marker-low-levels"))
+
+        remaining = None
+        m = re.search(r"(\d+)\s+(?:native\s+)?prints?\s+remaining", str(msg), re.I)
+        if m:
+            remaining = int(m.group(1))
+        try:
+            level = int(level) if level is not None else None
+        except (TypeError, ValueError):
+            level = None
+        try:
+            low = int(low) if low is not None else None
+        except (TypeError, ValueError):
+            low = None
+
+        return {"name": name, "remaining_prints": remaining, "level_pct": level,
+                "low_pct": low, "message": str(msg),
+                "has_data": remaining is not None or level is not None or bool(msg)}
 
     @staticmethod
     def _printer_status_lpstat(printer_name: str) -> dict[str, Any]:
@@ -382,6 +421,7 @@ $pd.Dispose()
                     "state": "stopped" if stopped else "idle",
                     "ready": not has_error,
                     "alerts": alerts,
+                    "media": {"has_data": False},
                     "message": ("; ".join(a["message"] for a in alerts)
                                 or ("Drucker gestoppt" if stopped else "Bereit"))}
         except Exception as e:

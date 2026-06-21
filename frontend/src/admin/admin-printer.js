@@ -131,9 +131,23 @@ export async function render(container, state) {
         dot.style.boxShadow = `0 0 8px ${color}`;
         msg.textContent = (s.ready ? '✓ ' : '⚠️ ') + (s.message || 'Unbekannt') + (s.printer ? ` — ${s.printer}` : '');
         msg.style.color = color;
-        detail.innerHTML = (s.alerts || []).length
+        // Remaining media (dye-sub printers)
+        let mediaLine = '';
+        const m = s.media || {};
+        if (m.has_data) {
+            if (m.remaining_prints != null) {
+                const low = m.remaining_prints <= 10;
+                mediaLine = `<span style="color:${low ? 'var(--pb-color-error)' : 'var(--pb-color-text)'};">📄 noch <strong>${m.remaining_prints}</strong> Drucke${m.name ? ` (${m.name})` : ''}${m.level_pct != null ? ` · ${m.level_pct}%` : ''}</span>`;
+            } else if (m.level_pct != null) {
+                mediaLine = `📄 Medienstand: ${m.level_pct}%${m.name ? ` (${m.name})` : ''}`;
+            } else if (m.message) {
+                mediaLine = `📄 ${m.message}`;
+            }
+        }
+        const alertsLine = (s.alerts || []).length
             ? s.alerts.map(a => `${a.severity === 'error' ? '⛔' : a.severity === 'warning' ? '⚠️' : 'ℹ️'} ${a.message}`).join(' · ')
             : (s.available === false ? 'Status nicht verfügbar.' : '');
+        detail.innerHTML = [mediaLine, alertsLine].filter(Boolean).join('<br>');
     }
     const currentStatePrinter = () => container.querySelector('#printer-select')?.value ?? currentPrinter;
     loadPrinterState(currentStatePrinter());
