@@ -13,20 +13,36 @@ Weboberfläche (kein Verlassen des Browsers nötig).
 
 - **Aufnahme**: DSLR via gPhoto2 (Canon/Nikon/Sony …), USB-Webcam (OpenCV),
   Browser-Webcam (WebRTC), digiCamControl (Windows). Live-Vorschau + Auslösen,
-  Countdown, animiertes GIF aus Vorschau-Puffer.
+  Countdown, animiertes GIF aus Vorschau-Puffer. **Live-Crop-Overlay**: der
+  spätere Zuschnitt (Ziel-Seitenverhältnis) wird im Live-Bild eingeblendet.
 - **Foto-Vorlagen / Mehrbild**: Vorlagen-Editor (Raster *und* freies Drag-&-Drop),
   Hintergrund/Rahmen/Logos/Sticker, serverseitiges Compositing (Pillow),
-  Booth-Flow nimmt N Fotos auf und rendert die Collage. Pro Event zuweisbar.
+  Booth-Flow nimmt N Fotos auf und rendert die Collage (samt **Set-GIF** der
+  Einzelaufnahmen). Pro Event zuweisbar.
+- **Ausgabe-Formate (Presets)**: wiederverwendbare Druck-Presets — Papiergröße
+  **live aus CUPS** gelesen, Canvas-Pixel aus physischer Größe × DPI (kein
+  Pixel-Raten), Hoch/Quer behält das Format. Plus Social-Formate (Instagram,
+  TikTok/Story …). Eine Vorlage wird einem Format zugewiesen; deren Collage
+  druckt automatisch auf dem hinterlegten Drucker/Papier (z. B. Dreier-Set →
+  Panorama-Drucker).
 - **Assets**: Browser für Datenspeicher/Wechseldatenträger → Hintergründe, Rahmen,
   Logos, Sticker importieren (mit Pfad-Schutz).
 - **Ausgabe/Teilen**: E-Mail (SMTP), Drucken (CUPS + `lp`-Fallback, echte
-  Papiergrößen), **CD/DVD brennen** (xorriso, CD/DVD-Auto-Erkennung),
-  **USB/Wechseldatenträger-Export** (auswählbares Ziel), Bluetooth,
-  QR-Code (mit LAN-IP, nicht localhost), Download.
+  Papiergrößen, **Live-Druckerstatus**: Papier leer / Tür offen / offline …),
+  **CD/DVD brennen** (xorriso, CD/DVD-Auto-Erkennung),
+  **USB/Wechseldatenträger-Export** (auswählbares Ziel, inkl. mitgeliefertem
+  **Offline-Foto-Viewer** `index.html`), Bluetooth, QR-Code (mit LAN-IP, nicht
+  localhost), Download.
 - **Galerie**: Event-Galerie mit Lightbox, GIF-Anzeige, optionalem Löschmodus.
+  Zusätzlich eine **Live-Web-Galerie** (`/live`) mit öffentlichem JSON-Feed, die
+  neue Fotos automatisch nachlädt — per QR teilbar.
+- **Online-Galerie (Server-Sync)**: spiegelt jedes neue Foto (+ GIF) samt
+  `photos.json` und Live-Viewer auf einen **externen Server** — Transport
+  wählbar: WebDAV / FTPS / FTP / rsync / SCP.
 - **Admin (Web)**: Kameras, Module, Veranstaltungen, Hintergrund-Entfernung,
-  Vorlagen/Assets, Auslöser, Drucker, CD/DVD, USB, **WLAN-Verwaltung (nmcli)**,
-  Bezahlung, Einstellungen, Tests.
+  Vorlagen/Assets, **Ausgabe-Formate**, Auslöser, Drucker, **Online-Galerie**,
+  CD/DVD, USB, **WLAN-Verwaltung (nmcli)**, Bezahlung, Einstellungen, Tests,
+  **Herunterfahren** + **Software aktualisieren** (In-App-Self-Update).
 - **Touch-tauglich**: integrierte **Bildschirmtastatur (OSK)**, Markieren
   deaktiviert, große Buttons.
 - **Bezahlung** (optional): Stripe/SumUp (QR & Terminal), MDB-Münzer.
@@ -92,15 +108,24 @@ Details siehe [`scripts/setup.sh`](scripts/setup.sh) und
 
 ### Update
 
-```bash
-sudo ./scripts/update.sh      # git pull + Deps + Neustart
-```
+Zwei Wege:
 
-Holt den neuesten Stand aus dem Repo, aktualisiert Abhängigkeiten und startet
-neu. Beim **ersten** Lauf wird ein per Tarball deploytes Verzeichnis als
-git-Checkout übernommen. `config.yaml`, `data/` und `.venv` sind gitignored und
-bleiben erhalten. **Schema-Migrationen laufen automatisch beim Start**
-(`database.py` ergänzt fehlende Spalten additiv — siehe unten).
+- **In der Weboberfläche**: Admin → **„Software aktualisieren"** (nur Admin).
+  Holt den neuesten Stand von GitHub (`git fetch` + `reset --hard origin/main`,
+  läuft als App-Benutzer) und startet den Dienst neu. Erfordert die
+  NOPASSWD-sudoers-Regel für `systemctl restart` (legt `setup.sh` an).
+- **Per SSH**:
+  ```bash
+  sudo ./scripts/update.sh      # git pull + Deps + Neustart
+  ```
+
+Beide holen den neuesten Stand aus dem Repo und starten neu. Beim **ersten**
+SSH-Lauf wird ein per Tarball deploytes Verzeichnis als git-Checkout übernommen.
+`config.yaml`, `data/` und `.venv` sind gitignored und bleiben erhalten.
+**Schema-Migrationen laufen automatisch beim Start** (`database.py` ergänzt
+fehlende Spalten additiv — siehe unten). Das unbundlete Frontend wird mit
+`Cache-Control: no-cache` ausgeliefert, damit Browser nach einem Update sofort
+die frische UI laden (ETag-Revalidierung → 304 wenn unverändert).
 
 ### Datenbank-Migration
 
@@ -134,8 +159,14 @@ instabilen Leitung.
 3. DB-Settings (zur Laufzeit über das Admin-API)
 
 Wichtige Schlüssel: `server.port`, `photos.storage_path`, `cameras.*`,
-`outputs.*`, `cd_burn.*`, `usb_export.*`, `share.base_url` (für QR; sonst
-automatische LAN-IP-Erkennung), `auth.default_admin_password`.
+`outputs.*`, `cd_burn.*`, `usb_export.*` (inkl. `include_viewer`),
+`remote_gallery.*` (Server-Sync: `enabled`, `protocol`, `host`/`url`, `username`,
+`password`, `remote_dir`, `key_path`, `public_url`), `share.base_url` (für QR;
+sonst automatische LAN-IP-Erkennung), `auth.default_admin_password`.
+
+Ausgabe-Formate (Druck-/Social-Presets) liegen als eigene Tabelle in der DB und
+werden im Admin unter **Ausgabe-Formate** gepflegt; die Social-Standardformate
+(Instagram/TikTok …) werden beim Start automatisch angelegt.
 
 ---
 
@@ -147,15 +178,19 @@ app/
   config.py          3-Schichten-Config
   database.py        SQLModel/SQLite (WAL)
   models.py          ORM (User, Event, Photo, Asset, Template, …)
-  api/               Routen: photos, printer, cd_burn, usb_export, wifi,
-                     assets, templates, events, settings, system, tests, …
+  api/               Routen: photos, printer, presets, remote_gallery, cd_burn,
+                     usb_export, wifi, assets, templates, events, settings,
+                     system, tests, …
   modules/           Pluggable Module (camera/ trigger/ output/ payment/)
-  services/          Logik: photo_service, collage_service, asset_service,
-                     cd_burn_service, usb_export_service, wifi_service, …
+  services/          Logik: photo_service, collage_service, paper_sizes,
+                     viewer_assets (geteilter Galerie-Viewer), remote_gallery,
+                     asset_service, cd_burn_service, usb_export_service, …
 frontend/
   src/core/          app, router (hash-based), state, ws-client, osk
-  src/booth/         booth-flow (FSM), gallery
-  src/admin/         admin-shell + je eine Seite pro Bereich
+  src/booth/         booth-flow (FSM, inkl. Live-Crop-Overlay), gallery
+  src/admin/         admin-shell + je eine Seite pro Bereich (presets,
+                     remote-gallery, printer, …)
+# Standalone /live-Galerie + öffentlicher Feed: GET /live, /api/v1/photos/feed.json
 config.defaults.yaml
 scripts/             setup.sh, kiosk-setup.sh (erzeugen systemd-Units etc.)
 ```
@@ -179,7 +214,16 @@ Admin-Test-API bzw. `app/api/tests.py`.
   TOUCH_MATRIX="…"` ein.
 - **QR-Codes**: nutzen die LAN-IP der Box (`/api/v1/system/share-base`), nicht
   `localhost` — sonst kann das Gast-Handy nichts laden.
-- **Drucker-Papiergrößen** kommen live aus CUPS (`lpoptions -p <drucker> -l`).
+- **Drucker-Papiergrößen** kommen live aus CUPS (`lpoptions -p <drucker> -l`);
+  der **Druckerstatus** (Papier leer, Tür offen, offline) aus
+  `printer-state-reasons` (pycups, `lpstat`-Fallback).
+- **Herunterfahren / Neustart / Self-Update** brauchen eine NOPASSWD-sudoers-Regel
+  für den App-Benutzer (`/etc/sudoers.d/mkphotobox`: `systemctl poweroff, reboot,
+  restart mkphotobox.service`). `setup.sh` legt sie an — fehlt sie, melden die
+  Buttons „keine Berechtigung". Der Code prüft die konkrete Erlaubnis via
+  `sudo -n -l <cmd>` (nicht `sudo -n true`, das nur per Credential-Cache passt).
+- **Online-Galerie / Server-Sync**: WebDAV/FTPS/FTP via `curl`, rsync/SCP via
+  `ssh` (SSH-Key oder `sshpass`). `setup.sh` installiert `rsync` + `sshpass`.
 
 ---
 
