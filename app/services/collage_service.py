@@ -312,19 +312,29 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         if not src or not Path(src).exists():
             continue
         try:
+            sw, sh = int(slot["w"]), int(slot["h"])
             with Image.open(src) as pimg:
                 pimg = pimg.convert("RGBA")
-                fitted = _fit_image(pimg, slot["w"], slot["h"], slot.get("fit", "cover"))
+                fitted = _fit_image(pimg, sw, sh, slot.get("fit", "cover"))
             # Rotate around the slot's centre (expand grows the image, so
             # re-centre it on the slot midpoint instead of the top-left corner)
-            cx = int(slot["x"]) + int(slot["w"]) // 2
-            cy = int(slot["y"]) + int(slot["h"]) // 2
+            cx = int(slot["x"]) + sw // 2
+            cy = int(slot["y"]) + sh // 2
             rot = slot.get("rotation", 0)
             if rot:
                 fitted = fitted.rotate(-rot, expand=True, resample=Image.BICUBIC)
-            px = cx - fitted.width // 2
-            py = cy - fitted.height // 2
-            canvas.alpha_composite(fitted.convert("RGBA"), (px, py))
+            fitted = fitted.convert("RGBA")
+            if slot.get("clip", True):
+                # Clip overflow to the slot rectangle: paste the (centred,
+                # possibly rotated) image into a slot-sized tile — PIL clips to
+                # the tile bounds — then composite the tile at the slot origin.
+                tile = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+                tile.alpha_composite(fitted, (sw // 2 - fitted.width // 2,
+                                              sh // 2 - fitted.height // 2))
+                canvas.alpha_composite(tile, (int(slot["x"]), int(slot["y"])))
+            else:
+                canvas.alpha_composite(fitted, (cx - fitted.width // 2,
+                                                cy - fitted.height // 2))
         except Exception:
             logger.exception("Failed to place photo in slot %d", i)
 
@@ -366,6 +376,50 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
     flat.paste(canvas, mask=canvas.split()[-1])
     flat.save(out_path, "JPEG", quality=jpeg_quality)
     return {"path": str(out_path), "width": cw, "height": ch, "slots": len(slots)}
+
+
+def render_set_gif(photo_paths: list[str], out_path: Path,
+                   max_size: int = 700, duration_ms: int = 800) -> Optional[Path]:
+    """Build an animated GIF cycling through a set's individual shots.
+
+    Each shot is scaled to fit a common max_size square and centred on white so
+    frames share one canvas size (required for a clean animated GIF). Returns the
+    written path, or None if there aren't at least 2 usable frames."""
+    from PIL import Image
+
+    srcs = [p for p in photo_paths if p and Path(p).exists()]
+    if len(srcs) < 2:
+        return None
+
+    # Frame canvas = max aspect across shots, capped to max_size on the long edge.
+    frames = []
+    for p in srcs:
+        try:
+            img = Image.open(p).convert("RGB")
+        except Exception:
+            continue
+        scale = min(max_size / img.width, max_size / img.height, 1.0)
+        frames.append(img.resize((max(1, round(img.width * scale)),
+                                  max(1, round(img.height * scale))), Image.LANCZOS))
+    if len(frames) < 2:
+        return None
+
+    cw = max(f.width for f in frames)
+    ch = max(f.height for f in frames)
+    canvases = []
+    for f in frames:
+        canvas = Image.new("RGB", (cw, ch), (255, 255, 255))
+        canvas.paste(f, ((cw - f.width) // 2, (ch - f.height) // 2))
+        canvases.append(canvas)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        canvases[0].save(out_path, "GIF", save_all=True, append_images=canvases[1:],
+                         duration=duration_ms, loop=0, optimize=True, disposal=2)
+        return out_path
+    except Exception:
+        logger.exception("Set GIF creation failed")
+        return None
 
 
 def make_placeholder(slot_index: int, w: int, h: int):

@@ -21,10 +21,12 @@ export function render(container, state) {
         </div>
         <div id="gallery-grid" style="
             display:grid;
-            grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+            grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+            grid-auto-rows:200px;
             gap:0.9rem;
             align-content:start;
             overflow-y:auto;
+            min-height:0;
             flex:1;
         ">
             <p style="color:var(--pb-color-text-muted);grid-column:1/-1;text-align:center;padding:2rem;">
@@ -40,7 +42,7 @@ export function render(container, state) {
         }
         .gallery-back:hover { background:rgba(108,140,255,0.25); }
         .gallery-item {
-            aspect-ratio:4/3; border-radius:14px; overflow:hidden;
+            height:100%; border-radius:14px; overflow:hidden;
             cursor:pointer; position:relative;
             background:var(--pb-color-surface-2,#232c4a);
             border:1px solid var(--pb-color-border,#2a3a5e);

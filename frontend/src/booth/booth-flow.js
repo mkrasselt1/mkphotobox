@@ -922,7 +922,7 @@ export function render(container, state) {
             }
             const collage = await r.json();
             seq = null;
-            lastPhoto = { photo_id: collage.id, filename: collage.filename };
+            lastPhoto = { photo_id: collage.id, filename: collage.filename, gif: collage.gif };
             transition('review');
             return;
         }

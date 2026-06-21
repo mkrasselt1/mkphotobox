@@ -255,10 +255,19 @@ async def render_collage(body: dict, request: Request,
     thumb_rel = await asyncio.to_thread(_make_collage_thumb, out, storage,
                                         tuple(cfg["photos"]["thumbnail_size"]))
 
+    # A set/arrangement still gets an animated GIF — a slideshow of its shots.
+    gif_filename = None
+    if len(photo_paths) >= 2:
+        gif_out = storage / f"{out.stem}_anim.gif"
+        gif_path = await asyncio.to_thread(collage_service.render_set_gif, photo_paths, gif_out)
+        if gif_path is not None:
+            gif_filename = gif_path.name
+
     photo = Photo(
         session_id=session_id,
         filename=fname,
         thumbnail=thumb_rel,
+        gif_filename=gif_filename,
         width=t.canvas_width, height=t.canvas_height,
         file_size=out.stat().st_size if out.exists() else None,
         captured_at=now,
@@ -270,9 +279,9 @@ async def render_collage(body: dict, request: Request,
     session.refresh(photo)
 
     await request.app.state.bus.emit("capture.completed", {
-        "photo_id": photo.id, "filename": fname, "collage": True,
+        "photo_id": photo.id, "filename": fname, "collage": True, "gif": gif_filename,
     })
-    return {"id": photo.id, "filename": fname, "thumbnail": thumb_rel}
+    return {"id": photo.id, "filename": fname, "thumbnail": thumb_rel, "gif": gif_filename}
 
 
 def _make_collage_thumb(src: Path, storage: Path, size: tuple) -> str | None:
