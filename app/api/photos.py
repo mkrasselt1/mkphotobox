@@ -462,6 +462,37 @@ def _print_override_for_photo(photo, session: Session) -> dict:
 
 # ── Photo access ──────────────────────────────────────────────────────────
 
+@router.get("/photos/feed.json")
+def photos_feed(limit: int = 300, session: Session = Depends(get_session)):
+    """Public newest-first photo feed for the active event — drives the live
+    web gallery (polled by the standalone viewer page). Declared before the
+    ``/photos/{photo_id}`` route so "feed.json" isn't parsed as an id."""
+    event = session.exec(select(Event).where(Event.is_active == True)).first()
+    if event is None:
+        return {"event": None, "photos": []}
+    limit = max(1, min(1000, int(limit)))
+    photos = session.exec(
+        select(Photo)
+        .join(PhotoSession)
+        .where(PhotoSession.event_id == event.id)
+        .order_by(Photo.captured_at.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "event": event.name,
+        "photos": [
+            {
+                "id": p.id,
+                "url": f"/api/v1/photos/{p.id}/file",
+                "thumb": f"/api/v1/photos/{p.id}/thumb" if p.thumbnail else f"/api/v1/photos/{p.id}/file",
+                "name": p.filename,
+                "ts": p.captured_at.isoformat() if p.captured_at else None,
+            }
+            for p in photos
+        ],
+    }
+
+
 @router.get("/photos/{photo_id}", response_model=PhotoResponse)
 def get_photo(photo_id: int, session: Session = Depends(get_session)):
     photo = session.get(Photo, photo_id)

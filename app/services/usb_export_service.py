@@ -154,7 +154,8 @@ class USBExportService:
             return f"Nicht genug Speicher: {need:.0f} MB benötigt, {have:.0f} MB frei."
         return None
 
-    async def start(self, files, *, mountpoint: str, subfolder: str, bus: Any) -> dict[str, Any]:
+    async def start(self, files, *, mountpoint: str, subfolder: str, bus: Any,
+                    include_viewer: bool = True) -> dict[str, Any]:
         if self.is_busy:
             return {"status": "error", "message": "Es läuft bereits ein Kopiervorgang."}
         if not files:
@@ -173,7 +174,8 @@ class USBExportService:
             "started_at": datetime.utcnow().isoformat(),
             "finished_at": None,
         }
-        self._task = asyncio.create_task(self._run(files, mountpoint, subfolder, bus))
+        self._task = asyncio.create_task(
+            self._run(files, mountpoint, subfolder, bus, include_viewer))
         return {"status": "started", **self.state}
 
     async def cancel(self) -> dict[str, Any]:
@@ -186,7 +188,7 @@ class USBExportService:
         if bus is not None:
             await bus.emit("usb_export.progress", self.state)
 
-    async def _run(self, files, mountpoint, subfolder, bus) -> None:
+    async def _run(self, files, mountpoint, subfolder, bus, include_viewer=True) -> None:
         dest_dir = Path(mountpoint) / subfolder if subfolder else Path(mountpoint)
         try:
             dest_dir.mkdir(parents=True, exist_ok=True)
@@ -195,12 +197,16 @@ class USBExportService:
             return
 
         total = len(files)
+        copied_images: list[str] = []
         for idx, (src, name) in enumerate(files, start=1):
             if self._cancelled:
                 await self._finish(bus, "cancelled", "Kopiervorgang abgebrochen.")
                 return
             try:
-                await asyncio.to_thread(shutil.copy2, src, dest_dir / Path(name).name)
+                fname = Path(name).name
+                await asyncio.to_thread(shutil.copy2, src, dest_dir / fname)
+                if fname.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                    copied_images.append(fname)
             except Exception as e:
                 await self._finish(bus, "failed", f"Fehler bei '{name}': {e}")
                 return
@@ -208,6 +214,14 @@ class USBExportService:
             self._state["progress"] = round(idx / total * 100, 1)
             self._state["message"] = f"Kopiere… {idx}/{total} ({name})"
             await self._emit(bus)
+
+        # Drop a standalone offline gallery viewer next to the photos so the
+        # stick can be browsed by just opening index.html (no app needed).
+        if include_viewer and copied_images:
+            try:
+                await asyncio.to_thread(_write_viewer, dest_dir, copied_images)
+            except Exception:
+                logger.exception("Could not write USB viewer")
 
         # Flush filesystem buffers so the medium can be safely removed
         try:
@@ -230,6 +244,19 @@ class USBExportService:
 def _sync_fs() -> None:
     if platform.system() == "Linux":
         subprocess.run(["sync"], timeout=30)
+
+
+def _write_viewer(dest_dir: Path, image_names: list[str]) -> None:
+    """Write a standalone offline gallery (index.html + photos.js) into *dest_dir*.
+
+    Opening index.html (file://) shows a responsive grid + lightbox with no app,
+    server or internet needed. The photo list is embedded as a JS file (not JSON)
+    so it loads under file:// where fetch() is blocked."""
+    from app.services.viewer_assets import VIEWER_HTML, viewer_photos_js
+
+    (dest_dir / "photos.js").write_text(
+        viewer_photos_js(image_names), encoding="utf-8")
+    (dest_dir / "index.html").write_text(VIEWER_HTML, encoding="utf-8")
 
 
 _service = USBExportService()

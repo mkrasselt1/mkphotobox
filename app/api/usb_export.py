@@ -38,6 +38,7 @@ async def usb_status():
         "config": {
             "subfolder": cfg.get("subfolder", "Photobox"),
             "include_gifs": cfg.get("include_gifs", True),
+            "include_viewer": cfg.get("include_viewer", True),
         },
         "job": service.state,
         "busy": service.is_busy,
@@ -96,6 +97,7 @@ async def usb_copy(body: dict, request: Request,
         mountpoint=mountpoint,
         subfolder=cfg.get("subfolder", "Photobox"),
         bus=request.app.state.bus,
+        include_viewer=cfg.get("include_viewer", True),
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result["message"])
@@ -174,7 +176,8 @@ async def usb_import_settings(body: dict, request: Request,
 def usb_configure(body: dict, _user=Depends(require_role("admin", "organizer"))):
     """Update export settings (subfolder, include_gifs)."""
     cfg = get_config()
-    for key in ("subfolder", "include_gifs"):
+    keys = ("subfolder", "include_gifs", "include_viewer")
+    for key in keys:
         if key in body:
             set_nested(cfg, f"usb_export.{key}", body[key])
-    return {"status": "ok", **{k: body[k] for k in ("subfolder", "include_gifs") if k in body}}
+    return {"status": "ok", **{k: body[k] for k in keys if k in body}}

@@ -657,6 +657,10 @@ export function render(container, state) {
                     <span style="font-size:1.8rem;">📱</span>
                     Foto aufs Handy
                 </button>
+                <button id="card-live" class="share-card">
+                    <span style="font-size:1.8rem;">📺</span>
+                    Galerie (Live)
+                </button>
                 ${hasGif ? `
                 <button id="card-gif" class="share-card">
                     <span style="font-size:1.8rem;">🎞️</span>
@@ -734,6 +738,7 @@ export function render(container, state) {
         };
 
         el.querySelector('#card-photo')?.addEventListener('click', () => showQR(fullUrl(downloadUrl), 'Foto aufs Handy'));
+        el.querySelector('#card-live')?.addEventListener('click', () => showQR(`${shareBase || location.origin}/live`, 'Live-Galerie öffnen'));
         el.querySelector('#card-gif')?.addEventListener('click', () => showQR(fullUrl(gifUrl), 'GIF aufs Handy'));
 
         el.querySelector('#card-email')?.addEventListener('click', () => {
@@ -823,6 +828,15 @@ export function render(container, state) {
                     msg.textContent = 'Druckdialog geöffnet'; msg.style.color = 'var(--pb-color-success)';
                 } else if (result.status === 'ok') {
                     msg.textContent = 'Wird gedruckt ✓'; msg.style.color = 'var(--pb-color-success)';
+                    // Warn if the printer reports a blocking problem (paper out, cover open…)
+                    try {
+                        const st = await fetch('/api/v1/printer/state').then(r => r.json());
+                        const errs = (st.alerts || []).filter(a => a.severity === 'error');
+                        if (errs.length || st.ready === false) {
+                            msg.innerHTML = `⚠️ ${st.message || 'Drucker-Problem'}<br><small>Bitte Personal informieren.</small>`;
+                            msg.style.color = 'var(--pb-color-error)';
+                        }
+                    } catch {}
                 } else throw new Error(result.message || 'Drucken fehlgeschlagen');
             } catch (err) {
                 msg.textContent = 'Fehler: ' + err.message; msg.style.color = 'var(--pb-color-error)';

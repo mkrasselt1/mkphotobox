@@ -67,7 +67,8 @@ export async function render(container, state) {
                 </select>
                 <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.5rem;">
                     Ziel-Unterordner: <code>${cfg.subfolder || '(Wurzel)'}</code> ·
-                    ${cfg.include_gifs ? 'GIFs werden mitkopiert.' : 'GIFs werden nicht kopiert.'}
+                    ${cfg.include_gifs ? 'GIFs werden mitkopiert.' : 'GIFs werden nicht kopiert.'} ·
+                    ${cfg.include_viewer !== false ? '🖼️ Foto-Viewer (index.html) wird mitgeliefert.' : 'Ohne Viewer.'}
                 </p>
             </div>
 
@@ -108,6 +109,9 @@ export async function render(container, state) {
                 </div>
                 <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;cursor:pointer;">
                     <input type="checkbox" id="cfg-gifs" ${cfg.include_gifs ? 'checked' : ''}> GIFs mitkopieren
+                </label>
+                <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg-viewer" ${cfg.include_viewer !== false ? 'checked' : ''}> Foto-Viewer (<code>index.html</code>) mitliefern
                 </label>
                 <button id="btn-save-cfg" class="admin-btn admin-btn-outline" style="margin-top:1rem;">Speichern</button>
             </details>
@@ -219,6 +223,7 @@ export async function render(container, state) {
         const payload = {
             subfolder: container.querySelector('#cfg-subfolder').value,
             include_gifs: container.querySelector('#cfg-gifs').checked,
+            include_viewer: container.querySelector('#cfg-viewer').checked,
         };
         try {
             const res = await fetch('/api/v1/usb-export/configure', {

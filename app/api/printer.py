@@ -28,6 +28,15 @@ async def list_paper_sizes(printer: str = ""):
     return await asyncio.to_thread(PrinterOutput.list_paper_sizes, printer)
 
 
+@router.get("/state")
+async def printer_state(printer: str = ""):
+    """Live printer status: ready/blocked + human alerts (paper out, cover
+    open, offline, …). Falls back to the configured printer when none given."""
+    from app.modules.output.printer import PrinterOutput
+    name = printer or get_config().get("outputs", {}).get("printer", {}).get("printer_name", "")
+    return await asyncio.to_thread(PrinterOutput.printer_status, name)
+
+
 @router.get("/status")
 def get_printer_status(request: Request):
     """Get current printer configuration."""

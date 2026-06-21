@@ -140,14 +140,16 @@ function renderEditor(container, state, p) {
             ` : `
             <div class="admin-card">
                 <h3>Pixelmaße</h3>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;align-items:center;">
                     ${[['1:1', 1080, 1080], ['4:5', 1080, 1350], ['9:16', 1080, 1920], ['16:9', 1920, 1080]].map(([l, w, h]) =>
                         `<button class="ratio-btn admin-btn admin-btn-outline" data-w="${w}" data-h="${h}" style="font-size:0.8rem;">${l}</button>`).join('')}
+                    <button id="s-swap" class="admin-btn admin-btn-outline" style="font-size:0.8rem;margin-left:auto;">↔ Hoch/Quer tauschen</button>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
                     <div><label style="font-size:0.85rem;">Breite (px)</label><input id="s-w" type="number" class="admin-input" style="width:100%;margin-top:0.25rem;" value="${p.width_px}" min="1"></div>
                     <div><label style="font-size:0.85rem;">Höhe (px)</label><input id="s-h" type="number" class="admin-input" style="width:100%;margin-top:0.25rem;" value="${p.height_px}" min="1"></div>
                 </div>
+                <p id="s-ar" style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);"></p>
             </div>
             `}
 
@@ -195,10 +197,20 @@ function renderEditor(container, state, p) {
         // initial: load sizes for the currently-selected printer, keeping current paper
         loadPaper(p.printer_name || '', p.paper_size || null);
     } else {
+        const sw = container.querySelector('#s-w'), sh = container.querySelector('#s-h');
+        const arOut = container.querySelector('#s-ar');
+        const showAr = () => {
+            const w = parseInt(sw.value) || 0, h = parseInt(sh.value) || 0;
+            arOut.textContent = (w && h) ? `Seitenverhältnis ${(w / h).toFixed(2)} · ${w > h ? 'Querformat' : w < h ? 'Hochformat' : 'Quadrat'}` : '';
+        };
         container.querySelectorAll('.ratio-btn').forEach(b => b.addEventListener('click', () => {
-            container.querySelector('#s-w').value = b.dataset.w;
-            container.querySelector('#s-h').value = b.dataset.h;
+            sw.value = b.dataset.w; sh.value = b.dataset.h; showAr();
         }));
+        container.querySelector('#s-swap')?.addEventListener('click', () => {
+            const w = sw.value; sw.value = sh.value; sh.value = w; showAr();
+        });
+        sw.addEventListener('input', showAr); sh.addEventListener('input', showAr);
+        showAr();
     }
 
     container.querySelector('#save')?.addEventListener('click', async () => {

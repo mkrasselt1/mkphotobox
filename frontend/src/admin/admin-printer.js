@@ -1,7 +1,10 @@
 import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
 
+let _stateTimer = null;
+
 export async function render(container, state) {
     const headers = getHeaders();
+    if (_stateTimer) { clearInterval(_stateTimer); _stateTimer = null; }
 
     let printerStatus = {}, printers = [];
     try {
@@ -17,6 +20,16 @@ export async function render(container, state) {
     container.innerHTML = adminShell(`
         <h1 style="margin-bottom:1.5rem;">Drucker-Einstellungen</h1>
         <div style="max-width:650px;">
+
+            <div id="printer-state" class="admin-card" style="display:${mode === 'server' ? 'flex' : 'none'};align-items:center;gap:0.75rem;">
+                <span id="ps-dot" style="width:12px;height:12px;border-radius:50%;background:#888;flex-shrink:0;"></span>
+                <div style="flex:1;">
+                    <strong id="ps-msg">Status wird geladen…</strong>
+                    <div id="ps-detail" style="font-size:0.85rem;color:var(--pb-color-text-muted);"></div>
+                </div>
+                <button id="ps-refresh" class="admin-btn admin-btn-outline" style="font-size:0.8rem;">Aktualisieren</button>
+            </div>
+
 
             <div class="admin-card">
                 <h3>Druck-Modus</h3>
@@ -98,10 +111,41 @@ export async function render(container, state) {
 
     setupLogout(container);
 
+    // ── Live printer status (paper out, cover open, offline, …) ──────────
+    async function loadPrinterState(printerName) {
+        const card = container.querySelector('#printer-state');
+        const selectedMode = container.querySelector('input[name="print_mode"]:checked')?.value;
+        if (!card || selectedMode !== 'server') { if (card) card.style.display = 'none'; return; }
+        card.style.display = 'flex';
+        const dot = container.querySelector('#ps-dot');
+        const msg = container.querySelector('#ps-msg');
+        const detail = container.querySelector('#ps-detail');
+        let s = {};
+        try {
+            s = await fetch(`/api/v1/printer/state?printer=${encodeURIComponent(printerName || '')}`, { headers }).then(r => r.json());
+        } catch { msg.textContent = 'Status nicht abrufbar'; return; }
+        const hasError = (s.alerts || []).some(a => a.severity === 'error') || s.ready === false;
+        const hasWarn = (s.alerts || []).some(a => a.severity === 'warning');
+        const color = hasError ? 'var(--pb-color-error)' : hasWarn ? '#f5a623' : 'var(--pb-color-success)';
+        dot.style.background = color;
+        dot.style.boxShadow = `0 0 8px ${color}`;
+        msg.textContent = (s.ready ? '✓ ' : '⚠️ ') + (s.message || 'Unbekannt') + (s.printer ? ` — ${s.printer}` : '');
+        msg.style.color = color;
+        detail.innerHTML = (s.alerts || []).length
+            ? s.alerts.map(a => `${a.severity === 'error' ? '⛔' : a.severity === 'warning' ? '⚠️' : 'ℹ️'} ${a.message}`).join(' · ')
+            : (s.available === false ? 'Status nicht verfügbar.' : '');
+    }
+    const currentStatePrinter = () => container.querySelector('#printer-select')?.value ?? currentPrinter;
+    loadPrinterState(currentStatePrinter());
+    _stateTimer = setInterval(() => loadPrinterState(currentStatePrinter()), 12000);
+    container.querySelector('#ps-refresh')?.addEventListener('click', () => loadPrinterState(currentStatePrinter()));
+
     // Toggle server settings
     container.querySelectorAll('input[name="print_mode"]').forEach(radio => {
         radio.addEventListener('change', () => {
             document.getElementById('server-settings').style.display = radio.value === 'server' ? '' : 'none';
+            container.querySelector('#printer-state').style.display = radio.value === 'server' ? 'flex' : 'none';
+            if (radio.value === 'server') loadPrinterState(currentStatePrinter());
         });
     });
 
@@ -132,7 +176,10 @@ export async function render(container, state) {
         }
     }
     if (mode === 'server' && currentPrinter) loadPaperSizes(currentPrinter);
-    container.querySelector('#printer-select')?.addEventListener('change', (e) => loadPaperSizes(e.target.value));
+    container.querySelector('#printer-select')?.addEventListener('change', (e) => {
+        loadPaperSizes(e.target.value);
+        loadPrinterState(e.target.value);
+    });
 
     // Save
     container.querySelector('#btn-save')?.addEventListener('click', async () => {

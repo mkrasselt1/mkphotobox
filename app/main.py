@@ -216,6 +216,16 @@ def create_app() -> FastAPI:
     app.include_router(wifi.router)
     app.include_router(ws.router)
 
+    # Standalone live photo gallery (shareable via QR; guests on the LAN watch
+    # photos appear in real time). Public, no auth — same as the photo files.
+    from starlette.responses import HTMLResponse as _LiveHTML
+
+    from app.services.viewer_assets import live_viewer_html
+
+    @app.get("/live", include_in_schema=False)
+    def live_gallery():
+        return _LiveHTML(live_viewer_html("/api/v1/photos/feed.json", "Foto-Galerie"))
+
     # Serve bundled fonts as web fonts (@font-face) so script fonts render in any
     # browser without a local install — offline-capable (no Google CDN).
     fonts_dir = Path(__file__).resolve().parent / "assets" / "fonts"

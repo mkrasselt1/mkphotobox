@@ -271,6 +271,124 @@ $pd.Dispose()
         except Exception:
             return {"sizes": [], "default": None}
 
+    # ── Live printer state (paper out, cover open, offline, …) ──────────────
+    # IPP printer-state-reasons keyword → (human German message). Matched as a
+    # substring so vendor prefixes/suffixes (…-error/-warning/-report) still hit.
+    _STATE_REASON_MAP = [
+        ("media-empty", "Kein Papier / Medium leer"),
+        ("media-needed", "Papier nachlegen"),
+        ("media-low", "Papier fast leer"),
+        ("media-jam", "Papierstau"),
+        ("cover-open", "Abdeckung offen"),
+        ("door-open", "Tür/Klappe offen"),
+        ("input-tray-missing", "Papierfach fehlt"),
+        ("marker-supply-empty", "Tinte/Farbband leer"),
+        ("toner-empty", "Toner leer"),
+        ("marker-supply-low", "Tinte/Farbband fast leer"),
+        ("toner-low", "Toner fast leer"),
+        ("marker-waste-full", "Resttank voll"),
+        ("offline", "Drucker offline"),
+        ("shutoff", "Drucker ausgeschaltet"),
+        ("connecting-to-device", "Verbindet mit Drucker…"),
+        ("timed-out", "Zeitüberschreitung"),
+        ("paused", "Drucker pausiert"),
+        ("spool-area-full", "Warteschlange voll"),
+        ("jam", "Papierstau"),
+    ]
+
+    @staticmethod
+    def _interpret_reasons(reasons: list[str]) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        for raw in reasons:
+            r = (raw or "").strip().lower()
+            if not r or r == "none":
+                continue
+            severity = ("error" if r.endswith("-error")
+                        else "warning" if r.endswith("-warning")
+                        else "info")
+            msg = next((m for key, m in PrinterOutput._STATE_REASON_MAP if key in r), None)
+            out.append({"reason": raw, "severity": severity, "message": msg or raw})
+        return out
+
+    @staticmethod
+    def printer_status(printer_name: str) -> dict[str, Any]:
+        """Live status of a printer: ready/blocked plus human-readable alerts
+        (out of paper, cover open, offline, …). Reads CUPS state-reasons."""
+        system = platform.system()
+        if system != "Linux":
+            return {"available": True, "state": "unknown", "ready": True,
+                    "alerts": [], "message": "Status nur unter Linux/CUPS verfügbar."}
+        try:
+            import cups
+        except ImportError:
+            return PrinterOutput._printer_status_lpstat(printer_name)
+
+        try:
+            conn = cups.Connection()
+            name = printer_name or conn.getDefault() or next(iter(conn.getPrinters()), None)
+            if not name:
+                return {"available": False, "state": "missing", "ready": False,
+                        "alerts": [{"severity": "error", "message": "Kein Drucker gefunden", "reason": "no-printer"}],
+                        "message": "Kein Drucker gefunden", "printer": None}
+            attrs = conn.getPrinterAttributes(name)
+            state = attrs.get("printer-state")  # 3=idle, 4=processing, 5=stopped
+            raw_reasons = attrs.get("printer-state-reasons", [])
+            if isinstance(raw_reasons, str):
+                raw_reasons = [raw_reasons]
+            alerts = PrinterOutput._interpret_reasons(list(raw_reasons))
+            accepting = attrs.get("printer-is-accepting-jobs", True)
+            state_name = {3: "idle", 4: "processing", 5: "stopped"}.get(state, "unknown")
+            has_error = any(a["severity"] == "error" for a in alerts)
+            ready = bool(accepting) and state != 5 and not has_error
+            if alerts:
+                message = "; ".join(a["message"] for a in alerts)
+            elif state == 5:
+                message = "Drucker gestoppt"
+            elif not accepting:
+                message = "Nimmt keine Aufträge an"
+            else:
+                message = "Bereit"
+            return {"available": True, "printer": name, "state": state_name,
+                    "ready": ready, "accepting": bool(accepting),
+                    "alerts": alerts, "message": message,
+                    "state_message": attrs.get("printer-state-message", "")}
+        except Exception as e:
+            logger.exception("CUPS status query failed")
+            return {"available": False, "state": "error", "ready": False,
+                    "alerts": [{"severity": "error", "message": str(e), "reason": "exception"}],
+                    "message": str(e)}
+
+    @staticmethod
+    def _printer_status_lpstat(printer_name: str) -> dict[str, Any]:
+        """Fallback printer status via the CUPS `lpstat` CLI (no pycups)."""
+        try:
+            name = printer_name
+            if not name:
+                d = subprocess.run(["lpstat", "-d"], capture_output=True, text=True, timeout=10)
+                name = d.stdout.split(":")[-1].strip() if ":" in d.stdout else ""
+            r = subprocess.run(["lpstat", "-l", "-p", name] if name else ["lpstat", "-l", "-p"],
+                               capture_output=True, text=True, timeout=10)
+            text = r.stdout
+            low = text.lower()
+            stopped = "disabled" in low or "is stopped" in low
+            # Collect any reason fragments lpstat printed (indented lines)
+            reasons = []
+            for key, _ in PrinterOutput._STATE_REASON_MAP:
+                if key in low:
+                    reasons.append(key)
+            alerts = PrinterOutput._interpret_reasons(reasons)
+            has_error = stopped or any(a["severity"] == "error" for a in alerts)
+            return {"available": True, "printer": name or "(Standard)",
+                    "state": "stopped" if stopped else "idle",
+                    "ready": not has_error,
+                    "alerts": alerts,
+                    "message": ("; ".join(a["message"] for a in alerts)
+                                or ("Drucker gestoppt" if stopped else "Bereit"))}
+        except Exception as e:
+            return {"available": False, "state": "error", "ready": False,
+                    "alerts": [{"severity": "error", "message": str(e), "reason": "exception"}],
+                    "message": str(e)}
+
     @staticmethod
     def _list_printers_cups() -> list[dict[str, str]]:
         try:
