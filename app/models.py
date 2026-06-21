@@ -154,8 +154,42 @@ class Template(SQLModel, table=True):
     canvas_width: int = Field(default=1200)
     canvas_height: int = Field(default=1800)
     photo_count: int = Field(default=1)
+    # Optional link to an output preset (print paper / social format). When set,
+    # the canvas dimensions follow the preset and printing this template's
+    # collages routes to the preset's printer + paper.
+    preset_id: Optional[int] = Field(default=None, foreign_key="output_preset.id")
     background_asset_id: Optional[int] = Field(default=None, foreign_key="asset.id")
     overlay_asset_id: Optional[int] = Field(default=None, foreign_key="asset.id")
     # definition_json: {"slots": [...], "overlays": [...]}
     definition_json: str = Field(default='{"slots": [], "overlays": []}')
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OutputPreset(SQLModel, table=True):
+    """A reusable output format: either a physical print paper (read from the
+    printer, so the canvas isn't a pixel guess) or a digital/social format.
+
+    The pixel size drives the template canvas; for print presets the physical
+    size (mm) + dpi derive those pixels, and the printer/paper/copies are used
+    when a linked template's collage is printed.
+    """
+
+    __tablename__ = "output_preset"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    kind: str = Field(default="print")  # print | social
+    width_px: int = Field(default=1200)
+    height_px: int = Field(default=1800)
+    dpi: int = Field(default=300)
+    # ── print-specific (None/ignored for social) ──
+    printer_name: Optional[str] = None
+    paper_size: Optional[str] = None          # CUPS/Windows media name
+    width_mm: Optional[float] = None          # physical paper size (short edge)
+    height_mm: Optional[float] = None         # physical paper size (long edge)
+    orientation: str = Field(default="portrait")  # portrait | landscape
+    copies: int = Field(default=1)
+    margin_mm: float = Field(default=0)
+    fit_to_page: bool = Field(default=True)
+    builtin: bool = Field(default=False)      # seeded social formats — not deletable
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -17,6 +17,7 @@ export class Router {
             'admin/cameras':      () => import('../admin/admin-cameras.js'),
             'admin/modules':      () => import('../admin/admin-modules.js'),
             'admin/events':       () => import('../admin/admin-events.js'),
+            'admin/presets':      () => import('../admin/admin-presets.js'),
             'admin/printer':      () => import('../admin/admin-printer.js'),
             'admin/cd-burn':      () => import('../admin/admin-cd-burn.js'),
             'admin/usb-export':   () => import('../admin/admin-usb-export.js'),

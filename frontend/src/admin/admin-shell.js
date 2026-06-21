@@ -20,6 +20,7 @@ export function adminShell(contentHTML) {
         { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'process' },
         { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️', group: 'process' },
         { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'process' },
+        { key: 'presets', href: '#/admin/presets', label: 'Ausgabe-Formate', icon: '📐', group: 'output' },
         { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️', group: 'output' },
         { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿', group: 'output' },
         { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'output' },

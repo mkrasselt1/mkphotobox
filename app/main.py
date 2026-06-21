@@ -52,6 +52,12 @@ async def lifespan(app: FastAPI):
         if n:
             logger.info("Applied %d DB setting override(s)", n)
 
+        # Seed built-in output presets (Instagram/TikTok/… formats)
+        from app.api.presets import ensure_builtin_presets
+        added = ensure_builtin_presets(session)
+        if added:
+            logger.info("Seeded %d built-in output preset(s)", added)
+
         # Ensure at least one active event exists
         from sqlmodel import select
         active_event = session.exec(select(Event).where(Event.is_active == True)).first()
@@ -187,7 +193,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, cd_burn, events, modules, photos, printer, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
@@ -196,6 +202,7 @@ def create_app() -> FastAPI:
     app.include_router(cd_burn.router)
     app.include_router(events.router)
     app.include_router(photos.router)
+    app.include_router(presets.router)
     app.include_router(printer.router)
     app.include_router(settings.router)
     app.include_router(system.router)

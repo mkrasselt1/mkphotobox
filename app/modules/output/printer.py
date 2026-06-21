@@ -56,15 +56,29 @@ class PrinterOutput(AbstractOutput):
             return True
         return False
 
-    async def send(self, photo_path: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        if self._mode == "browser":
-            return {"status": "ok", "print_mode": "browser"}
-        return await asyncio.to_thread(self._print_sync, photo_path)
+    # Per-job overrides a caller may pass via metadata (e.g. a template's print
+    # preset → route the 3-photo strip to the panorama printer).
+    _OVERRIDE_KEYS = ("printer_name", "paper_size", "copies", "orientation",
+                      "margin_mm", "fit_to_page", "mode")
 
-    def _print_sync(self, photo_path: str) -> dict[str, Any]:
+    async def send(self, photo_path: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        override = {k: metadata[k] for k in self._OVERRIDE_KEYS if metadata.get(k) is not None}
+        mode = override.get("mode", self._mode)
+        if mode == "browser":
+            return {"status": "ok", "print_mode": "browser"}
+        return await asyncio.to_thread(self._print_sync, photo_path, override)
+
+    def _print_sync(self, photo_path: str, override: dict[str, Any] | None = None) -> dict[str, Any]:
         photo = Path(photo_path)
         if not photo.exists():
             return {"status": "error", "message": "Photo file not found"}
+
+        # Apply per-job overrides on top of the configured defaults, restoring
+        # them afterwards so the override never leaks into later jobs.
+        saved = {k: getattr(self, f"_{k}") for k in self._OVERRIDE_KEYS if k != "mode"}
+        for k, v in (override or {}).items():
+            if k != "mode" and hasattr(self, f"_{k}"):
+                setattr(self, f"_{k}", v)
 
         system = platform.system()
         try:
@@ -77,6 +91,9 @@ class PrinterOutput(AbstractOutput):
         except Exception as e:
             logger.exception("Print failed")
             return {"status": "error", "message": str(e)}
+        finally:
+            for k, v in saved.items():
+                setattr(self, f"_{k}", v)
 
     def _print_cups(self, photo: Path) -> dict[str, Any]:
         try:

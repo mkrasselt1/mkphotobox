@@ -377,11 +377,19 @@ async def send_output(
 
     # Resolve photo path
     photo_path = ""
+    photo = None
     if photo_id:
         photo = session.get(Photo, photo_id)
         if photo is None:
             raise HTTPException(status_code=404, detail="Photo not found")
         photo_path = str(Path(cfg["photos"]["storage_path"]) / photo.filename)
+
+    # Per-template print routing: if this is a collage whose template is linked to
+    # a *print* preset, print on that preset's printer/paper instead of the global
+    # default (e.g. the 3-photo strip → panorama printer).
+    print_override = {}
+    if module_id == "output.printer" and photo is not None:
+        print_override = _print_override_for_photo(photo, session)
 
     # Create output job
     job = OutputJob(
@@ -396,7 +404,8 @@ async def send_output(
     session.refresh(job)
 
     # Send via module
-    result = await outputs.send(module_id, photo_path, {"target": target, "photo_id": photo_id})
+    result = await outputs.send(module_id, photo_path,
+                               {"target": target, "photo_id": photo_id, **print_override})
 
     job.status = "completed" if result.get("status") == "ok" else "failed"
     job.error_msg = result.get("message")
@@ -414,6 +423,41 @@ async def send_output(
 async def list_available_outputs(request: Request):
     """List available output modules."""
     return request.app.state.outputs.list_outputs()
+
+
+def _print_override_for_photo(photo, session: Session) -> dict:
+    """If *photo* is a collage from a template linked to a print preset, return
+    the per-job printer settings to apply; otherwise an empty dict."""
+    import json as _json
+
+    from app.models import OutputPreset, Template
+
+    try:
+        meta = _json.loads(photo.metadata_json or "{}")
+    except (ValueError, TypeError):
+        return {}
+    template_id = meta.get("template_id")
+    if not template_id:
+        return {}
+    template = session.get(Template, template_id)
+    if template is None or template.preset_id is None:
+        return {}
+    preset = session.get(OutputPreset, template.preset_id)
+    if preset is None or preset.kind != "print":
+        return {}
+
+    override = {
+        "mode": "server",
+        "copies": preset.copies,
+        "orientation": preset.orientation,
+        "margin_mm": preset.margin_mm,
+        "fit_to_page": preset.fit_to_page,
+    }
+    if preset.printer_name:
+        override["printer_name"] = preset.printer_name
+    if preset.paper_size:
+        override["paper_size"] = preset.paper_size
+    return override
 
 
 # ── Photo access ──────────────────────────────────────────────────────────

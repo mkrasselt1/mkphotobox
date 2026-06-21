@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 
 from app.auth import require_role
 from app.database import get_engine, get_session
-from app.models import Event, Photo, PhotoSession, Template
+from app.models import Event, OutputPreset, Photo, PhotoSession, Template
 from app.services import collage_service
 
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -29,6 +29,16 @@ def _template_dict(t: Template) -> dict:
     except json.JSONDecodeError:
         d["definition"] = {"slots": [], "overlays": []}
     return d
+
+
+def _sync_canvas_from_preset(t: Template, session: Session) -> None:
+    """When a template is linked to a preset, its canvas follows the preset px."""
+    if t.preset_id is None:
+        return
+    preset = session.get(OutputPreset, t.preset_id)
+    if preset is not None:
+        t.canvas_width = preset.width_px
+        t.canvas_height = preset.height_px
 
 
 @router.get("")
@@ -65,10 +75,12 @@ def create_template(body: dict, session: Session = Depends(get_session),
         canvas_width=int(body.get("canvas_width", 1200)),
         canvas_height=int(body.get("canvas_height", 1800)),
         photo_count=len(slots),
+        preset_id=body.get("preset_id"),
         background_asset_id=body.get("background_asset_id"),
         overlay_asset_id=body.get("overlay_asset_id"),
         definition_json=json.dumps(definition),
     )
+    _sync_canvas_from_preset(t, session)
     session.add(t)
     session.commit()
     session.refresh(t)
@@ -94,11 +106,14 @@ def update_template(template_id: int, body: dict, session: Session = Depends(get
     if "mode" in body: t.mode = body["mode"]
     if "canvas_width" in body: t.canvas_width = int(body["canvas_width"])
     if "canvas_height" in body: t.canvas_height = int(body["canvas_height"])
+    if "preset_id" in body: t.preset_id = body["preset_id"]
     if "background_asset_id" in body: t.background_asset_id = body["background_asset_id"]
     if "overlay_asset_id" in body: t.overlay_asset_id = body["overlay_asset_id"]
     if "definition" in body:
         t.definition_json = json.dumps(body["definition"])
         t.photo_count = len(body["definition"].get("slots", []))
+    # A linked preset's pixels win over any client-sent canvas size.
+    _sync_canvas_from_preset(t, session)
     session.add(t)
     session.commit()
     session.refresh(t)

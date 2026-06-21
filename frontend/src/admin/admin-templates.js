@@ -4,6 +4,13 @@ const DISPLAY_W = 520;  // canvas preview width in px
 let headers;
 let assetsByType = { background: [], frame: [], logo: [], sticker: [] };
 let availableFonts = ['Sans', 'Serif', 'Mono'];
+let presets = [];  // output presets (print paper / social formats)
+
+async function loadPresets() {
+    try {
+        presets = await fetch('/api/v1/presets', { headers }).then(r => r.json()).then(r => r.presets || []);
+    } catch { presets = []; }
+}
 
 async function loadAssets() {
     const out = {};
@@ -46,6 +53,7 @@ export async function render(container, state) {
     headers = getHeaders();
     await loadAssets();
     await loadFonts();
+    await loadPresets();
     renderList(container, state);
 }
 
@@ -79,7 +87,7 @@ async function renderList(container, state) {
     container.querySelector('#btn-new')?.addEventListener('click', () => {
         renderEditor(container, state, {
             id: null, name: 'Neue Vorlage', mode: 'grid',
-            canvas_width: 1200, canvas_height: 1800,
+            canvas_width: 1200, canvas_height: 1800, preset_id: null,
             background_asset_id: null, overlay_asset_id: null,
             slots: [], overlays: [], texts: [],
         });
@@ -88,7 +96,7 @@ async function renderList(container, state) {
         const t = await fetch(`/api/v1/templates/${b.dataset.id}`, { headers }).then(r => r.json());
         renderEditor(container, state, {
             id: t.id, name: t.name, mode: t.mode,
-            canvas_width: t.canvas_width, canvas_height: t.canvas_height,
+            canvas_width: t.canvas_width, canvas_height: t.canvas_height, preset_id: t.preset_id ?? null,
             background_asset_id: t.background_asset_id, overlay_asset_id: t.overlay_asset_id,
             slots: t.definition.slots || [], overlays: t.definition.overlays || [],
             texts: t.definition.texts || [],
@@ -104,6 +112,7 @@ async function renderList(container, state) {
 // ── Editor view ────────────────────────────────────────────────────────────
 function renderEditor(container, state, ed) {
     let selected = null;  // {kind:'slot'|'overlay'|'text', index}
+    const boundPreset = ed.preset_id != null ? presets.find(p => p.id === ed.preset_id) : null;
     const scale = DISPLAY_W / ed.canvas_width;
     let editMode = 'move';  // 'move' | 'resize' | 'rotate' — touch-friendly: drag anywhere
     let snapEnabled = true;   // snap to guides + other elements while dragging
@@ -144,13 +153,23 @@ function renderEditor(container, state, ed) {
 
             <div style="flex:1;min-width:280px;max-width:420px;">
                 <div class="admin-card">
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
-                        <div><label style="font-size:0.85rem;">Breite (px)</label><input id="f-w" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_width}"></div>
-                        <div><label style="font-size:0.85rem;">Höhe (px)</label><input id="f-h" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_height}"></div>
-                    </div>
-                    <button id="btn-orient" class="admin-btn admin-btn-outline" style="margin-top:0.75rem;width:100%;">
-                        ${ed.canvas_height >= ed.canvas_width ? '📱 Hochformat' : '🖥️ Querformat'} → wechseln
-                    </button>
+                    <label style="font-size:0.85rem;">Ausgabe-Format</label>
+                    <select id="f-preset" class="admin-input" style="width:100%;margin:0.25rem 0 0.75rem;">
+                        <option value="">Benutzerdefiniert (freie Pixel)</option>
+                        ${presets.map(p => `<option value="${p.id}" ${p.id === ed.preset_id ? 'selected' : ''}>${p.kind === 'print' ? '🖨️' : '📱'} ${p.name} — ${p.width_px}×${p.height_px}</option>`).join('')}
+                    </select>
+                    ${boundPreset ? `
+                        <p style="font-size:0.8rem;color:var(--pb-color-text-muted);margin:0;">
+                            Canvas folgt dem Format <strong>${boundPreset.name}</strong> (${ed.canvas_width}×${ed.canvas_height} px).
+                            ${boundPreset.kind === 'print' ? 'Ausrichtung/Drehung wird im Format selbst eingestellt.' : ''}
+                        </p>` : `
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+                            <div><label style="font-size:0.85rem;">Breite (px)</label><input id="f-w" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_width}"></div>
+                            <div><label style="font-size:0.85rem;">Höhe (px)</label><input id="f-h" type="number" class="admin-input" style="width:100%;" value="${ed.canvas_height}"></div>
+                        </div>
+                        <button id="btn-orient" class="admin-btn admin-btn-outline" style="margin-top:0.75rem;width:100%;">
+                            ${ed.canvas_height >= ed.canvas_width ? '📱 Hochformat' : '🖥️ Querformat'} → wechseln
+                        </button>`}
                 </div>
 
                 <div class="admin-card">
@@ -543,8 +562,19 @@ function renderEditor(container, state, ed) {
         renderEditor(container, state, ed);  // rescale + redraw
     });
     container.querySelector('#f-name')?.addEventListener('input', (e) => ed.name = e.target.value);
+
+    // Output-format (preset) selector: binds the canvas to a print paper / social
+    // format. The backend keeps the canvas in sync with the chosen preset.
+    container.querySelector('#f-preset')?.addEventListener('change', (e) => {
+        const val = e.target.value ? parseInt(e.target.value) : null;
+        ed.preset_id = val;
+        const p = val != null ? presets.find(x => x.id === val) : null;
+        if (p) { ed.canvas_width = p.width_px; ed.canvas_height = p.height_px; }
+        renderEditor(container, state, ed);  // rescale + reflect bound/free state
+    });
+
     const reW = container.querySelector('#f-w'), reH = container.querySelector('#f-h');
-    [reW, reH].forEach(inp => inp.addEventListener('change', () => {
+    if (reW && reH) [reW, reH].forEach(inp => inp.addEventListener('change', () => {
         ed.canvas_width = parseInt(reW.value) || 1200;
         ed.canvas_height = parseInt(reH.value) || 1800;
         renderEditor(container, state, ed);  // rescale
@@ -584,6 +614,7 @@ function renderEditor(container, state, ed) {
         return {
             name: ed.name, mode: ed.mode,
             canvas_width: ed.canvas_width, canvas_height: ed.canvas_height,
+            preset_id: ed.preset_id ?? null,
             background_asset_id: ed.background_asset_id, overlay_asset_id: ed.overlay_asset_id,
             definition: { slots: ed.slots, overlays: ed.overlays, texts: ed.texts },
         };

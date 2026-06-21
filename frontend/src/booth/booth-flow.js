@@ -38,6 +38,7 @@ let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
 let boothInitiated = false;  // true while the booth drives its own capture sequence
 let shareBase = '';          // LAN base URL for QR codes (phone-reachable, not localhost)
+let cropAspect = null;       // {w,h} default output aspect to outline on the live preview
 
 const PREVIEW_MAX_WIDTHS = {
     small: '320px',
@@ -83,6 +84,9 @@ export function render(container, state) {
 
     container.innerHTML = `<div id="booth" style="width:100%;height:100%;position:relative;overflow:hidden;"></div>`;
 
+    // Keep crop guides correctly sized when the viewport changes
+    window.addEventListener('resize', sizeCropGuides);
+
     // Detect camera mode and preview size from server
     detectSettings().then(() => transition('idle'));
 
@@ -112,6 +116,12 @@ export function render(container, state) {
             templates = await fetch('/api/v1/templates/booth').then(r => r.json()).then(r => r.templates || []);
         } catch {
             templates = [];
+        }
+        // Default crop aspect for the idle live preview = the first offered template's
+        // output ratio (the "späterer Zuschnitt"); per-shot it follows the chosen one.
+        const t0 = templates[0];
+        if (t0 && t0.canvas_width && t0.canvas_height) {
+            cropAspect = { w: t0.canvas_width, h: t0.canvas_height };
         }
         try {
             shareBase = await fetch('/api/v1/system/share-base').then(r => r.json()).then(r => r.base_url || '');
@@ -187,12 +197,61 @@ export function render(container, state) {
             return `
             <div id="${id}" style="${style}">
                 <img id="preview-img" src="/api/v1/camera/stream" style="width:100%;height:100%;object-fit:cover;" alt="Live Preview">
+                ${cropGuideHTML()}
             </div>`;
         }
         return `
         <div id="${id}" style="${style}">
             <video id="preview-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
+            ${cropGuideHTML()}
         </div>`;
+    }
+
+    // ── Crop guide: outline the eventual output aspect on the live preview ───
+    function currentCropAspect() {
+        if (seq && seq.template && seq.template.canvas_width && seq.template.canvas_height) {
+            return { w: seq.template.canvas_width, h: seq.template.canvas_height };
+        }
+        return cropAspect;
+    }
+
+    function cropGuideHTML() {
+        const a = currentCropAspect();
+        if (!a || !a.w || !a.h) return '';
+        return `
+        <div class="crop-guide" data-aw="${a.w}" data-ah="${a.h}" style="
+            position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);opacity:0;
+            box-shadow:0 0 0 9999px rgba(0,0,0,0.42);
+            border:2px solid rgba(255,255,255,0.92);border-radius:6px;
+            pointer-events:none;z-index:3;box-sizing:border-box;transition:opacity 0.2s;">
+            <span style="position:absolute;top:6px;left:50%;transform:translateX(-50%);
+                font-size:0.7rem;color:#fff;background:rgba(0,0,0,0.45);
+                padding:1px 9px;border-radius:8px;white-space:nowrap;letter-spacing:0.3px;">Bildausschnitt</span>
+        </div>`;
+    }
+
+    // Size every crop guide to the largest centred rect of its target aspect that
+    // fits its preview container (run after layout; re-run on resize).
+    function sizeCropGuides() {
+        document.querySelectorAll('#booth .crop-guide').forEach(g => {
+            const c = g.parentElement;
+            if (!c) return;
+            const cw = c.clientWidth, ch = c.clientHeight;
+            const aw = parseFloat(g.dataset.aw), ah = parseFloat(g.dataset.ah);
+            if (!cw || !ch || !aw || !ah) return;
+            const target = aw / ah;
+            let w, h;
+            if (cw / ch > target) { h = ch; w = ch * target; }
+            else { w = cw; h = cw / target; }
+            g.style.width = Math.round(w) + 'px';
+            g.style.height = Math.round(h) + 'px';
+            g.style.opacity = '1';
+        });
+    }
+
+    function scheduleCropSizing() {
+        requestAnimationFrame(sizeCropGuides);
+        setTimeout(sizeCropGuides, 120);  // after MJPEG/video lays out
     }
 
     async function activatePreview() {
@@ -359,6 +418,7 @@ export function render(container, state) {
         }
 
         activatePreview();
+        scheduleCropSizing();
         showStorage(el);
 
         const btn = el.querySelector('#btn-start');
@@ -480,6 +540,7 @@ export function render(container, state) {
             <div style="width:100%;height:100%;position:relative;">
                 <div style="${containerStyle}">
                     ${previewContent}
+                    ${cropGuideHTML()}
                     ${countdownOverlay}
                 </div>
                 <p style="position:absolute;bottom:2rem;left:0;right:0;text-align:center;font-size:1.25rem;text-shadow:0 2px 8px rgba(0,0,0,0.7);z-index:2;">${i18n.t('booth.get_ready')}${shotLabel}</p>
@@ -492,6 +553,7 @@ export function render(container, state) {
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1rem;">
                 <div style="${containerStyle}">
                     ${previewContent}
+                    ${cropGuideHTML()}
                     ${countdownOverlay}
                 </div>
                 <p style="font-size:1.25rem;">${i18n.t('booth.get_ready')}${shotLabel}</p>
@@ -502,6 +564,7 @@ export function render(container, state) {
         }
 
         activatePreview();
+        scheduleCropSizing();
 
         // Visible countdown ticks once per second (only updates the number).
         countdownTimer = setInterval(() => {
