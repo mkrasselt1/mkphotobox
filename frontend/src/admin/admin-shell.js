@@ -64,6 +64,7 @@ export function adminShell(contentHTML) {
             ${navHtml}
             <div style="flex:1;"></div>
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
+            ${isAdmin ? '<a href="#" class="nav-item" id="btn-update"><span class="nav-icon">⬆️</span><span>Software aktualisieren</span></a>' : ''}
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
             ${isAdmin ? '<a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>' : ''}
         </nav>
@@ -133,6 +134,68 @@ export function setupLogout(container) {
         e.preventDefault();
         window.pb.state.clearAuth();
         window.pb.router.navigate('booth');
+    });
+
+    container.querySelector('#btn-update')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const h = getHeaders();
+        let info = { is_git: true, head: '', can_restart: true };
+        try { info = await fetch('/api/v1/system/update-check', { headers: h }).then(r => r.json()); } catch {}
+        const o = document.createElement('div');
+        o.id = 'pb-update';
+        o.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:1.5rem;';
+        o.innerHTML = `<div style="background:var(--pb-color-surface);border:1px solid var(--pb-color-border,#2a3a5e);border-radius:16px;padding:1.75rem;max-width:480px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,0.6);">
+            <h2 style="margin:0 0 0.75rem;">Software aktualisieren</h2>
+            ${info.is_git
+                ? `<p style="color:var(--pb-color-text-muted);font-size:0.9rem;margin:0;">Holt die neueste Version von GitHub und startet die Box-Software neu.</p>
+                   <p style="font-size:0.82rem;color:var(--pb-color-text-muted);margin:0.5rem 0 0;">Aktuell: <code>${info.head || '—'}</code></p>
+                   ${info.can_restart ? '' : '<p style="color:var(--pb-color-error);font-size:0.85rem;margin:0.5rem 0 0;">⚠️ Neustart nicht erlaubt (sudoers-Regel fehlt) — Update wird geladen, Dienst muss manuell neu starten.</p>'}`
+                : '<p style="color:var(--pb-color-error);margin:0;">Kein git-Repo auf der Box — Update nur über SSH (scripts/update.sh).</p>'}
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.25rem;">
+                <button id="up-cancel" class="admin-btn admin-btn-outline">Abbrechen</button>
+                ${info.is_git ? '<button id="up-go" class="admin-btn admin-btn-primary">Jetzt aktualisieren</button>' : ''}
+            </div>
+            <p id="up-msg" style="margin:0.75rem 0 0;font-size:0.9rem;"></p>
+        </div>`;
+        document.body.appendChild(o);
+        o.querySelector('#up-cancel').addEventListener('click', () => o.remove());
+        o.querySelector('#up-go')?.addEventListener('click', async () => {
+            const msg = o.querySelector('#up-msg');
+            const go = o.querySelector('#up-go');
+            go.disabled = true; msg.style.color = 'var(--pb-color-text-muted)'; msg.textContent = 'Lade Update…';
+            try {
+                const res = await fetch('/api/v1/system/update', { method: 'POST', headers: h });
+                const r = await res.json();
+                if (!res.ok) throw new Error(r.detail || 'Fehler');
+                if (!r.changed) {
+                    msg.style.color = 'var(--pb-color-success)';
+                    msg.textContent = '✓ Bereits aktuell (' + (r.head || r.after) + ')';
+                    go.disabled = false;
+                    return;
+                }
+                if (r.status === 'updated_no_restart') {
+                    msg.style.color = 'var(--pb-color-error)';
+                    msg.textContent = r.message;
+                    return;
+                }
+                msg.style.color = 'var(--pb-color-success)';
+                msg.textContent = `✓ Aktualisiert auf ${r.after}. Starte neu…`;
+                // poll until the service is back, then reload
+                let tries = 0;
+                const poll = setInterval(async () => {
+                    tries++;
+                    try {
+                        const ok = await fetch('/api/v1/system/update-check', { headers: h });
+                        if (ok.ok) { clearInterval(poll); msg.textContent = '✓ Neu gestartet — lade neu…'; setTimeout(() => location.reload(), 800); }
+                    } catch {}
+                    if (tries > 30) { clearInterval(poll); msg.textContent = 'Neustart dauert — bitte Seite manuell neu laden.'; }
+                }, 1500);
+            } catch (err) {
+                msg.style.color = 'var(--pb-color-error)';
+                msg.textContent = 'Fehler: ' + err.message;
+                go.disabled = false;
+            }
+        });
     });
 
     container.querySelector('#btn-shutdown')?.addEventListener('click', async (e) => {

@@ -8,6 +8,7 @@ import shutil
 import signal
 import sys
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -63,9 +64,25 @@ def _pending_print_jobs() -> list[str]:
 
 @router.get("/system/shutdown-check")
 def shutdown_check(_user=Depends(require_role("admin"))):
-    """Pre-shutdown status: any pending print jobs?"""
+    """Pre-shutdown status: any pending print jobs? + whether power sudo works."""
     jobs = _pending_print_jobs()
-    return {"pending_jobs": len(jobs), "jobs": jobs[:20]}
+    return {"pending_jobs": len(jobs), "jobs": jobs[:20],
+            "can_power": _can_sudo(SYSTEMCTL, "poweroff")}
+
+
+SYSTEMCTL = "/usr/bin/systemctl"
+
+
+def _can_sudo(*cmd: str) -> bool:
+    """True if the app user may run *cmd* via sudo without a password. Uses
+    ``sudo -n -l`` so it checks the actual permission (not a generic ``sudo -n
+    true``, which only passes thanks to an unrelated cached credential)."""
+    import subprocess
+    try:
+        r = subprocess.run(["sudo", "-n", "-l", *cmd], capture_output=True, timeout=8)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _power_action(action: str) -> dict:
@@ -75,18 +92,15 @@ def _power_action(action: str) -> dict:
     import threading
     import time as _t
 
+    if not _can_sudo(SYSTEMCTL, action):
+        return {"status": "error",
+                "message": "Keine Berechtigung zum Herunterfahren/Neustarten — "
+                           "sudoers-Regel fehlt (scripts/setup.sh erneut ausführen)."}
+
     def _run():
         _t.sleep(1)
-        subprocess.run(["sudo", "-n", "systemctl", action], capture_output=True)
+        subprocess.run(["sudo", "-n", SYSTEMCTL, action], capture_output=True)
 
-    # verify we *can* (dry sudo check) before promising
-    try:
-        chk = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=8)
-    except Exception as e:
-        return {"status": "error", "message": f"sudo nicht verfügbar: {e}"}
-    if chk.returncode != 0:
-        return {"status": "error",
-                "message": "Kein berechtigtes sudo — setup.sh ausführen (sudoers-Regel)."}
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "ok", "action": action}
 
@@ -111,6 +125,89 @@ def reboot(_user=Depends(require_role("admin"))):
     if res.get("status") == "error":
         raise HTTPException(status_code=500, detail=res["message"])
     return {"status": "rebooting"}
+
+
+# ── Self-update (git pull + restart) ─────────────────────────────────────────
+
+SERVICE_NAME = "mkphotobox.service"
+
+
+def _repo_dir() -> Path:
+    """The app's git working tree (app/api/system.py -> repo root)."""
+    return Path(__file__).resolve().parents[2]
+
+
+@router.get("/system/update-check")
+def update_check(_user=Depends(require_role("admin"))):
+    """Report current commit + whether a self-update is possible (git + sudo)."""
+    import subprocess
+    repo = _repo_dir()
+    is_git = (repo / ".git").is_dir()
+    head = ""
+    if is_git:
+        try:
+            head = subprocess.run(["git", "log", "--oneline", "-1"], cwd=str(repo),
+                                  capture_output=True, text=True, timeout=10).stdout.strip()
+        except Exception:
+            head = ""
+    return {"is_git": is_git, "head": head,
+            "can_restart": _can_sudo(SYSTEMCTL, "restart", SERVICE_NAME)}
+
+
+@router.post("/system/update")
+def system_update(_user=Depends(require_role("admin"))):
+    """Pull the latest code from git and restart the service.
+
+    Runs as the app user (which owns the checkout) — only the restart needs the
+    NOPASSWD sudoers rule. The DB schema auto-migrates on startup."""
+    import subprocess
+    import threading
+    import time as _t
+
+    repo = _repo_dir()
+    if not (repo / ".git").is_dir():
+        raise HTTPException(status_code=400,
+                            detail="Kein git-Repo — Update über scripts/update.sh ausführen.")
+
+    def git(*a, timeout=120):
+        return subprocess.run(["git", *a], cwd=str(repo),
+                              capture_output=True, text=True, timeout=timeout)
+
+    try:
+        before = git("rev-parse", "--short", "HEAD").stdout.strip()
+        branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "main"
+        f = git("fetch", "origin", branch)
+        if f.returncode != 0:
+            raise HTTPException(status_code=502, detail=f"git fetch fehlgeschlagen: {f.stderr.strip()[:200]}")
+        r = git("reset", "--hard", f"origin/{branch}")
+        if r.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"git reset fehlgeschlagen: {r.stderr.strip()[:200]}")
+        after = git("rev-parse", "--short", "HEAD").stdout.strip()
+        head = git("log", "--oneline", "-1").stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Update-Timeout (Netzwerk?).")
+
+    changed = before != after
+    restarting = False
+    if changed:
+        if not _can_sudo(SYSTEMCTL, "restart", SERVICE_NAME):
+            return {"status": "updated_no_restart", "changed": True,
+                    "before": before, "after": after, "head": head,
+                    "message": "Aktualisiert, aber Neustart nicht erlaubt (sudoers-Regel fehlt). "
+                               "Bitte Dienst manuell neu starten."}
+        # clear bytecode caches, then restart (the service relaunches itself)
+        for pyc in repo.glob("app/**/__pycache__"):
+            shutil.rmtree(pyc, ignore_errors=True)
+
+        def _restart():
+            _t.sleep(1.5)
+            subprocess.run(["sudo", "-n", SYSTEMCTL, "restart", SERVICE_NAME], capture_output=True)
+
+        threading.Thread(target=_restart, daemon=True).start()
+        restarting = True
+
+    return {"status": "ok", "changed": changed, "before": before, "after": after,
+            "head": head, "restarting": restarting}
 
 
 @router.get("/system/admin-access")
