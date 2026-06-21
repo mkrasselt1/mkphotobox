@@ -131,6 +131,13 @@ async def lifespan(app: FastAPI):
     photo_service = PhotoService(bus, cameras, payments, ws_manager)
     app.state.photo_service = photo_service
 
+    # Remote gallery sync (mirror each new photo to an external server)
+    from app.services.remote_gallery import get_remote_gallery
+    remote_gallery_svc = get_remote_gallery()
+    remote_gallery_svc.configure(cfg)
+    await remote_gallery_svc.start(bus)
+    app.state.remote_gallery = remote_gallery_svc
+
     logger.info("Photobox started — cameras=%d, triggers=%d, outputs=%d",
                 len(cameras.list_cameras()),
                 len(triggers.list_triggers()),
@@ -140,6 +147,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
+    await remote_gallery_svc.stop()
     await gif_service.stop_buffering()
     await cameras.shutdown_all()
     await triggers.shutdown_all()
@@ -193,7 +201,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
@@ -204,6 +212,7 @@ def create_app() -> FastAPI:
     app.include_router(photos.router)
     app.include_router(presets.router)
     app.include_router(printer.router)
+    app.include_router(remote_gallery.router)
     app.include_router(settings.router)
     app.include_router(system.router)
     app.include_router(modules.router)

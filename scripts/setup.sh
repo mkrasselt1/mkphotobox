@@ -41,7 +41,7 @@ fi
 
 # ── 1) system packages ────────────────────────────────────────────────────
 echo ">>> [1/5] System-Pakete (apt)"
-PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl)
+PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl rsync sshpass)
 [[ "$WITH_GPHOTO2" == 1 ]] && PKGS+=(libgphoto2-dev)
 [[ "$WITH_PRINTER" == 1 ]] && PKGS+=(cups libcups2-dev)
 [[ "$WITH_CDBURN"  == 1 ]] && PKGS+=(xorriso)
