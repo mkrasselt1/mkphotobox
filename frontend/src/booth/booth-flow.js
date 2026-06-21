@@ -375,8 +375,8 @@ export function render(container, state) {
                     transition:transform 0.1s;box-shadow:0 4px 20px rgba(74,144,217,0.4);
                 ">${i18n.t('booth.start')}</button>
                 <div style="display:flex;gap:1.5rem;color:var(--pb-color-text-muted);font-size:0.85rem;">
-                    ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">${i18n.t('gallery.title')}</a>` : ''}
-                    <a href="#/admin" style="color:inherit;text-decoration:none;">Admin</a>
+                    ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">🖼️ ${i18n.t('gallery.title')}</a>` : ''}
+                    <a href="#/admin" style="color:inherit;text-decoration:none;">⚙️ Admin</a>
                 </div>
             </div>`;
         } else if (isFS) {
@@ -393,8 +393,8 @@ export function render(container, state) {
                             transition:transform 0.1s, background 0.2s;box-shadow:0 4px 20px rgba(0,0,0,0.4);
                         ">${i18n.t('booth.start')}</button>
                         <div style="display:flex;gap:1.5rem;font-size:0.85rem;">
-                            ${galleryEnabled ? `<a href="#/gallery" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">${i18n.t('gallery.title')}</a>` : ''}
-                            <a href="#/admin" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">Admin</a>
+                            ${galleryEnabled ? `<a href="#/gallery" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">🖼️ ${i18n.t('gallery.title')}</a>` : ''}
+                            <a href="#/admin" style="color:rgba(255,255,255,0.8);text-decoration:none;text-shadow:0 1px 4px rgba(0,0,0,0.6);">⚙️ Admin</a>
                         </div>
                     </div>
                 </div>
@@ -411,8 +411,8 @@ export function render(container, state) {
                     transition:transform 0.1s;box-shadow:0 4px 20px rgba(74,144,217,0.4);
                 ">${i18n.t('booth.start')}</button>
                 <div style="display:flex;gap:1.5rem;color:var(--pb-color-text-muted);font-size:0.85rem;">
-                    ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">${i18n.t('gallery.title')}</a>` : ''}
-                    <a href="#/admin" style="color:inherit;text-decoration:none;">Admin</a>
+                    ${galleryEnabled ? `<a href="#/gallery" style="color:inherit;text-decoration:none;">🖼️ ${i18n.t('gallery.title')}</a>` : ''}
+                    <a href="#/admin" style="color:inherit;text-decoration:none;">⚙️ Admin</a>
                 </div>
             </div>`;
         }

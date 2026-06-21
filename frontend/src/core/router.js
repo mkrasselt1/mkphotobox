@@ -33,6 +33,7 @@ export class Router {
             'admin/background':   () => import('../admin/admin-background.js'),
             'admin/triggers':     () => import('../admin/admin-triggers.js'),
             'admin/tests':        () => import('../admin/admin-tests.js'),
+            'admin/help':         () => import('../admin/admin-help.js'),
             'organizer':          () => import('../organizer/org-layout.js'),
         };
 
