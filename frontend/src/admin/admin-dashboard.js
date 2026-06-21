@@ -4,13 +4,24 @@ export async function render(container, state) {
     const headers = getHeaders();
 
     // Load data
-    let info = {}, modules = {};
+    let info = {}, modules = {}, printers = [];
     try {
-        [info, modules] = await Promise.all([
+        [info, modules, printers] = await Promise.all([
             fetch('/api/v1/system/info', { headers }).then(r => r.json()),
             fetch('/api/v1/modules', { headers }).then(r => r.json()),
+            fetch('/api/v1/printer/states', { headers }).then(r => r.json()).then(r => r.printers || []),
         ]);
     } catch {}
+
+    const mediaText = (m) => {
+        if (!m || !m.has_data) return '';
+        if (m.remaining_prints != null) {
+            const low = m.remaining_prints <= 10;
+            return `<span style="color:${low ? 'var(--pb-color-error)' : 'var(--pb-color-text-muted)'};">📄 ${m.remaining_prints} Drucke${m.name ? ` (${m.name})` : ''}${m.level_pct != null ? ` · ${m.level_pct}%` : ''}</span>`;
+        }
+        if (m.level_pct != null) return `📄 ${m.level_pct}%${m.name ? ` (${m.name})` : ''}`;
+        return m.message ? `📄 ${m.message}` : '';
+    };
 
     container.innerHTML = adminShell(`
         <h1 style="margin-bottom:1.5rem;">Dashboard</h1>
@@ -36,6 +47,16 @@ export async function render(container, state) {
                 <h3>Ausl&ouml;ser</h3>
                 ${(modules.triggers || []).map(t => `<p>${t.name}: &#10003;</p>`).join('') || '<p>Keine</p>'}
             </div>
+            ${printers.length ? `
+            <div class="admin-card">
+                <h3>Drucker</h3>
+                ${printers.map(p => `
+                    <p style="margin-bottom:0.35rem;">
+                        <span title="${p.ready ? 'bereit' : (p.message || 'Problem')}">${p.ready ? '🟢' : '🔴'}</span>
+                        ${p.name}${p.default ? ' <small style="color:var(--pb-color-text-muted);">(Standard)</small>' : ''}
+                        ${mediaText(p.media) ? `<br><small>${mediaText(p.media)}</small>` : ''}
+                    </p>`).join('')}
+            </div>` : ''}
         </div>
         <div style="margin-top:1.5rem;">
             <button id="btn-restart" class="admin-btn admin-btn-primary" style="background:var(--pb-color-error);">

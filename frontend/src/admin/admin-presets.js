@@ -2,6 +2,7 @@ import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
 
 let headers;
 let printers = [];
+let printerMedia = {};  // printer name -> media info
 
 // Gutenprint media codes (wWhH in 1/72") -> human-readable cm/inch (mirrors admin-printer.js)
 function prettyPaper(name) {
@@ -20,6 +21,10 @@ export async function render(container, state) {
     try {
         printers = await fetch('/api/v1/printer/list', { headers }).then(r => r.json()).then(r => r.printers || []);
     } catch { printers = []; }
+    try {
+        const states = await fetch('/api/v1/printer/states', { headers }).then(r => r.json()).then(r => r.printers || []);
+        printerMedia = Object.fromEntries(states.map(p => [p.name, p.media || {}]));
+    } catch { printerMedia = {}; }
     renderList(container, state);
 }
 
@@ -35,8 +40,16 @@ async function renderList(container, state) {
         const phys = (p.kind === 'print' && p.width_mm && p.height_mm)
             ? `${Math.round(p.width_mm)}×${Math.round(p.height_mm)} mm @ ${p.dpi} dpi`
             : (p.kind === 'social' ? 'Digital' : '— kein Format gewählt —');
+        const m = p.kind === 'print' ? (printerMedia[p.printer_name] || {}) : {};
+        let mediaLine = '';
+        if (m.has_data && m.remaining_prints != null) {
+            const low = m.remaining_prints <= 10;
+            mediaLine = `<p style="color:${low ? 'var(--pb-color-error)' : 'var(--pb-color-text-muted)'};">📄 noch ${m.remaining_prints} Drucke${m.level_pct != null ? ` · ${m.level_pct}%` : ''}</p>`;
+        } else if (m.has_data && m.level_pct != null) {
+            mediaLine = `<p>📄 ${m.level_pct}%</p>`;
+        }
         const printerLine = p.kind === 'print'
-            ? `<p>🖨️ ${p.printer_name || '(Standard)'} · ${p.paper_size ? prettyPaper(p.paper_size) : '—'} · ${p.copies}×</p>` : '';
+            ? `<p>🖨️ ${p.printer_name || '(Standard)'} · ${p.paper_size ? prettyPaper(p.paper_size) : '—'} · ${p.copies}×</p>${mediaLine}` : '';
         return `
         <div class="admin-card" style="margin:0;">
             <h3 style="margin-bottom:0.25rem;">${p.name} ${p.builtin ? '<span style="font-size:0.7rem;color:var(--pb-color-text-muted);">(fix)</span>' : ''}</h3>

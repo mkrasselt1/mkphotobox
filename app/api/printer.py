@@ -31,10 +31,27 @@ async def list_paper_sizes(printer: str = ""):
 @router.get("/state")
 async def printer_state(printer: str = ""):
     """Live printer status: ready/blocked + human alerts (paper out, cover
-    open, offline, …). Falls back to the configured printer when none given."""
+    open, offline, …) + remaining media. Falls back to the configured printer."""
     from app.modules.output.printer import PrinterOutput
     name = printer or get_config().get("outputs", {}).get("printer", {}).get("printer_name", "")
     return await asyncio.to_thread(PrinterOutput.printer_status, name)
+
+
+@router.get("/states")
+async def printer_states():
+    """Live status + remaining media for every printer (dashboard overview)."""
+    from app.modules.output.printer import PrinterOutput
+
+    def _all():
+        out = []
+        for p in PrinterOutput.list_printers():
+            st = PrinterOutput.printer_status(p["name"])
+            out.append({"name": p["name"], "default": p.get("default", False),
+                        "ready": st.get("ready"), "message": st.get("message"),
+                        "alerts": st.get("alerts", []), "media": st.get("media", {})})
+        return out
+
+    return {"printers": await asyncio.to_thread(_all)}
 
 
 @router.get("/status")

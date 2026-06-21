@@ -828,13 +828,20 @@ export function render(container, state) {
                     msg.textContent = 'Druckdialog geöffnet'; msg.style.color = 'var(--pb-color-success)';
                 } else if (result.status === 'ok') {
                     msg.textContent = 'Wird gedruckt ✓'; msg.style.color = 'var(--pb-color-success)';
-                    // Warn if the printer reports a blocking problem (paper out, cover open…)
+                    // Warn on blocking problems (paper out, cover open…) and show
+                    // remaining sheets — for the printer this job actually used.
                     try {
-                        const st = await fetch('/api/v1/printer/state').then(r => r.json());
+                        const q = result.printer ? `?printer=${encodeURIComponent(result.printer)}` : '';
+                        const st = await fetch('/api/v1/printer/state' + q).then(r => r.json());
                         const errs = (st.alerts || []).filter(a => a.severity === 'error');
+                        const rem = st.media && st.media.remaining_prints;
                         if (errs.length || st.ready === false) {
                             msg.innerHTML = `⚠️ ${st.message || 'Drucker-Problem'}<br><small>Bitte Personal informieren.</small>`;
                             msg.style.color = 'var(--pb-color-error)';
+                        } else if (rem != null && rem <= 10) {
+                            msg.innerHTML = `Wird gedruckt ✓<br><small style="color:#ff9a3c;">Nur noch ${rem} Blatt — bitte Personal informieren.</small>`;
+                        } else if (rem != null) {
+                            msg.innerHTML = `Wird gedruckt ✓<br><small style="color:rgba(255,255,255,0.7);">noch ${rem} Drucke</small>`;
                         }
                     } catch {}
                 } else throw new Error(result.message || 'Drucken fehlgeschlagen');
