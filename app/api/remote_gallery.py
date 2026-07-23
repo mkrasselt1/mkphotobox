@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, Request
+from sqlmodel import Session
 
 from app.auth import require_role
-from app.config import get_config, set_nested
+from app.config import get_config, persist_settings
+from app.database import get_session
 from app.services.remote_gallery import PROTOCOLS, get_remote_gallery
 
 router = APIRouter(prefix="/api/v1/remote-gallery", tags=["remote-gallery"])
@@ -32,14 +34,18 @@ def status(_user=Depends(require_role("admin", "organizer"))):
 
 @router.post("/configure")
 def configure(body: dict, request: Request,
+              session: Session = Depends(get_session),
               _user=Depends(require_role("admin"))):
-    cfg = get_config()
+    updates = {}
     for key in _KEYS:
         if key in body:
             # don't wipe a stored password when the field is left blank
             if key == "password" and body.get(key) in (None, ""):
                 continue
-            set_nested(cfg, f"remote_gallery.{key}", body[key])
+            updates[f"remote_gallery.{key}"] = body[key]
+    # Persist to the DB Setting layer + in-memory config so the configuration
+    # survives a restart (previously it lived only in memory and was lost).
+    persist_settings(session, updates)
     svc = get_remote_gallery()
     svc.configure(get_config())
     request.app.state.config = get_config()

@@ -99,6 +99,41 @@ def save_user_config(overrides: dict) -> None:
         yaml.dump(overrides, f, default_flow_style=False, allow_unicode=True)
 
 
+def persist_settings(session, updates: dict[str, Any], user_id: int | None = None) -> None:
+    """Upsert dotted-key config overrides into the DB Setting layer and mirror
+    them into the in-memory config.
+
+    This is how per-feature ``/configure`` endpoints make their settings survive
+    a restart: apply_db_settings() re-applies these rows on startup (defaults <
+    config.yaml < DB settings). Without this, set_nested() alone is lost on the
+    next process restart.
+    """
+    import json
+
+    from sqlmodel import select
+
+    from app.models import Setting
+
+    cfg = get_config()
+    for key, value in updates.items():
+        row = session.exec(select(Setting).where(Setting.key == key)).first()
+        if row:
+            row.value_json = json.dumps(value)
+            row.updated_at = _utcnow()
+            if user_id is not None:
+                row.updated_by = user_id
+        else:
+            row = Setting(key=key, value_json=json.dumps(value), updated_by=user_id)
+        session.add(row)
+        set_nested(cfg, key, value)
+    session.commit()
+
+
+def _utcnow():
+    from datetime import datetime
+    return datetime.utcnow()
+
+
 def apply_db_settings(session) -> int:
     """Merge persisted DB Setting overrides into the in-memory config.
 

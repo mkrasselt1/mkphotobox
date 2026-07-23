@@ -62,9 +62,14 @@ _HEAD = """<!doctype html>
   #lb .bar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center;
              gap:1rem; padding:.8rem 1rem; }
   #lb .bar .name { font-size:.9rem; color:#cfd6e6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #lb a.dl { margin-left:auto; color:#fff; text-decoration:none; background:#2b6cff;
-             padding:.5rem 1rem; border-radius:10px; font-size:.9rem; font-weight:600; }
-  #lb button { background:rgba(255,255,255,.12); color:#fff; border:none; cursor:pointer;
+  /* .dl = pill buttons/links in the bar (download + GIF toggle). Match both
+     <a class=dl> and <button class=dl> so the GIF toggle isn't caught by the
+     round-button rule below. */
+  #lb .dl { margin-left:auto; color:#fff; text-decoration:none; background:#2b6cff;
+             padding:.5rem 1rem; border-radius:10px; font-size:.9rem; font-weight:600;
+             line-height:1; white-space:nowrap; }
+  #lb .dl + .dl { margin-left:.5rem; }   /* second pill sits next to the first */
+  #lb button:not(.dl) { background:rgba(255,255,255,.12); color:#fff; border:none; cursor:pointer;
                width:54px; height:54px; border-radius:50%; font-size:1.6rem; }
   #lb .nav { position:absolute; top:50%; transform:translateY(-50%); }
   #lb .prev { left:14px; } #lb .next { right:14px; }

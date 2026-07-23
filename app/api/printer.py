@@ -6,9 +6,11 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.auth import require_role
-from app.config import get_config, set_nested
+from app.config import get_config, persist_settings
+from app.database import get_session
 
 router = APIRouter(prefix="/api/v1/printer", tags=["printer"])
 
@@ -75,16 +77,18 @@ def get_printer_status(request: Request):
 async def configure_printer(
     body: dict,
     request: Request,
+    session: Session = Depends(get_session),
     _user=Depends(require_role("admin", "organizer")),
 ):
-    """Update printer settings and (re)load the output module so it's usable."""
-    cfg = get_config()
+    """Update printer settings and (re)load the output module so it's usable.
 
+    Settings are persisted to the DB Setting layer so they survive a restart
+    (and don't vanish just because no printer was attached at boot)."""
     allowed_keys = ("enabled", "mode", "printer_name", "paper_size", "copies",
                     "orientation", "fit_to_page", "margin_mm")
-    for key in allowed_keys:
-        if key in body:
-            set_nested(cfg, f"outputs.printer.{key}", body[key])
+    updates = {f"outputs.printer.{k}": body[k] for k in allowed_keys if k in body}
+    persist_settings(session, updates)  # DB + in-memory config
+    cfg = get_config()
 
     # (Re)load the printer output so it becomes available even if it was
     # disabled at startup. "browser" mode is always available.
