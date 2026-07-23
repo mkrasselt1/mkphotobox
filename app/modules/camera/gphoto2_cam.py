@@ -33,6 +33,7 @@ class GPhoto2Camera(AbstractCamera):
         # before the preview stream owns the lock) and cache, so the admin UI
         # never blocks on a get_config() that contends with live preview.
         self._focus_modes_cache: dict[str, Any] | None = None
+        self._focus_warm_tried = False   # one-shot warm from the preview loop
         # gphoto2 is NOT thread-safe — serialise all camera access so the
         # live-preview stream and a still capture never run concurrently
         # (that triggers "[-110] I/O in progress").
@@ -325,6 +326,18 @@ class GPhoto2Camera(AbstractCamera):
                     camera_file = self._camera.capture_preview()
                     data = bytes(camera_file.get_data_and_size())
                     if data:
+                        # Opportunistically warm the focus-mode cache once, now
+                        # that we hold the lock and the camera is clearly live —
+                        # so the admin dropdown populates without ever contending
+                        # with (or stalling) the preview stream afterwards.
+                        if self._focus_modes_cache is None and not self._focus_warm_tried:
+                            self._focus_warm_tried = True
+                            try:
+                                fm = self._read_focus_modes_locked()
+                                if fm.get("available"):
+                                    self._focus_modes_cache = fm
+                            except Exception:
+                                pass
                         return data
                     logger.debug("Empty preview frame; re-init camera (attempt %d)", attempt)
                 except Exception as e:
