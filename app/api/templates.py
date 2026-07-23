@@ -201,9 +201,21 @@ def booth_templates(session: Session = Depends(get_session)):
         chosen = [t for t in all_templates if t.id in enabled_ids]
     else:
         chosen = all_templates
+
+    def _slots(t: Template) -> list[dict]:
+        # Per-placeholder geometry so the booth can frame each shot's live
+        # preview/crop to the slot it fills (slot i ↔ photo i at render time).
+        try:
+            raw = json.loads(t.definition_json or "{}").get("slots", []) or []
+        except json.JSONDecodeError:
+            raw = []
+        return [{"w": s.get("w"), "h": s.get("h"), "rotation": s.get("rotation", 0)}
+                for s in raw]
+
     return {"templates": [
         {"id": t.id, "name": t.name, "photo_count": t.photo_count,
-         "canvas_width": t.canvas_width, "canvas_height": t.canvas_height}
+         "canvas_width": t.canvas_width, "canvas_height": t.canvas_height,
+         "slots": _slots(t)}
         for t in chosen
     ]}
 

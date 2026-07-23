@@ -42,6 +42,7 @@ let boothInitiated = false;  // true while the booth drives its own capture sequ
 let shareBase = '';          // LAN base URL for QR codes (phone-reachable, not localhost)
 let remoteGallery = null;    // {active, gallery_url, image_base} when off-box gallery is live
 let cropAspect = null;       // {w,h} default output aspect to outline on the live preview
+let outputAspect = null;     // {w,h} of the print paper — single-photo framing target
 
 const PREVIEW_MAX_WIDTHS = {
     small: '320px',
@@ -111,6 +112,8 @@ export function render(container, state) {
                     captureLeadMs = displayData.capture_lead_ms;
                 idleLivePreview = displayData.idle_live_preview !== false;
                 galleryEnabled = displayData.gallery_enabled !== false;
+                if (displayData.output_aspect?.w && displayData.output_aspect?.h)
+                    outputAspect = displayData.output_aspect;
             }
         } catch {
             cameraMode = 'webrtc';
@@ -120,10 +123,13 @@ export function render(container, state) {
         } catch {
             templates = [];
         }
-        // Default crop aspect for the idle live preview = the first offered template's
-        // output ratio (the "späterer Zuschnitt"); per-shot it follows the chosen one.
+        // Default crop aspect for idle / single-photo framing = the actual print
+        // output (e.g. 10x15 = 3:2) so a single photo shows no false crop. Fall
+        // back to the first template's canvas only when no print size is known.
         const t0 = templates[0];
-        if (t0 && t0.canvas_width && t0.canvas_height) {
+        if (outputAspect) {
+            cropAspect = outputAspect;
+        } else if (t0 && t0.canvas_width && t0.canvas_height) {
             cropAspect = { w: t0.canvas_width, h: t0.canvas_height };
         }
         try {
@@ -204,7 +210,11 @@ export function render(container, state) {
         if (isFS) {
             return `width:100%;height:100%;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative;`;
         }
-        return `width:100%;max-width:${maxW};aspect-ratio:4/3;background:#000;border-radius:var(--pb-radius);overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative;`;
+        // Box takes the real output/placeholder aspect so the live preview (cover)
+        // shows exactly what ends up on the print/slot — WYSIWYG, no false crop.
+        const a = currentCropAspect();
+        const ar = (a && a.w && a.h) ? `${a.w}/${a.h}` : '4/3';
+        return `width:100%;max-width:${maxW};aspect-ratio:${ar};background:#000;border-radius:var(--pb-radius);overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative;`;
     }
 
     function cameraPreviewHTML(id = 'camera-preview') {
@@ -225,8 +235,14 @@ export function render(container, state) {
 
     // ── Crop guide: outline the eventual output aspect on the live preview ───
     function currentCropAspect() {
-        if (seq && seq.template && seq.template.canvas_width && seq.template.canvas_height) {
-            return { w: seq.template.canvas_width, h: seq.template.canvas_height };
+        // In a set, frame each shot to the placeholder it fills (slot i ↔ shot i),
+        // so a square/strip/circle slot each gets its own crop — not the whole
+        // canvas. Fall back to the template canvas, then the single-photo aspect.
+        if (seq && seq.template) {
+            const slot = seq.template.slots?.[seq.index];
+            if (slot && slot.w && slot.h) return { w: slot.w, h: slot.h };
+            if (seq.template.canvas_width && seq.template.canvas_height)
+                return { w: seq.template.canvas_width, h: seq.template.canvas_height };
         }
         return cropAspect;
     }

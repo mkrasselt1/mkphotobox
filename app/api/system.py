@@ -547,7 +547,26 @@ def get_display_config():
         "gallery_enabled": get_nested(cfg, "gallery.enabled", True),
         "gallery_delete_mode": get_nested(cfg, "gallery.delete_mode", "off"),
         "gallery_delete_recent_minutes": get_nested(cfg, "gallery.delete_recent_minutes", 5),
+        # Aspect of a single photo's print output — the booth frames the live
+        # preview + crop guide to this so what you see matches what prints.
+        "output_aspect": _output_aspect(cfg),
     }
+
+
+def _output_aspect(cfg: dict) -> dict | None:
+    """Aspect {w,h} of the configured print paper (respecting orientation), or
+    None when no printer/paper is configured. Used to frame the single-photo
+    live preview so it matches the actual print (e.g. 10x15 = 3:2)."""
+    from app.services.paper_sizes import paper_size_mm
+
+    pr = get_nested(cfg, "outputs.printer", {}) or {}
+    mm = paper_size_mm(pr.get("paper_size") or "")
+    if not mm:
+        return None
+    w, h = mm  # portrait: short × long
+    if (pr.get("orientation") or "portrait") == "landscape":
+        w, h = h, w
+    return {"w": round(w, 1), "h": round(h, 1)}
 
 
 @router.get("/i18n/{lang}")
