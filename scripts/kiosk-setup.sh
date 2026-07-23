@@ -24,6 +24,10 @@ KIOSK_URL="${KIOSK_URL:-http://localhost:8080}"
 BROWSER="${BROWSER:-auto}"
 DISABLE_OTHER_SESSIONS="${DISABLE_OTHER_SESSIONS:-1}"
 HOME_DIR="$(getent passwd "$KIOSK_USER" | cut -d: -f6)"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Loading screen shown immediately (no black wait); it redirects to KIOSK_URL
+# once the app is up. The target is passed via the hash so loading.html is generic.
+LOADING_URL="file://$APP_DIR/scripts/kiosk/loading.html#$KIOSK_URL"
 
 echo ">>> Kiosk für $KIOSK_USER -> $KIOSK_URL"
 
@@ -43,8 +47,8 @@ pick_browser() {
 echo "    Browser: $BROWSER"
 
 case "$BROWSER" in
-  firefox) CMD="firefox --kiosk $KIOSK_URL" ;;
-  *) CMD="$BROWSER --kiosk --noerrordialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --no-first-run --no-default-browser-check --incognito --check-for-update-interval=31536000 --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --overscroll-history-navigation=0 --disable-pinch $KIOSK_URL" ;;
+  firefox) CMD="firefox --kiosk $LOADING_URL" ;;
+  *) CMD="$BROWSER --kiosk --noerrordialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --no-first-run --no-default-browser-check --incognito --check-for-update-interval=31536000 --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --overscroll-history-navigation=0 --disable-pinch $LOADING_URL" ;;
 esac
 
 # ── openbox autostart: respawn loop + health watchdog (unattended) ────────
@@ -57,17 +61,20 @@ xset -dpms
 xset s noblank
 unclutter -idle 0.5 -root &
 
-# Watchdog: if the app is unreachable for ~30s, kill the browser so the
-# respawn loop relaunches it fresh (recovers from frozen pages / app restarts).
+# Watchdog: once the app has been reachable, kill the browser if it later goes
+# away for ~30s so the respawn loop relaunches it (recovers frozen pages / long
+# app outages). up_once guard keeps it from killing the loading screen at boot.
 (
+  up_once=0
   fails=0
   while true; do
     if curl -s -o /dev/null --max-time 5 __URL__; then
+      up_once=1
       fails=0
     else
       fails=$((fails + 1))
     fi
-    if [ "$fails" -ge 6 ]; then
+    if [ "$up_once" -eq 1 ] && [ "$fails" -ge 6 ]; then
       pkill -f 'google-chrome|chromium|firefox' 2>/dev/null
       fails=0
     fi
@@ -75,10 +82,10 @@ unclutter -idle 0.5 -root &
   done
 ) &
 
-# Respawn loop: wait for the app, launch the browser (blocks until it exits),
-# then relaunch — survives browser crashes/closes.
+# Respawn loop: launch the browser immediately on the loading screen (no black
+# wait) — loading.html polls the app and redirects to the booth once it's up.
+# Blocks until the browser exits, then relaunches (survives crashes/closes).
 while true; do
-  until curl -s -o /dev/null __URL__; do sleep 1; done
   __CMD__
   sleep 2
 done

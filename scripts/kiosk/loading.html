@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Photobooth startet…</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #0e1117; color: #e8eaf0; cursor: none;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.8rem;
+  }
+  .spinner {
+    width: 68px; height: 68px; border: 5px solid #232a3a; border-top-color: #6c8cff;
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 1.6rem; font-weight: 700; margin: 0; letter-spacing: .3px; }
+  p  { color: #8a93a6; margin: 0; font-size: .95rem; min-height: 1.2em; }
+  .dots::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.4s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+</style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h1>Photobooth startet<span class="dots"></span></h1>
+  <p id="status">Bitte einen Moment&hellip;</p>
+<script>
+  // Target booth URL — passed as the hash (#http://localhost:8080), so this file
+  // stays generic. Falls back to the local server.
+  var APP = decodeURIComponent((location.hash || '').replace(/^#/, '')) || 'http://localhost:8080';
+  var status = document.getElementById('status');
+  var tries = 0, MAX = 180;   // give up after ~3 min and go anyway
+
+  function ready() { location.replace(APP); }
+
+  function poll() {
+    tries++;
+    // no-cors so a cross-origin (file:// → http://localhost) probe still resolves
+    // once the server answers; it rejects only while the port isn't up yet.
+    fetch(APP + '/api/v1/system/health', { mode: 'no-cors', cache: 'no-store' })
+      .then(ready)
+      .catch(function () {
+        if (tries === 8) status.textContent = 'Dienste werden gestartet…';
+        else if (tries === 30) status.textContent = 'Kamera wird verbunden…';
+        if (tries >= MAX) { ready(); return; }
+        setTimeout(poll, 1000);
+      });
+  }
+  poll();
+</script>
+</body>
+</html>

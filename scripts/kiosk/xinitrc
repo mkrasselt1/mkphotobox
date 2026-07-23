@@ -1,0 +1,42 @@
+#!/bin/sh
+# MKPhotobox kiosk X session (installed as ~/.xinitrc).
+#
+# Shows a loading screen IMMEDIATELY (no black wait): the browser opens
+# loading.html, which polls the app and redirects to the booth as soon as it is
+# reachable. The health watchdog only kills the browser AFTER the app has been up
+# at least once — so the splash is never killed during boot.
+#
+# Adjust APP_DIR if the checkout lives elsewhere.
+APP_DIR="/opt/mkphotobox"
+URL="http://localhost:8080"
+LOADING="file://$APP_DIR/scripts/kiosk/loading.html#$URL"
+
+xset s off; xset -dpms; xset s noblank
+unclutter -idle 0.5 -root &
+openbox &
+
+# Health watchdog: once the app has been reachable, relaunch the browser if it
+# later goes away for ~30s (recovers frozen pages / long app outages). Never
+# fires during initial boot, so the loading screen stays until the app is ready.
+( up_once=0; fails=0
+  while true; do
+    if curl -s -o /dev/null --max-time 5 "$URL"; then up_once=1; fails=0
+    else fails=$((fails + 1)); fi
+    if [ "$up_once" = 1 ] && [ "$fails" -ge 6 ]; then
+      pkill -f google-chrome 2>/dev/null
+      fails=0
+    fi
+    sleep 5
+  done ) &
+
+# Respawn loop: launch the browser on the loading screen (blocks until it exits),
+# then relaunch — survives browser crashes/closes. loading.html handles the
+# redirect to the booth once the app is up.
+while true; do
+  google-chrome-stable --kiosk --noerrordialogs --disable-infobars \
+    --disable-session-crashed-bubble --disable-translate --no-first-run \
+    --no-default-browser-check --incognito --check-for-update-interval=31536000 \
+    --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required \
+    --overscroll-history-navigation=0 --disable-pinch "$LOADING"
+  sleep 2
+done
