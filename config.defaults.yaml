@@ -45,10 +45,11 @@ gif:
   buffer_seconds: 5
   fps: 10
   # Bounding box for the GIF (aspect ratio of the source is preserved — no
-  # distortion, upscaling allowed). Larger = the GIF shows at photo size in the
-  # galleries, but the file gets bigger/slower to upload. 960 ≈ photo-sized.
-  width: 960
-  height: 960
+  # distortion). Frames are only ever DOWNSCALED to fit (never upscaled), so
+  # generation stays cheap during a live event; the viewers scale the GIF up for
+  # display via CSS. Keep this modest on low-power boxes.
+  width: 640
+  height: 640
 
 collages:
   templates_path: "templates/collages"
