@@ -11,6 +11,7 @@ export function render(container, state) {
     let deleteMode = 'off';
     let deleteRecentMinutes = 5;
     let shareBase = location.origin;
+    let remoteGallery = null;   // {active, gallery_url, image_base} when off-box gallery is live
     let availableOutputs = [];
 
     container.innerHTML = `
@@ -62,6 +63,12 @@ export function render(container, state) {
         }
         .gallery-item .gif-badge.playing { background:rgba(231,76,60,0.95); }
         .gallery-item .gif-badge:active { transform:scale(0.94); }
+        /* Upscale lightbox media (small GIFs) to fill the viewport like full-res
+           photos do — fixed box + object-fit:contain keeps the aspect ratio. */
+        .glightbox-container .gslide-image img {
+            width:94vw !important; height:82vh !important; object-fit:contain !important;
+            max-width:94vw !important; max-height:82vh !important;
+        }
         .gslide-description { background:transparent !important; }
         .gdesc-inner { padding:0.5rem 0 !important; }
         .pb-gallery-actions {
@@ -93,7 +100,9 @@ export function render(container, state) {
             }
 
             try {
-                shareBase = await fetch('/api/v1/system/share-base').then(r => r.json()).then(r => r.base_url || location.origin);
+                const sb = await fetch('/api/v1/system/share-base').then(r => r.json());
+                shareBase = sb.base_url || location.origin;
+                remoteGallery = sb.remote_gallery || null;
             } catch {}
             try {
                 availableOutputs = await fetch('/api/v1/outputs/available').then(r => r.json()).then(o => (o || []).map(x => x.name));
@@ -203,10 +212,16 @@ export function render(container, state) {
         const fileUrl = `/api/v1/photos/${photo.id}/file`;
         const ico = `style="font-size:2.5rem;line-height:1;"`;
         const gifUrl = `/api/v1/photos/${photo.id}/gif`;
+        // Only the QR link (what a guest's phone scans) may point off-box to the
+        // remote gallery; the on-screen download link stays box-local (LAN).
+        const baseName = (p) => (p || '').split(/[/\\]/).pop();
+        const qrUrl = (remoteGallery?.active && photo.filename)
+            ? `${remoteGallery.image_base}/${baseName(photo.filename)}`
+            : `${shareBase}${fileUrl}`;
         let html = `<div class="pb-gallery-actions">
             <a href="${fileUrl}" download class="ga-btn" style="background:#4a90d9;"><span ${ico}>\u2B07</span> ${i18n.t('share.download')}</a>
             ${availableOutputs.includes('output.printer') ? `<button class="ga-btn ga-print" data-id="${photo.id}" style="background:#8e44ad;"><span ${ico}>\uD83D\uDDA8</span> ${i18n.t('share.print')}</button>` : ''}
-            <button class="ga-btn ga-qr" data-url="${shareBase}${fileUrl}" style="background:#2c3e50;"><span ${ico}>\uD83D\uDD17</span> ${i18n.t('share.qr_code')}</button>`;
+            <button class="ga-btn ga-qr" data-url="${qrUrl}" style="background:#2c3e50;"><span ${ico}>\uD83D\uDD17</span> ${i18n.t('share.qr_code')}</button>`;
         if (photo.gif_filename) {
             // The lightbox opens GIF photos as the animation by default \u2192 offer a still toggle
             html += `<button class="ga-btn ga-toggle" data-still="${fileUrl}" data-gif="${gifUrl}" data-showing="gif" style="background:#16a085;"><span ${ico}>\uD83D\uDCF7</span> Standbild</button>`;
@@ -229,9 +244,18 @@ export function render(container, state) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_id: parseInt(printBtn.dataset.id), module: 'output.printer' }),
-            }).then(res => {
-                printBtn.innerHTML = res.ok ? `&#10003; ${i18n.t('share.print_started')}` : '&#10007; Fehler';
-                printBtn.style.background = res.ok ? 'var(--pb-color-success)' : 'var(--pb-color-error)';
+            }).then(r => r.json().then(result => ({ ok: r.ok, result }))).then(({ ok, result }) => {
+                if (result && result.status === 'blocked') {          // near-empty: refused
+                    printBtn.innerHTML = '⛔ ' + (result.message || 'Kein Medium');
+                    printBtn.style.background = 'var(--pb-color-error)';
+                    printBtn.disabled = false;
+                } else if (ok && result && result.warning) {           // printed but low
+                    printBtn.innerHTML = `&#9888; noch ${result.remaining ?? ''}`;
+                    printBtn.style.background = '#c77b1a';
+                } else {
+                    printBtn.innerHTML = ok ? `&#10003; ${i18n.t('share.print_started')}` : '&#10007; Fehler';
+                    printBtn.style.background = ok ? 'var(--pb-color-success)' : 'var(--pb-color-error)';
+                }
             }).catch(() => {
                 printBtn.innerHTML = '&#10007; Fehler';
                 printBtn.style.background = 'var(--pb-color-error)';

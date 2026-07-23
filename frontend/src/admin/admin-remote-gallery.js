@@ -4,6 +4,8 @@ export async function render(container, state) {
     const headers = getHeaders();
     let data = { config: {}, state: {}, protocols: ['webdav', 'ftps', 'ftp', 'rsync', 'scp'] };
     try { data = await fetch('/api/v1/remote-gallery/status', { headers }).then(r => r.json()); } catch {}
+    let tunnel = { enabled: false, installed: false, service_active: false, url: '' };
+    try { tunnel = await fetch('/api/v1/system/tunnel', { headers }).then(r => r.json()); } catch {}
     const c = data.config || {};
     const st = data.state || {};
     const protos = data.protocols || ['webdav', 'ftps', 'ftp', 'rsync', 'scp'];
@@ -76,6 +78,26 @@ export async function render(container, state) {
             <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
                 Hinweis: Für rsync/scp mit Passwort muss auf der Box <code>sshpass</code> installiert sein — sonst SSH-Key nutzen.
             </p>
+
+            <h2 style="margin-top:2rem;margin-bottom:0.4rem;font-size:1.15rem;">Cloudflare Quick-Tunnel</h2>
+            <p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.75rem;">
+                Macht die QR-Codes (Foto/GIF/Galerie) <strong>ohne Account</strong> aus dem Internet erreichbar — für Gäste-Handys,
+                die nicht im WLAN der Box sind. Die Anzeige in der Steuerung bleibt lokal.
+            </p>
+            <div class="admin-card">
+                ${tunnel.installed ? '' : `<p style="color:var(--pb-color-error);font-size:0.85rem;margin-top:0;">
+                    <code>cloudflared</code> ist nicht installiert — auf der Box <code>sudo ./scripts/cloudflared-setup.sh</code> ausführen
+                    (oder beim Setup <code>WITH_CLOUDFLARE=1</code>).</p>`}
+                <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                    <input type="checkbox" id="f-tunnel" ${tunnel.enabled ? 'checked' : ''} ${tunnel.installed ? '' : 'disabled'}>
+                    <strong>Tunnel aktivieren</strong>
+                </label>
+                <div id="tunnel-status" style="margin-top:0.6rem;font-size:0.85rem;color:var(--pb-color-text-muted);">
+                    <span id="tunnel-dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${tunnel.service_active ? 'var(--pb-color-success)' : '#888'};margin-right:0.4rem;"></span>
+                    <span id="tunnel-state">${tunnel.service_active ? 'Läuft' : 'Gestoppt'}</span>
+                    ${tunnel.url ? `· URL: <a href="${tunnel.url}" target="_blank" style="color:var(--pb-color-primary);word-break:break-all;">${tunnel.url}</a>` : ''}
+                </div>
+            </div>
         </div>
     `);
     setupLogout(container);
@@ -122,6 +144,34 @@ export async function render(container, state) {
             setMsg(r.ok ? '✓ ' + r.message : '✗ ' + r.message, r.ok ? 'ok' : 'error');
         } catch (e) { setMsg('Fehler: ' + e.message, 'error'); }
     });
+
+    const tunnelToggle = container.querySelector('#f-tunnel');
+    if (tunnelToggle) {
+        tunnelToggle.addEventListener('change', async (e) => {
+            const enabled = e.target.checked;
+            const stateEl = container.querySelector('#tunnel-state');
+            const dotEl = container.querySelector('#tunnel-dot');
+            const statusEl = container.querySelector('#tunnel-status');
+            stateEl.textContent = enabled ? 'Starte…' : 'Stoppe…';
+            e.target.disabled = true;
+            try {
+                const r = await fetch('/api/v1/system/tunnel', {
+                    method: 'POST', headers, body: JSON.stringify({ enabled }),
+                }).then(r => r.json());
+                dotEl.style.background = r.service_active ? 'var(--pb-color-success)' : '#888';
+                stateEl.textContent = r.service_active ? 'Läuft' : 'Gestoppt';
+                let extra = '';
+                if (r.url) extra = ` · URL: <a href="${r.url}" target="_blank" style="color:var(--pb-color-primary);word-break:break-all;">${r.url}</a>`;
+                else if (enabled) extra = ' · <span style="color:var(--pb-color-text-muted);">URL wird vergeben… (ein paar Sekunden, dann Seite neu laden)</span>';
+                if (r.error) extra += ` <span style="color:var(--pb-color-error);">(${r.error})</span>`;
+                statusEl.innerHTML = `<span id="tunnel-dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.service_active ? 'var(--pb-color-success)' : '#888'};margin-right:0.4rem;"></span><span id="tunnel-state">${r.service_active ? 'Läuft' : 'Gestoppt'}</span>${extra}`;
+            } catch (err) {
+                stateEl.textContent = 'Fehler: ' + err.message;
+            } finally {
+                e.target.disabled = false;
+            }
+        });
+    }
 
     container.querySelector('#btn-resync').addEventListener('click', async () => {
         if (!confirm('Alle Fotos des aktiven Events erneut hochladen?')) return;

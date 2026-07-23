@@ -29,6 +29,7 @@ WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
+WITH_CLOUDFLARE="${WITH_CLOUDFLARE:-0}"  # Cloudflare Quick-Tunnel für öffentliche QR-Links (cloudflared)
 DISABLE_IPV6="${DISABLE_IPV6:-0}"        # IPv6 systemweit abschalten (hilft bei kaputtem IPv6-Routing)
 
 echo ">>> MKPhotobox setup"
@@ -144,6 +145,14 @@ rm -f /tmp/mkphotobox-sudoers
 if [[ "$WITH_TAILSCALE" == 1 ]]; then
   echo ">>> [4b] Tailscale (Remote-Zugang)"
   bash "$APP_DIR/scripts/tailscale-setup.sh" || echo "  (Tailscale-Setup übersprungen/fehlgeschlagen)"
+fi
+
+# ── 4c) optional: Cloudflare quick tunnel (public QR links) ────────────────
+if [[ "$WITH_CLOUDFLARE" == 1 ]]; then
+  echo ">>> [4c] Cloudflare Quick-Tunnel (öffentliche QR-Links)"
+  # Install binary + unit; ENABLE=0 so it only runs when turned on in the app.
+  ENABLE=0 RUN_USER="$RUN_USER" bash "$APP_DIR/scripts/cloudflared-setup.sh" \
+    || echo "  (Cloudflare-Setup übersprungen/fehlgeschlagen)"
 fi
 
 # ── 5) done ───────────────────────────────────────────────────────────────

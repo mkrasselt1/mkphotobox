@@ -17,6 +17,8 @@ booth:
   countdown: "{seconds}"
   processing: "Dein Foto wird verarbeitet..."
   review_title: "Dein Foto"
+  choose_layout: "Layout wählen"
+  cancel: "Abbrechen"
   retake: "Nochmal"
   continue: "Weiter"
   thanks: "Vielen Dank!"

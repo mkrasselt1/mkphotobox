@@ -35,6 +35,7 @@ Weboberfläche.
   | CD/DVD brennen            | `xorriso`                            | —                   |
   | WLAN-Verwaltung           | `network-manager` (nmcli)            | —                   |
   | Online-Galerie (Server-Sync) | `curl`, `rsync`, `sshpass`        | —                   |
+  | Öffentliche QR-Links (Cloudflare Quick-Tunnel) | `cloudflared`      | —                   |
   | Akustik-Auslöser          | `libportaudio2`                      | `.[audio]`          |
   | Serieller Auslöser        | —                                    | `.[serial]`         |
   | Tastatur/BT/evdev-Auslöser| Gruppe `input`                       | `.[triggers]`       |
@@ -101,6 +102,23 @@ sudo WITH_TAILSCALE=1 TS_AUTHKEY=tskey-... ./scripts/setup.sh   # nicht-interakt
 
 Aktiviert **Tailscale SSH** → danach `ssh photobooth@mkphotobox` aus dem eigenen
 Tailnet, ohne Schlüssel/Port-Freigabe.
+
+## Öffentliche QR-Links (Cloudflare Quick-Tunnel)
+
+Damit die QR-Codes (Foto/GIF/Galerie) auch für Gäste-Handys funktionieren, die
+**nicht im WLAN der Box** sind — ohne Cloudflare-Konto/Login. `cloudflared` öffnet
+einen Quick-Tunnel mit einer zufälligen `*.trycloudflare.com`-Adresse; die App nutzt
+diese automatisch als QR-Basis. Die Bildanzeige in der Steuerung bleibt lokal (LAN).
+
+```bash
+sudo ./scripts/cloudflared-setup.sh                 # cloudflared + Dienst installieren
+sudo WITH_CLOUDFLARE=1 ./scripts/setup.sh           # beim Setup mit einrichten
+```
+
+Ein-/ausschalten im Admin unter **Online-Galerie → Cloudflare Quick-Tunnel** (zeigt die
+aktuelle URL). Die URL wird bei jedem Tunnel-Neustart neu vergeben (bei Quick-Tunneln
+normal). Für eine feste Adresse stattdessen die **Online-Galerie** mit eigener Domain
+nutzen oder `share.base_url` in der `config.yaml` setzen.
 
 ---
 

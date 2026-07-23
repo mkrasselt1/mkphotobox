@@ -37,6 +37,16 @@ RUN "$PIP" install "fastapi==0.135.3" "starlette==1.0.0" -q   # Pin beibehalten
 echo ">>> Neustart (Schema-Migration läuft automatisch beim Start)"
 find "$APP_DIR/app" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 systemctl restart mkphotobox.service
+
+# Cloudflare quick tunnel: if installed, refresh the unit/wrapper and restart it
+# only when it's currently active (so a fresh trycloudflare URL is picked up).
+if command -v cloudflared >/dev/null 2>&1; then
+  echo ">>> Cloudflare-Tunnel: Dienst/Skript auffrischen"
+  ENABLE=0 RUN_USER="$RUN_USER" bash "$APP_DIR/scripts/cloudflared-setup.sh" >/dev/null 2>&1 || true
+  if systemctl is-active --quiet mkphotobox-tunnel.service; then
+    systemctl restart mkphotobox-tunnel.service || true
+  fi
+fi
 sleep 5
 if systemctl is-active --quiet mkphotobox.service; then
   echo "OK — aktiv: http://$(hostname -I | awk '{print $1}'):8080"

@@ -391,6 +391,16 @@ async def send_output(
     if module_id == "output.printer" and photo is not None:
         print_override = _print_override_for_photo(photo, session)
 
+    # Low-media guard: warn when the *target* printer is running low, and STOP
+    # just before zero so we don't shoot the last sheet/ribbon panel blind.
+    media_guard = None
+    if module_id == "output.printer" and body.get("mode") != "browser":
+        media_guard = _printer_media_guard(cfg, print_override)
+        if media_guard and media_guard.get("block"):
+            return {"status": "blocked", "message": media_guard["message"],
+                    "warning": media_guard["message"], "remaining": media_guard.get("remaining"),
+                    "printer": media_guard.get("printer")}
+
     # Create output job
     job = OutputJob(
         photo_id=photo_id,
@@ -416,7 +426,47 @@ async def send_output(
         "module": module_id, "photo_id": photo_id, "status": job.status
     })
 
+    # Surface a low-media warning alongside a successful print.
+    if media_guard and media_guard.get("warn") and result.get("status") == "ok":
+        result.setdefault("warning", media_guard["message"])
+        result.setdefault("remaining", media_guard.get("remaining"))
+
     return {"job_id": job.id, "status": job.status, **result}
+
+
+def _printer_media_guard(cfg: dict, print_override: dict) -> dict | None:
+    """Remaining-media check for the printer a job will actually use.
+
+    Returns ``{"block": True, ...}`` when at/under ``block_remaining`` (refuse to
+    print, keep a buffer before zero), ``{"warn": True, ...}`` when at/under
+    ``warn_remaining`` (print but warn), or ``None`` when there's plenty / the
+    printer doesn't report remaining media (e.g. non-dye-sub, or non-Linux).
+    """
+    from app.modules.output.printer import PrinterOutput
+
+    pcfg = (cfg.get("outputs", {}) or {}).get("printer", {}) or {}
+    name = (print_override or {}).get("printer_name") or pcfg.get("printer_name") or ""
+    try:
+        status = PrinterOutput.printer_status(name)
+    except Exception:
+        return None
+    remaining = (status.get("media") or {}).get("remaining_prints")
+    if remaining is None:
+        return None
+    try:
+        warn_at = int(pcfg.get("warn_remaining", 10))
+        block_at = int(pcfg.get("block_remaining", 1))
+    except (TypeError, ValueError):
+        warn_at, block_at = 10, 1
+    printer = status.get("printer") or name
+    if remaining <= block_at:
+        return {"block": True, "remaining": remaining, "printer": printer,
+                "message": f"Druck gestoppt — nur noch {remaining} Blatt/Drucke. "
+                           "Bitte Medium/Farbband wechseln."}
+    if remaining <= warn_at:
+        return {"warn": True, "remaining": remaining, "printer": printer,
+                "message": f"Nur noch {remaining} Drucke übrig — bitte bald Medium wechseln."}
+    return None
 
 
 @router.get("/outputs/available")
@@ -484,6 +534,7 @@ def photos_feed(limit: int = 300, session: Session = Depends(get_session)):
             {
                 "id": p.id,
                 "url": f"/api/v1/photos/{p.id}/file",
+                "gif": f"/api/v1/photos/{p.id}/gif" if p.gif_filename else None,
                 "thumb": f"/api/v1/photos/{p.id}/thumb" if p.thumbnail else f"/api/v1/photos/{p.id}/file",
                 "name": p.filename,
                 "ts": p.captured_at.isoformat() if p.captured_at else None,

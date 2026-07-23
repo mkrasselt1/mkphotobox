@@ -38,6 +38,7 @@ let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
 let boothInitiated = false;  // true while the booth drives its own capture sequence
 let shareBase = '';          // LAN base URL for QR codes (phone-reachable, not localhost)
+let remoteGallery = null;    // {active, gallery_url, image_base} when off-box gallery is live
 let cropAspect = null;       // {w,h} default output aspect to outline on the live preview
 
 const PREVIEW_MAX_WIDTHS = {
@@ -124,9 +125,12 @@ export function render(container, state) {
             cropAspect = { w: t0.canvas_width, h: t0.canvas_height };
         }
         try {
-            shareBase = await fetch('/api/v1/system/share-base').then(r => r.json()).then(r => r.base_url || '');
+            const sb = await fetch('/api/v1/system/share-base').then(r => r.json());
+            shareBase = sb.base_url || '';
+            remoteGallery = sb.remote_gallery || null;
         } catch {
             shareBase = location.origin;
+            remoteGallery = null;
         }
         try {
             const outs = await fetch('/api/v1/outputs/available').then(r => r.json());
@@ -737,9 +741,18 @@ export function render(container, state) {
             `);
         };
 
-        el.querySelector('#card-photo')?.addEventListener('click', () => showQR(fullUrl(downloadUrl), 'Foto aufs Handy'));
-        el.querySelector('#card-live')?.addEventListener('click', () => showQR(`${shareBase || location.origin}/live`, 'Live-Galerie öffnen'));
-        el.querySelector('#card-gif')?.addEventListener('click', () => showQR(fullUrl(gifUrl), 'GIF aufs Handy'));
+        // When the remote gallery is live, hand out its off-box (internet-reachable)
+        // links so phones that aren't on the booth's network can still download.
+        const baseName = (p) => (p || '').split(/[/\\]/).pop();
+        const remoteFile = (name) =>
+            (remoteGallery?.active && name) ? `${remoteGallery.image_base}/${baseName(name)}` : null;
+        const photoShareUrl = remoteFile(lastPhoto?.filename) || fullUrl(downloadUrl);
+        const gifShareUrl = remoteFile(typeof lastPhoto?.gif === 'string' ? lastPhoto.gif : null) || fullUrl(gifUrl);
+        const galleryShareUrl = remoteGallery?.active ? remoteGallery.gallery_url : `${shareBase || location.origin}/live`;
+
+        el.querySelector('#card-photo')?.addEventListener('click', () => showQR(photoShareUrl, 'Foto aufs Handy'));
+        el.querySelector('#card-live')?.addEventListener('click', () => showQR(galleryShareUrl, remoteGallery?.active ? 'Galerie öffnen' : 'Live-Galerie öffnen'));
+        el.querySelector('#card-gif')?.addEventListener('click', () => showQR(gifShareUrl, 'GIF aufs Handy'));
 
         el.querySelector('#card-email')?.addEventListener('click', () => {
             const o = openOverlay(`
@@ -817,6 +830,11 @@ export function render(container, state) {
                     body: JSON.stringify({ photo_id: photoId, module: 'output.printer' }),
                 });
                 const result = await res.json();
+                if (result.status === 'blocked') {
+                    msg.innerHTML = `⛔ ${result.message || 'Kein Druckmedium mehr'}<br><small>Bitte Personal informieren.</small>`;
+                    msg.style.color = 'var(--pb-color-error)';
+                    return;
+                }
                 if (result.print_mode === 'browser') {
                     const printWin = window.open('', '_blank');
                     if (printWin) {

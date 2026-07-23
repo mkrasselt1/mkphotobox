@@ -46,12 +46,19 @@ _HEAD = """<!doctype html>
   .tile.new::after { content:"neu"; position:absolute; top:6px; left:6px;
           background:#46d39a; color:#06281b; font-size:.65rem; font-weight:700;
           padding:1px 7px; border-radius:7px; }
+  .tile .gif-badge { position:absolute; top:6px; right:6px; z-index:2;
+          background:rgba(43,108,255,.92); color:#fff; font-size:.7rem; font-weight:700;
+          padding:3px 8px; border-radius:7px; border:none; cursor:pointer;
+          letter-spacing:.4px; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  .tile .gif-badge.playing { background:rgba(231,76,60,.95); }
   #empty { padding:3rem 1rem; text-align:center; color:#8a93a6; }
   /* Lightbox */
   #lb { position:fixed; inset:0; z-index:50; display:none; background:rgba(0,0,0,.93);
         align-items:center; justify-content:center; }
   #lb.on { display:flex; }
-  #lb img { max-width:96vw; max-height:88vh; object-fit:contain; border-radius:6px; }
+  /* Fixed box + object-fit:contain upscales small images (e.g. GIFs) so they
+     fill the viewport just like full-res photos, keeping aspect ratio. */
+  #lb img { width:96vw; height:88vh; object-fit:contain; border-radius:6px; }
   #lb .bar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center;
              gap:1rem; padding:.8rem 1rem; }
   #lb .bar .name { font-size:.9rem; color:#cfd6e6; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -76,7 +83,9 @@ _INNER = """
 <div id="empty">Noch keine Fotos.</div>
 <div id="grid"></div>
 <div id="lb">
-  <div class="bar"><span class="name" id="lbName"></span><a class="dl" id="lbDl" download>Herunterladen</a></div>
+  <div class="bar"><span class="name" id="lbName"></span>
+    <button class="dl" id="lbGif" style="display:none;border:none;cursor:pointer;background:#16a085;">GIF ▶</button>
+    <a class="dl" id="lbDl" download>Herunterladen</a></div>
   <button class="close" id="lbClose">&times;</button>
   <button class="nav prev" id="lbPrev">&#8249;</button>
   <img id="lbImg" alt="">
@@ -94,12 +103,13 @@ _INNER = """
   var countEl = document.getElementById('count');
   var lb = document.getElementById('lb'), lbImg = document.getElementById('lbImg');
   var lbName = document.getElementById('lbName'), lbDl = document.getElementById('lbDl');
-  var cur = 0;
+  var lbGif = document.getElementById('lbGif');
+  var cur = 0, gifOn = false;
 
   function norm(p){
-    if (typeof p === 'string') return { src:p, full:p, name:p };
+    if (typeof p === 'string') return { src:p, full:p, name:p, gif:null };
     var full = p.url || p.src || p.thumb;
-    return { src:(p.thumb || full), full:full, name:(p.name || full) };
+    return { src:(p.thumb || full), full:full, name:(p.name || full), gif:(p.gif || null) };
   }
   function add(list, prepend){
     var added = 0;
@@ -119,6 +129,17 @@ _INNER = """
     img.loading = 'lazy'; img.src = it.src; img.alt = it.name;
     d.appendChild(img);
     d.addEventListener('click', function(){ open(items.indexOf(it)); });
+    if (it.gif) {
+      var b = document.createElement('button');
+      b.className = 'gif-badge'; b.type = 'button'; b.textContent = 'GIF ▶';
+      b.addEventListener('click', function(e){
+        e.stopPropagation();            // don't open the lightbox
+        var playing = b.classList.toggle('playing');
+        b.textContent = playing ? 'Foto' : 'GIF ▶';
+        img.src = playing ? it.gif : it.src;
+      });
+      d.appendChild(b);
+    }
     if (isNew) setTimeout(function(){ d.classList.remove('new'); }, 8000);
     return d;
   }
@@ -136,14 +157,19 @@ _INNER = """
     emptyEl.style.display = items.length ? 'none' : '';
   }
   // Lightbox
-  function open(i){ cur = i; show(); lb.classList.add('on'); }
+  function open(i){ cur = i; gifOn = false; show(); lb.classList.add('on'); }
   function show(){
     var it = items[cur]; if (!it) return;
-    lbImg.src = it.full || it.src; lbName.textContent = it.name;
-    lbDl.href = it.full || it.src; lbDl.setAttribute('download', it.name);
+    var showGif = gifOn && it.gif;
+    lbImg.src = showGif ? it.gif : (it.full || it.src);
+    lbName.textContent = it.name;
+    lbDl.href = (showGif ? it.gif : (it.full || it.src)); lbDl.setAttribute('download', it.name);
+    lbGif.style.display = it.gif ? '' : 'none';
+    lbGif.textContent = showGif ? 'Foto' : 'GIF ▶';
   }
   function close(){ lb.classList.remove('on'); }
-  function step(d){ if(!items.length) return; cur = (cur + d + items.length) % items.length; show(); }
+  function step(d){ if(!items.length) return; cur = (cur + d + items.length) % items.length; gifOn = false; show(); }
+  lbGif.onclick = function(){ gifOn = !gifOn; show(); };
   document.getElementById('lbClose').onclick = close;
   document.getElementById('lbPrev').onclick = function(){ step(-1); };
   document.getElementById('lbNext').onclick = function(){ step(1); };

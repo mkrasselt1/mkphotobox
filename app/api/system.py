@@ -334,23 +334,155 @@ def get_share_base(request: Request):
 
     The kiosk browser runs on localhost, which is useless in a QR code — so we
     return the box's LAN IP (or a configured override) plus the server port.
+
+    Also advertises the remote gallery when it is enabled with a public URL, so
+    the booth can point download links at the off-box (internet-reachable)
+    gallery instead of the LAN-only box — useful when guest phones aren't on the
+    booth's network.
     """
     cfg = request.app.state.config
     override = get_nested(cfg, "share.base_url", "") or ""
+    tunnel = _tunnel_base_url(cfg)
     if override:
-        return {"base_url": override.rstrip("/")}
+        base_url = override.rstrip("/")
+    elif tunnel:
+        base_url = tunnel
+    else:
+        import socket
+        ip = "127.0.0.1"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+        port = cfg.get("server", {}).get("port", 8080)
+        base_url = f"http://{ip}:{port}"
 
-    import socket
-    ip = "127.0.0.1"
+    return {"base_url": base_url, "remote_gallery": _remote_gallery_share(cfg)}
+
+
+def _tunnel_base_url(cfg: dict) -> str | None:
+    """Public URL of the Cloudflare quick tunnel, when enabled and running.
+
+    The tunnel wrapper (scripts/cloudflared-quick.sh) writes the assigned
+    ``*.trycloudflare.com`` URL to ``data/tunnel_url.txt``; we read it here so
+    guest QR codes point at the internet-reachable tunnel instead of the LAN IP.
+    """
+    if not get_nested(cfg, "share.tunnel.enabled", False):
+        return None
+    from app.config import _BASE_DIR
+
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
+        url = (_BASE_DIR / "data" / "tunnel_url.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        return None
+    return url.rstrip("/") if url.startswith("http") else None
+
+
+def _remote_gallery_share(cfg: dict) -> dict | None:
+    """Public download info for the remote gallery, or None when unavailable.
+
+    A photo uploaded by the sync service lives at ``<public_url>/img/<basename>``
+    (see app.services.remote_gallery.REMOTE_IMG_DIR), so the booth can build a
+    per-photo link from ``image_base`` + the photo's filename.
+    """
+    from app.services.remote_gallery import REMOTE_IMG_DIR
+
+    rg = get_nested(cfg, "remote_gallery", {}) or {}
+    public_url = (rg.get("public_url") or "").rstrip("/")
+    if not rg.get("enabled") or not public_url:
+        return None
+    return {
+        "active": True,
+        "gallery_url": public_url,
+        "image_base": f"{public_url}/{REMOTE_IMG_DIR}",
+    }
+
+
+# ── Cloudflare quick tunnel (public QR links, no account) ──────────────────
+
+_TUNNEL_SERVICE = "mkphotobox-tunnel.service"
+
+
+def _tunnel_status(cfg: dict) -> dict:
+    import shutil
+
+    from app.config import _BASE_DIR
+
+    url = ""
+    try:
+        url = (_BASE_DIR / "data" / "tunnel_url.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        url = ""
+    active = False
+    try:
+        r = subprocess.run(["systemctl", "is-active", _TUNNEL_SERVICE],
+                           capture_output=True, text=True, timeout=5)
+        active = r.stdout.strip() == "active"
     except Exception:
         pass
-    port = cfg.get("server", {}).get("port", 8080)
-    return {"base_url": f"http://{ip}:{port}"}
+    return {
+        "enabled": bool(get_nested(cfg, "share.tunnel.enabled", False)),
+        "installed": shutil.which("cloudflared") is not None,
+        "service_active": active,
+        "url": url if url.startswith("http") else "",
+    }
+
+
+@router.get("/system/tunnel")
+def get_tunnel(request: Request, _user=Depends(require_role("admin", "organizer"))):
+    """Cloudflare quick-tunnel status: enabled flag, install state, live URL."""
+    return _tunnel_status(request.app.state.config)
+
+
+@router.post("/system/tunnel")
+def set_tunnel(body: dict, request: Request,
+               session: Session = Depends(get_session),
+               user: User = Depends(require_role("admin"))):
+    """Enable/disable the Cloudflare quick tunnel: persist the flag and
+    start/stop the systemd service. Returns the refreshed status."""
+    import json
+
+    from app.config import get_config, set_nested
+    from app.models import Setting
+
+    enabled = bool(body.get("enabled"))
+
+    # Persist as a DB Setting (survives restart via apply_db_settings) + in-memory.
+    key = "share.tunnel.enabled"
+    row = session.exec(select(Setting).where(Setting.key == key)).first()
+    if row:
+        row.value_json = json.dumps(enabled)
+        row.updated_at = time_now()
+        row.updated_by = user.id
+    else:
+        row = Setting(key=key, value_json=json.dumps(enabled), updated_by=user.id)
+    session.add(row)
+    session.commit()
+    cfg = get_config()
+    set_nested(cfg, key, enabled)
+    request.app.state.config = cfg
+
+    action = "start" if enabled else "stop"
+    error = None
+    try:
+        r = subprocess.run(["sudo", "-n", "systemctl", action, _TUNNEL_SERVICE],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            error = (r.stderr or r.stdout or f"exit {r.returncode}").strip()[:300]
+    except Exception as e:
+        error = str(e)
+
+    status = _tunnel_status(cfg)
+    status["error"] = error
+    return status
+
+
+def time_now():
+    from datetime import datetime
+    return datetime.utcnow()
 
 
 @router.get("/system/info")

@@ -205,6 +205,7 @@ class RemoteGallerySync:
                 "event": event.name,
                 "photos": [
                     {"url": f"{REMOTE_IMG_DIR}/{Path(p.filename).name}",
+                     "gif": f"{REMOTE_IMG_DIR}/{Path(p.gif_filename).name}" if p.gif_filename else None,
                      "name": p.filename,
                      "ts": p.captured_at.isoformat() if p.captured_at else None}
                     for p in rows

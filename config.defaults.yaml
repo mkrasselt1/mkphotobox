@@ -116,6 +116,10 @@ outputs:
     orientation: "portrait"  # portrait | landscape
     fit_to_page: true
     margin_mm: 0             # 0 = randlos
+    warn_remaining: 10       # Warnung anzeigen, sobald nur noch so viele Drucke übrig sind
+    block_remaining: 1       # Druck STOPPEN, sobald nur noch so viele übrig sind (Puffer vor Null;
+                             # 0 = erst bei komplett leer blockieren). Nur bei Druckern, die die
+                             # Restmenge melden (Dye-Sub via CUPS-Marker).
   web_upload:
     enabled: false
     base_url: ""
@@ -201,6 +205,14 @@ gallery:
   enabled: true                # false = Galerie-Link wird ausgeblendet
   delete_mode: "off"           # off | recent | all — recent = nur Fotos der letzten 5 Min
   delete_recent_minutes: 5     # Zeitfenster für "recent"-Modus
+
+share:                        # QR-Code-Links für Gäste-Handys (Foto/GIF/Galerie)
+  base_url: ""                # feste öffentliche Basis-URL (überschreibt alles); leer = LAN-IP
+  tunnel:
+    enabled: false            # Cloudflare Quick-Tunnel: öffentliche QR-Links ohne Account/Login.
+                              # Erfordert cloudflared (scripts/cloudflared-setup.sh bzw.
+                              # WITH_CLOUDFLARE=1 beim setup). Die zufällige *.trycloudflare.com
+                              # URL steht in data/tunnel_url.txt und wird automatisch verwendet.
 
 offline:
   sync_interval_seconds: 60
