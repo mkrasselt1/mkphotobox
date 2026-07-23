@@ -38,6 +38,7 @@ let galleryEnabled = true;
 let availableOutputs = [];  // loaded output module names (only enabled+available ones)
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
+let lastTemplate = null;     // template of the last capture — so "Nochmal" repeats a set, not a single
 let boothInitiated = false;  // true while the booth drives its own capture sequence
 let shareBase = '';          // LAN base URL for QR codes (phone-reachable, not localhost)
 let remoteGallery = null;    // {active, gallery_url, image_base} when off-box gallery is live
@@ -327,6 +328,7 @@ export function render(container, state) {
 
     function startCapture(template) {
         boothInitiated = true;
+        lastTemplate = template;   // remember for "Nochmal" (repeat the same set/single)
         if (template && template.photo_count > 1) {
             seq = { template, total: template.photo_count, shots: [], index: 0 };
         } else {
@@ -392,6 +394,7 @@ export function render(container, state) {
 
     function renderIdle(el) {
         seq = null;
+        lastTemplate = null;
         boothInitiated = false;
         const isFS = previewSize === 'fullscreen';
         if (!idleLivePreview) {
@@ -670,7 +673,11 @@ export function render(container, state) {
         </div>
         ${btnStyles()}`;
 
-        el.querySelector('#btn-retake').addEventListener('click', () => transition('countdown'));
+        el.querySelector('#btn-retake').addEventListener('click', () => {
+            // Repeat the SAME thing: a set restarts the whole set, a single retakes one.
+            if (lastTemplate && lastTemplate.photo_count > 1) startCapture(lastTemplate);
+            else transition('countdown');
+        });
         el.querySelector('#btn-continue').addEventListener('click', () => transition('share'));
     }
 
