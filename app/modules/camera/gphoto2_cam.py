@@ -29,6 +29,10 @@ class GPhoto2Camera(AbstractCamera):
         self._capture_target = 1  # 1 = card, 0 = RAM
         self._focus_mode = ""     # "" = leave the camera's current setting
         self._autofocus = False   # drive autofocus right before each capture
+        # Focus modes don't change at runtime — query once (ideally at connect,
+        # before the preview stream owns the lock) and cache, so the admin UI
+        # never blocks on a get_config() that contends with live preview.
+        self._focus_modes_cache: dict[str, Any] | None = None
         # gphoto2 is NOT thread-safe — serialise all camera access so the
         # live-preview stream and a still capture never run concurrently
         # (that triggers "[-110] I/O in progress").
@@ -59,6 +63,10 @@ class GPhoto2Camera(AbstractCamera):
             with self._lock:
                 if self._camera is None:
                     self._connect()
+                # Warm the focus-mode cache now, while we own the lock and the
+                # preview stream isn't hammering it yet.
+                if self._focus_modes_cache is None:
+                    self._focus_modes_cache = self._read_focus_modes_locked()
         try:
             await asyncio.to_thread(_locked_connect)
         except Exception as e:
@@ -195,29 +203,49 @@ class GPhoto2Camera(AbstractCamera):
         logger.warning("No settable focus-mode widget found for %r", self._focus_mode)
 
     def list_focus_modes(self) -> dict[str, Any]:
-        """Return the camera's available focus-mode choices (for the admin UI)."""
-        with self._lock:
+        """Return the camera's available focus-mode choices (for the admin UI).
+
+        Never blocks the UI: returns the cached result instantly when available,
+        otherwise tries to grab the camera lock briefly — if the live preview is
+        holding it, we report "busy" rather than hanging on get_config()."""
+        if self._focus_modes_cache is not None:
+            return self._focus_modes_cache
+
+        # Non-blocking-ish: don't wait forever behind the preview stream.
+        if not self._lock.acquire(timeout=2.0):
+            return {"available": False, "reason": "Kamera beschäftigt (Vorschau aktiv) — bitte kurz erneut versuchen",
+                    "choices": [], "current": "", "busy": True}
+        try:
+            result = self._read_focus_modes_locked()
+        finally:
+            self._lock.release()
+        if result.get("available"):
+            self._focus_modes_cache = result   # cache only a good result; retry on failure
+        return result
+
+    def _read_focus_modes_locked(self) -> dict[str, Any]:
+        """Query the focus-mode widget. Caller MUST hold self._lock."""
+        try:
+            if self._camera is None:
+                self._connect()
+            config = self._camera.get_config()
+        except Exception as e:
+            return {"available": False, "reason": str(e), "choices": [], "current": ""}
+        for wname in self._FOCUS_WIDGETS:
             try:
-                if self._camera is None:
-                    self._connect()
-                config = self._camera.get_config()
-            except Exception as e:
-                return {"available": False, "reason": str(e), "choices": [], "current": ""}
-            for wname in self._FOCUS_WIDGETS:
-                try:
-                    widget = config.get_child_by_name(wname)
-                except Exception:
-                    continue
-                try:
-                    choices = [widget.get_choice(i) for i in range(widget.count_choices())]
-                except Exception:
-                    choices = []
-                current = ""
-                try:
-                    current = widget.get_value()
-                except Exception:
-                    pass
-                return {"available": True, "widget": wname, "choices": choices, "current": current}
+                widget = config.get_child_by_name(wname)
+            except Exception:
+                continue
+            try:
+                choices = [widget.get_choice(i) for i in range(widget.count_choices())]
+            except Exception:
+                choices = []
+            current = ""
+            try:
+                current = widget.get_value()
+            except Exception:
+                pass
+            return {"available": True, "widget": wname, "choices": choices, "current": current}
         return {"available": False, "reason": "Kein Fokus-Widget gefunden", "choices": [], "current": ""}
 
     def _drive_autofocus(self) -> None:

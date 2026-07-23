@@ -68,9 +68,10 @@ export async function render(container, state) {
     const captureLeadMs = settings?.session?.capture_lead_ms ?? 0;
     const idleLivePreview = settings?.display?.idle_live_preview !== false;
 
-    // DSLR focus modes (gphoto2) — only meaningful when a gphoto2 camera is active
+    // DSLR focus modes (gphoto2) — loaded ASYNC after render (see loadFocusModes
+    // below) so a slow/busy camera (live preview holding the lock) never blocks
+    // the whole page from appearing.
     let focus = { available: false, choices: [], current: '' };
-    try { focus = await fetch('/api/v1/camera/focus-modes').then(r => r.json()); } catch {}
     const gphotoActive = (captureId || previewId || '').includes('gphoto2');
     const focusField = focus.available && (focus.choices || []).length
         ? `<select id="focus-mode" class="admin-input" style="width:220px;">
@@ -182,7 +183,7 @@ export async function render(container, state) {
                 <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:center;">
                     <div>
                         <label style="display:block;margin-bottom:0.3rem;font-size:0.9rem;">Fokus-Modus</label>
-                        ${focusField}
+                        <div id="focus-field-wrap">${focusField}</div>
                     </div>
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;margin-top:1rem;">
                         <input type="checkbox" id="focus-af"> Vor jeder Aufnahme autofokussieren
@@ -205,6 +206,21 @@ export async function render(container, state) {
     `);
 
     setupLogout(container);
+
+    // Load DSLR focus modes without blocking the page. If a gphoto2 camera
+    // reports choices, upgrade the plain text input into a dropdown.
+    (async () => {
+        let f;
+        try { f = await fetch('/api/v1/camera/focus-modes').then(r => r.json()); } catch { return; }
+        if (!f || !f.available || !(f.choices || []).length) return;
+        const wrap = container.querySelector('#focus-field-wrap');
+        if (!wrap) return;
+        const prev = wrap.querySelector('#focus-mode')?.value || f.current || '';
+        wrap.innerHTML = `<select id="focus-mode" class="admin-input" style="width:220px;">
+               <option value="">— Kamera-Standard —</option>
+               ${f.choices.map(c => `<option value="${c}" ${c === prev ? 'selected' : ''}>${c}</option>`).join('')}
+           </select>`;
+    })();
 
     container.querySelector('#separate-capture')?.addEventListener('change', (e) => {
         document.getElementById('capture-section').style.display = e.target.checked ? '' : 'none';
