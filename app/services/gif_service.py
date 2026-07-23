@@ -98,10 +98,19 @@ class GifService:
         try:
             from PIL import Image
 
+            # Fit each frame into the configured box while PRESERVING the source
+            # aspect ratio (upscaling allowed) — so the GIF file itself is large
+            # enough to show at photo size everywhere, without distortion and
+            # without CSS upscaling. Computed once (all frames share a size).
             pil_frames = []
+            target = None
             for f in frames:
-                img = Image.open(io.BytesIO(f.jpeg_bytes))
-                img = img.resize((self._gif_width, self._gif_height))
+                img = Image.open(io.BytesIO(f.jpeg_bytes)).convert("RGB")
+                if target is None:
+                    sw, sh = img.size
+                    scale = min(self._gif_width / sw, self._gif_height / sh)
+                    target = (max(1, round(sw * scale)), max(1, round(sh * scale)))
+                img = img.resize(target, Image.LANCZOS)
                 pil_frames.append(img)
 
             if not pil_frames:
