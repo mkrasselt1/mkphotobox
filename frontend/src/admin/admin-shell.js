@@ -212,34 +212,43 @@ export function setupLogout(container) {
         const o = document.createElement('div');
         o.id = 'pb-shutdown';
         o.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:1.5rem;';
-        o.innerHTML = `<div style="background:var(--pb-color-surface);border:1px solid var(--pb-color-border,#2a3a5e);border-radius:16px;padding:1.75rem;max-width:440px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,0.6);">
-            <h2 style="margin:0 0 0.75rem;">Box herunterfahren?</h2>
+        o.innerHTML = `<div style="background:var(--pb-color-surface);border:1px solid var(--pb-color-border,#2a3a5e);border-radius:16px;padding:1.75rem;max-width:460px;width:100%;box-shadow:0 24px 70px rgba(0,0,0,0.6);">
+            <h2 style="margin:0 0 0.75rem;">Box herunterfahren oder neu starten?</h2>
             ${status}
-            <p style="color:var(--pb-color-text-muted);font-size:0.9rem;margin:0.5rem 0 0;">Die Box wird sauber ausgeschaltet. Zum Einschalten den Power-Knopf drücken.</p>
-            <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.25rem;">
+            <p style="color:var(--pb-color-text-muted);font-size:0.9rem;margin:0.5rem 0 0;"><strong>Herunterfahren:</strong> Box wird ausgeschaltet (zum Einschalten den Power-Knopf drücken). <strong>Neustarten:</strong> Box startet neu und ist gleich wieder da.</p>
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;flex-wrap:wrap;margin-top:1.25rem;">
                 <button id="sd-cancel" class="admin-btn admin-btn-outline">Abbrechen</button>
+                <button id="sd-reboot" class="admin-btn admin-btn-primary" style="background:var(--pb-color-warning,#c77b1a);">${pending > 0 ? 'Trotzdem neu starten' : 'Neustarten'}</button>
                 <button id="sd-go" class="admin-btn admin-btn-primary" style="background:var(--pb-color-error);">${pending > 0 ? 'Trotzdem ausschalten' : 'Herunterfahren'}</button>
             </div>
             <p id="sd-msg" style="margin:0.75rem 0 0;font-size:0.9rem;"></p>
         </div>`;
         document.body.appendChild(o);
         o.querySelector('#sd-cancel').addEventListener('click', () => o.remove());
-        o.querySelector('#sd-go').addEventListener('click', async () => {
+
+        const powerAction = async (path, doingText, doneText) => {
             const msg = o.querySelector('#sd-msg');
+            o.querySelectorAll('button').forEach(b => b.disabled = true);
             msg.style.color = 'var(--pb-color-text-muted)';
-            msg.textContent = 'Fahre herunter…';
+            msg.textContent = doingText;
             try {
-                const res = await fetch('/api/v1/system/shutdown', {
+                const res = await fetch(path, {
                     method: 'POST', headers: h, body: JSON.stringify({ force: pending > 0 }),
                 });
                 const r = await res.json();
                 if (!res.ok) throw new Error(r.detail || 'Fehler');
                 msg.style.color = 'var(--pb-color-success)';
-                msg.textContent = 'Box fährt herunter…';
+                msg.textContent = doneText;
             } catch (err) {
                 msg.style.color = 'var(--pb-color-error)';
                 msg.textContent = 'Fehler: ' + err.message;
+                o.querySelectorAll('button').forEach(b => b.disabled = false);
             }
-        });
+        };
+
+        o.querySelector('#sd-go').addEventListener('click', () =>
+            powerAction('/api/v1/system/shutdown', 'Fahre herunter…', 'Box fährt herunter…'));
+        o.querySelector('#sd-reboot').addEventListener('click', () =>
+            powerAction('/api/v1/system/reboot', 'Starte neu…', 'Box startet neu… Seite in ~1 Min. neu laden.'));
     });
 }

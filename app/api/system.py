@@ -120,11 +120,17 @@ def shutdown(body: dict | None = None, _user=Depends(require_role("admin"))):
 
 
 @router.post("/system/reboot")
-def reboot(_user=Depends(require_role("admin"))):
+def reboot(body: dict | None = None, _user=Depends(require_role("admin"))):
+    """Reboot the box — refuses if print jobs are pending (unless force)."""
+    body = body or {}
+    jobs = _pending_print_jobs()
+    if jobs and not body.get("force"):
+        raise HTTPException(status_code=409,
+                            detail=f"{len(jobs)} Druckauftrag/-aufträge offen — abwarten oder 'force'.")
     res = _power_action("reboot")
     if res.get("status") == "error":
         raise HTTPException(status_code=500, detail=res["message"])
-    return {"status": "rebooting"}
+    return {"status": "rebooting", "pending_jobs": len(jobs), "forced": bool(body.get("force"))}
 
 
 # ── Self-update (git pull + restart) ─────────────────────────────────────────
