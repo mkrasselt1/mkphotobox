@@ -63,12 +63,11 @@ export function render(container, state) {
         }
         .gallery-item .gif-badge.playing { background:rgba(231,76,60,0.95); }
         .gallery-item .gif-badge:active { transform:scale(0.94); }
-        /* Upscale lightbox media (small GIFs) to fill the viewport like full-res
-           photos do — fixed box + object-fit:contain keeps the aspect ratio. */
-        .glightbox-container .gslide-image img {
-            width:94vw !important; height:82vh !important; object-fit:contain !important;
-            max-width:94vw !important; max-height:82vh !important;
-        }
+        /* Let small GIFs render larger without breaking GLightbox's image+description
+           layout: cap height (leave room for the action bar) but don't force a
+           fixed box — forcing width/height here overflowed and pushed the QR panel
+           into a big white gap below. */
+        .glightbox-container .gslide-image img { max-height:78vh !important; }
         .gslide-description { background:transparent !important; }
         .gdesc-inner { padding:0.5rem 0 !important; }
         .pb-gallery-actions {
@@ -270,17 +269,21 @@ export function render(container, state) {
             const actions = qrBtn.closest('.pb-gallery-actions');
             const existing = actions?.querySelector('.qr-display');
             if (existing) { existing.remove(); return; }
+            // Own centered row (flex-basis:100%), with a content-sized white card
+            // around the QR — not a full-width white strip.
             const qrDiv = document.createElement('div');
             qrDiv.className = 'qr-display';
-            qrDiv.style.cssText = 'width:100%;padding:1rem;background:white;border-radius:8px;margin-top:0.5rem;text-align:center;';
+            qrDiv.style.cssText = 'flex-basis:100%;display:flex;justify-content:center;margin-top:0.5rem;';
+            let inner;
             try {
                 const qr = qrcode(0, 'M');
                 qr.addData(qrBtn.dataset.url);
                 qr.make();
-                qrDiv.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2 });
+                inner = qr.createSvgTag({ cellSize: 4, margin: 2 });
             } catch {
-                qrDiv.innerHTML = `<p style="color:#000;font-size:0.85rem;word-break:break-all;margin:0;">${qrBtn.dataset.url}</p>`;
+                inner = `<p style="color:#000;font-size:0.85rem;word-break:break-all;margin:0;max-width:240px;">${qrBtn.dataset.url}</p>`;
             }
+            qrDiv.innerHTML = `<div style="padding:0.9rem;background:white;border-radius:10px;line-height:0;box-shadow:0 4px 16px rgba(0,0,0,0.4);">${inner}</div>`;
             actions?.appendChild(qrDiv);
             return;
         }
