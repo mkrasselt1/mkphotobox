@@ -28,6 +28,8 @@ let pendingPayment = null;
 let cameraMode = 'webrtc'; // 'webrtc' | 'server'
 let webrtcStream = null;    // keep stream alive across state transitions
 let capturedBlob = null;    // JPEG blob captured from video before DOM changes
+let captureInFlight = false; // true while a shot's capture/collage render is running
+let captureDeadline = 0;     // hard cap (ms epoch) so a truly stuck capture still recovers
 let previewSize = 'medium'; // 'small' | 'medium' | 'large' | 'fullscreen'
 let countdownSeconds = 3;   // configurable countdown duration
 let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
@@ -149,7 +151,17 @@ export function render(container, state) {
         const stateConfig = STATES[newState];
         if (stateConfig?.timeout) {
             const target = stateConfig.timeoutTarget || 'idle';
-            stateTimer = setTimeout(() => transition(target), stateConfig.timeout);
+            // Safety net to recover a stuck booth — but NEVER abort a capture/collage
+            // that is legitimately still running. Firing here would send us to 'idle',
+            // which wipes `seq` and stops a multi-photo series after the first shot.
+            // So while a capture is in flight, defer (re-arm) up to a hard deadline.
+            const armStateTimer = () => {
+                stateTimer = setTimeout(() => {
+                    if (captureInFlight && Date.now() < captureDeadline) { armStateTimer(); return; }
+                    transition(target);
+                }, stateConfig.timeout);
+            };
+            armStateTimer();
         }
 
         const booth = document.getElementById('booth');
@@ -907,6 +919,19 @@ export function render(container, state) {
     }
 
     async function capturePhoto() {
+        // Mark a capture in flight so the state-timeout safety net won't abort the
+        // shot (and wipe an in-progress series). Hard cap so a truly stuck capture
+        // still recovers instead of hanging the booth forever.
+        captureInFlight = true;
+        captureDeadline = Date.now() + 60000;
+        try {
+            await _capturePhoto();
+        } finally {
+            captureInFlight = false;
+        }
+    }
+
+    async function _capturePhoto() {
         // For WebRTC: upload the pre-grabbed frame to the server
         if (cameraMode === 'webrtc' && capturedBlob) {
             const fd = new FormData();
