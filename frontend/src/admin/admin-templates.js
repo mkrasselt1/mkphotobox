@@ -505,12 +505,20 @@ function renderEditor(container, state, ed) {
                         <select id="p-fit" class="admin-input" style="width:100%;">
                             <option value="cover" ${item.fit === 'cover' ? 'selected' : ''}>cover (füllen)</option>
                             <option value="contain" ${item.fit === 'contain' ? 'selected' : ''}>contain (ganz)</option>
-                        </select></label>` : '<span></span>'}
+                        </select></label>
+                    <label>Aufnahme Nr.
+                        <input id="p-shot" type="number" min="1" class="admin-input" style="width:100%;"
+                            value="${(item.photo_index != null ? item.photo_index : selected.index) + 1}"></label>` : '<span></span>'}
                     <label>Drehung°<input id="p-rot" type="number" class="admin-input" style="width:100%;" value="${item.rotation || 0}"></label>
                 </div>
+                ${selected.kind === 'slot' ? `<p style="font-size:0.72rem;color:var(--pb-color-text-muted);margin:0.4rem 0 0;">
+                    Gleiche <strong>Aufnahme Nr.</strong> in mehreren Slots = dasselbe Foto mehrfach. Die Box nimmt nur so viele Fotos auf, wie es verschiedene Nummern gibt.</p>` : ''}
                 <button id="p-del" class="admin-btn admin-btn-outline" style="margin-top:0.5rem;font-size:0.75rem;color:var(--pb-color-error);">Entfernen</button>
             </div>`;
         el.querySelector('#p-fit')?.addEventListener('change', (e) => { item.fit = e.target.value; });
+        el.querySelector('#p-shot')?.addEventListener('change', (e) => {
+            item.photo_index = Math.max(1, parseInt(e.target.value) || 1) - 1;   // store 0-based
+        });
         el.querySelector('#p-rot')?.addEventListener('change', (e) => { item.rotation = parseInt(e.target.value) || 0; drawCanvas(); });
         el.querySelector('#p-del')?.addEventListener('click', () => { list.splice(selected.index, 1); selected = null; drawCanvas(); });
     }

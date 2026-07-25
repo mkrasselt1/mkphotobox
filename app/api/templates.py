@@ -64,6 +64,19 @@ def grid_slots(body: dict, _user=Depends(require_role("admin", "organizer"))):
     return {"slots": slots}
 
 
+def _shot_count(slots: list) -> int:
+    """Number of distinct source shots a template needs. Slots may reuse an
+    earlier shot via ``photo_index`` (default = slot position), so this can be
+    fewer than the number of slots (e.g. 2 shots across a 3-slot layout)."""
+    idxs = set()
+    for i, s in enumerate(slots or []):
+        try:
+            idxs.add(int(s.get("photo_index", i)))
+        except (TypeError, ValueError):
+            idxs.add(i)
+    return (max(idxs) + 1) if idxs else 0
+
+
 @router.post("", status_code=201)
 def create_template(body: dict, session: Session = Depends(get_session),
                     _user=Depends(require_role("admin", "organizer"))):
@@ -74,7 +87,7 @@ def create_template(body: dict, session: Session = Depends(get_session),
         mode=body.get("mode", "grid"),
         canvas_width=int(body.get("canvas_width", 1200)),
         canvas_height=int(body.get("canvas_height", 1800)),
-        photo_count=len(slots),
+        photo_count=_shot_count(slots),
         preset_id=body.get("preset_id"),
         background_asset_id=body.get("background_asset_id"),
         overlay_asset_id=body.get("overlay_asset_id"),
@@ -111,7 +124,7 @@ def update_template(template_id: int, body: dict, session: Session = Depends(get
     if "overlay_asset_id" in body: t.overlay_asset_id = body["overlay_asset_id"]
     if "definition" in body:
         t.definition_json = json.dumps(body["definition"])
-        t.photo_count = len(body["definition"].get("slots", []))
+        t.photo_count = _shot_count(body["definition"].get("slots", []))
     # A linked preset's pixels win over any client-sent canvas size.
     _sync_canvas_from_preset(t, session)
     session.add(t)
@@ -209,7 +222,8 @@ def booth_templates(session: Session = Depends(get_session)):
             raw = json.loads(t.definition_json or "{}").get("slots", []) or []
         except json.JSONDecodeError:
             raw = []
-        return [{"w": s.get("w"), "h": s.get("h"), "rotation": s.get("rotation", 0)}
+        return [{"w": s.get("w"), "h": s.get("h"), "rotation": s.get("rotation", 0),
+                 "photo_index": s.get("photo_index")}   # which shot fills this slot (null = position)
                 for s in raw]
 
     return {"templates": [

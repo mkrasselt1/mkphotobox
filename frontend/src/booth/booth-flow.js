@@ -242,7 +242,10 @@ export function render(container, state) {
         // so a square/strip/circle slot each gets its own crop — not the whole
         // canvas. Fall back to the template canvas, then the single-photo aspect.
         if (seq && seq.template) {
-            const slot = seq.template.slots?.[seq.index];
+            const slots = seq.template.slots || [];
+            // the first slot filled by the CURRENT shot (photo_index defaults to
+            // the slot position; several slots may reuse the same shot)
+            const slot = slots.find((s, i) => (s.photo_index ?? i) === seq.index);
             if (slot && slot.w && slot.h) return { w: slot.w, h: slot.h };
             if (seq.template.canvas_width && seq.template.canvas_height)
                 return { w: seq.template.canvas_width, h: seq.template.canvas_height };

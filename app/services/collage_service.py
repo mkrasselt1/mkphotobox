@@ -304,11 +304,17 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
     if bg is not None:
         canvas.alpha_composite(_fit_image(bg, cw, ch, "cover").convert("RGBA"))
 
-    # 2) Photos into slots
+    # 2) Photos into slots. A slot may reference an earlier shot via
+    # ``photo_index`` (default = its own position), so the same photo can appear
+    # in several slots (e.g. 2 shots filling a 3-slot layout).
     for i, slot in enumerate(slots):
-        if i >= len(photo_paths):
-            break
-        src = photo_paths[i]
+        try:
+            idx = int(slot.get("photo_index", i))
+        except (TypeError, ValueError):
+            idx = i
+        if idx < 0 or idx >= len(photo_paths):
+            continue
+        src = photo_paths[idx]
         if not src or not Path(src).exists():
             continue
         try:
