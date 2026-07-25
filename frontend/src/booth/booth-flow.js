@@ -736,6 +736,11 @@ export function render(container, state) {
             }
             .share-card:hover { background:var(--pb-color-primary); box-shadow:0 8px 24px rgba(108,140,255,0.45); }
             .share-card:active { transform:scale(0.95); }
+            .share-card.uploading { border-color:#c77b1a; cursor:progress; opacity:0.92; }
+            .share-card.uploading:hover { background:var(--pb-color-surface-2,#232c4a); box-shadow:0 6px 18px rgba(0,0,0,0.35); }
+            .up-spin { width:26px;height:26px;border:3px solid rgba(255,255,255,0.25);
+                       border-top-color:#ffb454;border-radius:50%;animation:spin 0.8s linear infinite; }
+            @keyframes spin { to { transform: rotate(360deg); } }
         </style>
         ${btnStyles()}`;
 
@@ -781,13 +786,47 @@ export function render(container, state) {
         const baseName = (p) => (p || '').split(/[/\\]/).pop();
         const remoteFile = (name) =>
             (remoteGallery?.active && name) ? `${remoteGallery.image_base}/${baseName(name)}` : null;
-        const photoShareUrl = remoteFile(lastPhoto?.filename) || fullUrl(downloadUrl);
-        const gifShareUrl = remoteFile(typeof lastPhoto?.gif === 'string' ? lastPhoto.gif : null) || fullUrl(gifUrl);
         const galleryShareUrl = remoteGallery?.active ? remoteGallery.gallery_url : `${shareBase || location.origin}/live`;
 
-        el.querySelector('#card-photo')?.addEventListener('click', () => showQR(photoShareUrl, 'Foto aufs Handy'));
+        // Gate a share card behind the remote upload: while the off-box file isn't
+        // live yet, show a spinner + elapsed counter and block the QR (scanning it
+        // would 404). Probe the remote URL with an <img> and enable once it loads.
+        // Local (no remote gallery) links are available immediately.
+        const gateCard = (card, remoteUrl, localUrl, title) => {
+            if (!card) return;
+            if (!(remoteGallery?.active && remoteUrl)) {
+                card.addEventListener('click', () => showQR(localUrl, title));
+                return;
+            }
+            const orig = card.innerHTML;
+            let ready = false, secs = 0;
+            const paint = () => { card.innerHTML =
+                `<span class="up-spin"></span><small style="font-weight:600;">Wird hochgeladen… ${secs}s</small>`; };
+            paint();
+            card.classList.add('uploading');
+            const tick = setInterval(() => { if (!ready) { secs++; paint(); } }, 1000);
+            const probe = () => {
+                const img = new Image();
+                img.onload = () => {
+                    if (ready) return;
+                    ready = true; clearInterval(tick);
+                    card.classList.remove('uploading'); card.innerHTML = orig;
+                };
+                img.onerror = () => { if (!ready) setTimeout(probe, 1200); };
+                img.src = remoteUrl + (remoteUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+            };
+            probe();
+            card.addEventListener('click', () => {
+                if (ready) showQR(remoteUrl, title);
+                else toast('Foto wird noch hochgeladen – gleich bereit…');
+            });
+        };
+
+        gateCard(el.querySelector('#card-photo'),
+                 remoteFile(lastPhoto?.filename), fullUrl(downloadUrl), 'Foto aufs Handy');
+        gateCard(el.querySelector('#card-gif'),
+                 remoteFile(typeof lastPhoto?.gif === 'string' ? lastPhoto.gif : null), fullUrl(gifUrl), 'GIF aufs Handy');
         el.querySelector('#card-live')?.addEventListener('click', () => showQR(galleryShareUrl, remoteGallery?.active ? 'Galerie öffnen' : 'Live-Galerie öffnen'));
-        el.querySelector('#card-gif')?.addEventListener('click', () => showQR(gifShareUrl, 'GIF aufs Handy'));
 
         el.querySelector('#card-email')?.addEventListener('click', () => {
             const o = openOverlay(`
@@ -966,8 +1005,13 @@ export function render(container, state) {
             capturedBlob = null;
         }
 
-        // Trigger server-side capture + save
-        const res = await fetch('/api/v1/photos/capture', { method: 'POST' });
+        // Trigger server-side capture + save. Flag raw set-shots so they aren't
+        // mirrored to the remote gallery individually (only the finished collage).
+        const partOfSet = !!(seq && seq.total > 1);
+        const res = await fetch('/api/v1/photos/capture', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ part_of_set: partOfSet }),
+        });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `Aufnahme fehlgeschlagen (HTTP ${res.status})`);

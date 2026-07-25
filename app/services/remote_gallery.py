@@ -130,6 +130,10 @@ class RemoteGallerySync:
     async def _on_capture(self, event: str, data: dict) -> None:
         if not self._enabled:
             return
+        # Set-source shots are intermediate — only the finished collage (or a
+        # single photo) is mirrored to the remote gallery, not the raw frames.
+        if data.get("intermediate"):
+            return
         pid = data.get("photo_id")
         if pid is not None:
             await self._queue.put(int(pid))
@@ -168,6 +172,8 @@ class RemoteGallerySync:
         files = [photo.filename]
         if photo.gif_filename:
             files.append(photo.gif_filename)
+        if photo.thumbnail:
+            files.append(photo.thumbnail)   # small tile image for a fast-loading grid
 
         for fname in files:
             local = storage / fname
@@ -188,6 +194,8 @@ class RemoteGallerySync:
         return True
 
     def _build_manifest(self) -> dict:
+        import json as _json
+
         from app.database import get_engine
         from app.models import Event, Photo, PhotoSession
         from sqlmodel import Session, select
@@ -201,14 +209,26 @@ class RemoteGallerySync:
                 .where(PhotoSession.event_id == event.id)
                 .order_by(Photo.captured_at.desc()).limit(1000)
             ).all()
+            # Raw set shots (sources of a collage) shouldn't appear as separate
+            # images — only the finished collage. Collect their ids and drop them.
+            source_ids: set[int] = set()
+            for p in rows:
+                try:
+                    meta = _json.loads(p.metadata_json or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if meta.get("collage"):
+                    source_ids.update(int(i) for i in (meta.get("source_photo_ids") or []))
+            photos = [p for p in rows if p.id not in source_ids]
             return {
                 "event": event.name,
                 "photos": [
                     {"url": f"{REMOTE_IMG_DIR}/{Path(p.filename).name}",
+                     "thumb": f"{REMOTE_IMG_DIR}/{Path(p.thumbnail).name}" if p.thumbnail else None,
                      "gif": f"{REMOTE_IMG_DIR}/{Path(p.gif_filename).name}" if p.gif_filename else None,
                      "name": p.filename,
                      "ts": p.captured_at.isoformat() if p.captured_at else None}
-                    for p in rows
+                    for p in photos
                 ],
             }
 

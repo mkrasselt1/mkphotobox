@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import Session, select
 
@@ -74,8 +74,14 @@ def end_session(token: str, session: Session = Depends(get_session)):
 # ── Capture ───────────────────────────────────────────────────────────────
 
 @router.post("/photos/capture", response_model=PhotoResponse)
-async def capture_photo(request: Request, session: Session = Depends(get_session)):
-    """Trigger a photo capture using the active camera."""
+async def capture_photo(request: Request, body: dict = Body(default={}),
+                        session: Session = Depends(get_session)):
+    """Trigger a photo capture using the active camera.
+
+    ``part_of_set`` (from the booth) marks a raw shot of a multi-photo set —
+    those are intermediate and not mirrored to the remote gallery individually
+    (only the finished collage is)."""
+    part_of_set = bool((body or {}).get("part_of_set"))
     app = request.app
     cfg = app.state.config
     cameras = app.state.cameras
@@ -168,6 +174,7 @@ async def capture_photo(request: Request, session: Session = Depends(get_session
 
     await bus.emit("capture.completed", {
         "photo_id": photo.id, "filename": filename, "gif": gif_filename,
+        "intermediate": part_of_set,
     })
     return photo
 
