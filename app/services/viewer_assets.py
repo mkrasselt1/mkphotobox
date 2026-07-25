@@ -193,12 +193,22 @@ _INNER = """
   // Live polling
   if (feed) {
     document.getElementById('liveBadge').classList.add('on');
+    var firstPoll = true;
     var poll = function(){
       fetch(feed, { cache:'no-store' })
         .then(function(r){ return r.json(); })
         .then(function(d){
-          var n = add(d.photos || d || [], true);
-          if (n) prependNew(n);
+          var list = d.photos || d || [];
+          if (firstPoll) {
+            // Initial load: populate WITHOUT the "neu" badge (these aren't new,
+            // they were already there) — only later arrivals get flagged.
+            add(list, false);
+            renderAll();
+            firstPoll = false;
+          } else {
+            var n = add(list, true);
+            if (n) prependNew(n);
+          }
         })
         .catch(function(){});
     };
