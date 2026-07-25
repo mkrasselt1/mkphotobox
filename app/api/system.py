@@ -524,11 +524,18 @@ def health_check(request: Request):
 
 @router.post("/system/restart")
 def restart_server(_user=Depends(require_role("admin"))):
-    """Restart the server process. The process manager should auto-restart it."""
+    """Restart the service. Prefer ``systemctl restart`` — it runs the app's
+    lifespan shutdown first, which releases the camera (gphoto2 exit). A raw
+    os.execv would skip that and leave a wedged PTP session → black live stream
+    on the fresh process. os.execv is only a fallback when sudo isn't allowed."""
+    import subprocess
     import threading
 
     def _do_restart():
         time.sleep(0.5)
+        if _can_sudo(SYSTEMCTL, "restart", SERVICE_NAME):
+            subprocess.run(["sudo", "-n", SYSTEMCTL, "restart", SERVICE_NAME], capture_output=True)
+            return
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
     threading.Thread(target=_do_restart, daemon=True).start()

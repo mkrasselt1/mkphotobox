@@ -261,11 +261,26 @@ class GPhoto2Camera(AbstractCamera):
             logger.debug("Autofocus drive not supported / failed: %s", e)
 
     async def shutdown(self) -> None:
-        if self._camera is not None:
+        """Release the camera cleanly (gphoto2 exit) so the next process can open
+        it — otherwise a restart leaves a wedged PTP session (black stream).
+        Grabs the lock so we don't exit() mid-preview, and is time-bounded so a
+        stuck camera can't hang the whole app shutdown."""
+        def _release() -> None:
+            got = self._lock.acquire(timeout=5.0)
             try:
-                await asyncio.to_thread(self._camera.exit)
-            except Exception:
-                pass
+                if self._camera is not None:
+                    try:
+                        self._camera.exit()
+                    except Exception:
+                        pass
+                    self._camera = None
+                    self._context = None
+            finally:
+                if got:
+                    self._lock.release()
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_release), timeout=8.0)
+        except Exception:
             self._camera = None
             self._context = None
 
