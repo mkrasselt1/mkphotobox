@@ -136,27 +136,28 @@ class RemoteGallerySync:
             return
         pid = data.get("photo_id")
         if pid is not None:
-            await self._queue.put(int(pid))
+            await self._queue.put((int(pid), False))   # new photo → always upload
             self._state["queued"] = self._queue.qsize()
 
     # ── worker ─────────────────────────────────────────────────────────────
     async def _worker(self) -> None:
         while True:
-            pid = await self._queue.get()
+            item = await self._queue.get()
+            pid, skip_existing = item if isinstance(item, tuple) else (item, False)
             self._state["queued"] = self._queue.qsize()
             if not self._enabled:
                 continue
             try:
-                ok = await asyncio.to_thread(self._sync_photo, pid)
+                ok = await asyncio.to_thread(self._sync_photo, pid, skip_existing)
                 if not ok:
                     await asyncio.sleep(2)
-                    await asyncio.to_thread(self._sync_photo, pid)  # one retry
+                    await asyncio.to_thread(self._sync_photo, pid, skip_existing)  # one retry
             except Exception as e:
                 logger.exception("remote_gallery: sync failed for photo %s", pid)
                 self._state["last_error"] = str(e)
 
     # ── sync one photo + manifest + viewer ─────────────────────────────────
-    def _sync_photo(self, photo_id: int) -> bool:
+    def _sync_photo(self, photo_id: int, skip_existing: bool = False) -> bool:
         from app.config import get_config
         from app.database import get_engine
         from app.models import Photo
@@ -179,8 +180,14 @@ class RemoteGallerySync:
             local = storage / fname
             if not local.exists():
                 continue
+            rel = f"{REMOTE_IMG_DIR}/{Path(fname).name}"
+            # Diff mode (re-upload button): skip files already on the server with
+            # the same size, so we don't re-push everything / waste bandwidth.
+            if skip_existing and self._remote_size(rel) == local.stat().st_size:
+                self._state["skipped"] = self._state.get("skipped", 0) + 1
+                continue
             self._ensure_remote_dir(f"{REMOTE_IMG_DIR}")
-            self._upload(str(local), f"{REMOTE_IMG_DIR}/{Path(fname).name}")
+            self._upload(str(local), rel)
 
         self._push_manifest()
         if not self._viewer_pushed:
@@ -284,6 +291,50 @@ class RemoteGallerySync:
             ssh = ["sshpass", "-p", o["password"]] + ssh
         subprocess.run(ssh, capture_output=True, timeout=30)
 
+    def _remote_size(self, remote_rel: str) -> Optional[int]:
+        """Size (bytes) of a remote file, or None if missing / unknown — used to
+        skip already-uploaded files on re-sync. Works for webdav/ftp/ftps via a
+        curl HEAD; rsync/scp return None (rsync self-diffs, scp re-uploads)."""
+        protocol = self._opts.get("protocol", "")
+        rel = remote_rel.lstrip("/")
+        if protocol not in ("webdav", "ftp", "ftps"):
+            return None
+        try:
+            if protocol == "webdav":
+                url = f"{self._opts.get('url', '').rstrip('/')}/{rel}"
+            else:
+                p = str(self._opts.get("port") or "") or "21"
+                host = self._opts.get("host", "")
+                remote_dir = (self._opts.get("remote_dir", "") or "").strip("/")
+                url = f"ftp://{host}:{p}/{remote_dir}/{rel}" if remote_dir else f"ftp://{host}:{p}/{rel}"
+            cmd = ["curl", "-sS", "-I", "--connect-timeout", "15"]
+            if protocol == "ftps":
+                cmd += ["--ssl-reqd"]
+            if self._opts.get("username"):
+                cmd += ["-u", f"{self._opts['username']}:{self._opts.get('password', '')}"]
+            cmd.append(url)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                return None
+            status_ok = False
+            size = None
+            for line in r.stdout.splitlines():
+                s = line.strip()
+                low = s.lower()
+                if low.startswith("http/"):
+                    parts = s.split()
+                    status_ok = len(parts) > 1 and parts[1].startswith("2")
+                elif low.startswith("content-length:"):
+                    try:
+                        size = int(s.split(":", 1)[1].strip())
+                    except ValueError:
+                        pass
+            if protocol == "webdav" and not status_ok:   # 404 etc. → not there
+                return None
+            return size
+        except Exception:
+            return None
+
     def _upload(self, local_path: str, remote_rel: str) -> None:
         cmd = build_upload_command(self._opts.get("protocol", ""), self._opts, local_path, remote_rel)
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -314,7 +365,8 @@ class RemoteGallerySync:
             Path(tmp).unlink(missing_ok=True)
 
     async def resync_all(self) -> dict:
-        """Queue every photo of the active event for re-upload."""
+        """Queue every photo of the active event — but in DIFF mode: files already
+        on the server (same size) are skipped instead of blindly overwritten."""
         from app.database import get_engine
         from app.models import Event, Photo, PhotoSession
         from sqlmodel import Session, select
@@ -322,6 +374,7 @@ class RemoteGallerySync:
         if not self._enabled:
             return {"status": "error", "message": "Remote-Galerie ist deaktiviert."}
         self._viewer_pushed = False
+        self._state["skipped"] = 0
         with Session(get_engine()) as session:
             event = session.exec(select(Event).where(Event.is_active == True)).first()
             if event is None:
@@ -332,7 +385,7 @@ class RemoteGallerySync:
                 .order_by(Photo.captured_at)
             ).all()
         for pid in ids:
-            await self._queue.put(int(pid))
+            await self._queue.put((int(pid), True))   # True = skip files already there
         self._state["queued"] = self._queue.qsize()
         return {"status": "ok", "queued": len(ids)}
 

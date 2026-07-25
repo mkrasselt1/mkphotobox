@@ -25,7 +25,7 @@ export async function render(container, state) {
                 <span id="st-dot" style="width:12px;height:12px;border-radius:50%;background:${st.enabled ? (st.last_error ? 'var(--pb-color-error)' : 'var(--pb-color-success)') : '#888'};"></span>
                 <div style="flex:1;font-size:0.9rem;">
                     <strong>${st.enabled ? 'Aktiv' : 'Deaktiviert'}</strong>
-                    · hochgeladen: ${st.uploaded || 0} · Warteschlange: ${st.queued || 0}
+                    · hochgeladen: ${st.uploaded || 0} · Warteschlange: ${st.queued || 0}${st.skipped ? ` · übersprungen: ${st.skipped}` : ''}
                     ${st.last_error ? `<div style="color:var(--pb-color-error);font-size:0.82rem;">Fehler: ${st.last_error}</div>` : ''}
                     ${st.last_ok ? `<div style="color:var(--pb-color-text-muted);font-size:0.8rem;">Zuletzt ok: ${new Date(st.last_ok + 'Z').toLocaleString()}</div>` : ''}
                 </div>
@@ -72,7 +72,7 @@ export async function render(container, state) {
             <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
                 <button id="btn-save" class="admin-btn admin-btn-primary">Speichern</button>
                 <button id="btn-test" class="admin-btn admin-btn-outline">Verbindung testen</button>
-                <button id="btn-resync" class="admin-btn admin-btn-outline">Alles neu hochladen</button>
+                <button id="btn-resync" class="admin-btn admin-btn-outline" title="Gleicht ab, was schon auf dem Server liegt, und lädt nur Fehlendes hoch">Abgleichen &amp; Fehlendes hochladen</button>
             </div>
             <p id="msg" style="margin-top:0.75rem;font-size:0.9rem;"></p>
             <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
@@ -174,12 +174,12 @@ export async function render(container, state) {
     }
 
     container.querySelector('#btn-resync').addEventListener('click', async () => {
-        if (!confirm('Alle Fotos des aktiven Events erneut hochladen?')) return;
-        setMsg('Speichere & starte Re-Upload…');
+        if (!confirm('Alle Fotos des aktiven Events abgleichen? Vorhandene werden übersprungen, nur Fehlendes wird hochgeladen.')) return;
+        setMsg('Speichere & gleiche ab…');
         try {
             await save();
             const r = await fetch('/api/v1/remote-gallery/resync', { method: 'POST', headers }).then(r => r.json());
-            setMsg(r.status === 'ok' ? `✓ ${r.queued} Fotos in die Warteschlange gestellt.` : '✗ ' + (r.message || 'Fehler'), r.status === 'ok' ? 'ok' : 'error');
+            setMsg(r.status === 'ok' ? `✓ ${r.queued} Fotos werden geprüft — nur Fehlendes wird hochgeladen (Status oben).` : '✗ ' + (r.message || 'Fehler'), r.status === 'ok' ? 'ok' : 'error');
         } catch (e) { setMsg('Fehler: ' + e.message, 'error'); }
     });
 }
