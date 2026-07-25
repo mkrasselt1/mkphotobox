@@ -403,6 +403,8 @@ async def send_output(
     media_guard = None
     if module_id == "output.printer" and body.get("mode") != "browser":
         media_guard = _printer_media_guard(cfg, print_override)
+        if media_guard:
+            _telegram_media_alert(media_guard)   # notify operator (throttled)
         if media_guard and media_guard.get("block"):
             return {"status": "blocked", "message": media_guard["message"],
                     "warning": media_guard["message"], "remaining": media_guard.get("remaining"),
@@ -474,6 +476,29 @@ def _printer_media_guard(cfg: dict, print_override: dict) -> dict | None:
         return {"warn": True, "remaining": remaining, "printer": printer,
                 "message": f"Nur noch {remaining} Drucke übrig — bitte bald Medium wechseln."}
     return None
+
+
+def _telegram_media_alert(guard: dict) -> None:
+    """Notify the operator via Telegram when a printer is low/empty (throttled to
+    at most once per 15 min per printer+level). Fire-and-forget."""
+    from app.services.telegram_service import get_telegram
+
+    svc = get_telegram()
+    if not svc.ready or not svc.notify_media_enabled:
+        return
+    printer = guard.get("printer") or "Drucker"
+    remaining = guard.get("remaining")
+    if guard.get("block"):
+        key = f"media-empty:{printer}"
+        msg = (f"🖨️ <b>Drucker leer</b>: {printer} — nur noch {remaining} Blatt/Drucke. "
+               "Druck gestoppt, bitte Medium/Farbband wechseln.")
+    else:
+        key = f"media-low:{printer}"
+        msg = f"🖨️ <b>Drucker fast leer</b>: {printer} — noch {remaining} Drucke übrig."
+    try:
+        asyncio.create_task(asyncio.to_thread(svc.notify_throttled, key, msg, 900.0))
+    except RuntimeError:                       # no running loop (e.g. tests)
+        svc.notify_throttled(key, msg, 900.0)
 
 
 @router.get("/outputs/available")

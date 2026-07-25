@@ -550,7 +550,15 @@ def get_display_config():
         # Aspect of a single photo's print output — the booth frames the live
         # preview + crop guide to this so what you see matches what prints.
         "output_aspect": _output_aspect(cfg),
+        # Show the booth help button only when Telegram help is actually active.
+        "help_button": _help_button_enabled(),
     }
+
+
+def _help_button_enabled() -> bool:
+    from app.services.telegram_service import get_telegram
+    svc = get_telegram()
+    return bool(svc.ready and svc.notify_help_enabled)
 
 
 def _output_aspect(cfg: dict) -> dict | None:

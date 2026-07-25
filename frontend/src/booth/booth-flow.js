@@ -35,6 +35,7 @@ let countdownSeconds = 3;   // configurable countdown duration
 let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
 let idleLivePreview = true; // show the live stream on the welcome screen (vs. a static page)
 let galleryEnabled = true;
+let helpButton = false;      // show the "Hilfe" button (Telegram help active)
 let availableOutputs = [];  // loaded output module names (only enabled+available ones)
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
@@ -113,6 +114,7 @@ export function render(container, state) {
                     captureLeadMs = displayData.capture_lead_ms;
                 idleLivePreview = displayData.idle_live_preview !== false;
                 galleryEnabled = displayData.gallery_enabled !== false;
+                helpButton = displayData.help_button === true;
                 if (displayData.output_aspect?.w && displayData.output_aspect?.h)
                     outputAspect = displayData.output_aspect;
             }
@@ -378,6 +380,43 @@ export function render(container, state) {
         el.querySelector('#btn-tpl-cancel')?.addEventListener('click', () => transition('idle'));
     }
 
+    // "Hilfe" button (bottom-right) — sends a Telegram message to the operator.
+    // Only shown when Telegram help is active (display.help_button).
+    function showHelpButton(el) {
+        if (!helpButton) return;
+        const btn = document.createElement('button');
+        btn.id = 'btn-help';
+        btn.innerHTML = '🆘 Hilfe';
+        btn.style.cssText = `position:absolute;bottom:14px;right:14px;z-index:6;
+            padding:0.6rem 1.1rem;border-radius:12px;border:2px solid rgba(255,255,255,0.35);
+            background:rgba(198,60,50,0.85);color:#fff;font-size:1rem;font-weight:700;
+            cursor:pointer;backdrop-filter:blur(4px);box-shadow:0 4px 14px rgba(0,0,0,0.4);`;
+        let busy = false;
+        btn.addEventListener('click', async () => {
+            if (busy) return;
+            const o = openOverlay(`
+                <h2 style="margin:0;">Hilfe rufen?</h2>
+                <p style="color:var(--pb-color-text-muted);margin:0;text-align:center;">Das Personal wird per Telegram benachrichtigt.</p>
+                <div style="display:flex;gap:0.75rem;">
+                    <button class="pb-btn pb-btn-outline" data-close>Abbrechen</button>
+                    <button id="help-go" class="pb-btn pb-btn-primary">Hilfe rufen</button>
+                </div>
+                <p id="help-msg" style="margin:0;font-size:0.95rem;"></p>`);
+            o.querySelector('#help-go').addEventListener('click', async () => {
+                const msg = o.querySelector('#help-msg');
+                busy = true; msg.style.color = 'var(--pb-color-text-muted)'; msg.textContent = 'Sende…';
+                try {
+                    const r = await fetch('/api/v1/telegram/help', { method: 'POST' }).then(r => r.json());
+                    msg.style.color = r.ok ? 'var(--pb-color-success)' : 'var(--pb-color-error)';
+                    msg.textContent = r.ok ? '✓ Hilfe ist unterwegs!' : ('✗ ' + (r.message || 'Fehler'));
+                    if (r.ok) setTimeout(() => { closeOverlay(); }, 1800);
+                } catch { msg.style.color = 'var(--pb-color-error)'; msg.textContent = '✗ Fehler beim Senden'; }
+                finally { setTimeout(() => { busy = false; }, 3000); }
+            });
+        });
+        el.appendChild(btn);
+    }
+
     async function showStorage(el) {
         let s;
         try { s = await fetch('/api/v1/system/storage').then(r => r.json()); } catch { return; }
@@ -455,6 +494,7 @@ export function render(container, state) {
         activatePreview();
         scheduleCropSizing();
         showStorage(el);
+        showHelpButton(el);
 
         const btn = el.querySelector('#btn-start');
         btn.addEventListener('click', () => beginFlow());

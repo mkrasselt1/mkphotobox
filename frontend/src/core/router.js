@@ -27,6 +27,7 @@ export class Router {
             'admin/wifi':         () => import('../admin/admin-wifi.js'),
             'admin/network':      () => import('../admin/admin-network.js'),
             'admin/payment':      () => import('../admin/admin-payment.js'),
+            'admin/telegram':     () => import('../admin/admin-telegram.js'),
             'admin/settings':     () => import('../admin/admin-settings.js'),
             'admin/appearance':   () => import('../admin/admin-appearance.js'),
             'admin/permissions':  () => import('../admin/admin-permissions.js'),

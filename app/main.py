@@ -138,6 +138,12 @@ async def lifespan(app: FastAPI):
     await remote_gallery_svc.start(bus)
     app.state.remote_gallery = remote_gallery_svc
 
+    # Telegram notifications (help calls, printer-out-of-paper alerts)
+    from app.services.telegram_service import get_telegram
+    telegram_svc = get_telegram()
+    telegram_svc.configure(cfg)
+    app.state.telegram = telegram_svc
+
     logger.info("Photobox started — cameras=%d, triggers=%d, outputs=%d",
                 len(cameras.list_cameras()),
                 len(triggers.list_triggers()),
@@ -212,7 +218,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, templates, tests, theme, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, telegram, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
@@ -226,6 +232,7 @@ def create_app() -> FastAPI:
     app.include_router(remote_gallery.router)
     app.include_router(settings.router)
     app.include_router(system.router)
+    app.include_router(telegram.router)
     app.include_router(modules.router)
     app.include_router(setup.router)
     app.include_router(templates.router)

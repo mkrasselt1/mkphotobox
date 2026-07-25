@@ -29,6 +29,7 @@ export function adminShell(contentHTML) {
         { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'other' },
         { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'other', adminOnly: true },
         { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'other', adminOnly: true },
+        { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'other', adminOnly: true },
         { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'other', adminOnly: true },
         { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'other', adminOnly: true },
         { key: 'help', href: '#/admin/help', label: 'Hilfe', icon: '❓', group: 'other', adminOnly: true },

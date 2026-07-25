@@ -218,6 +218,13 @@ share:                        # QR-Code-Links für Gäste-Handys (Foto/GIF/Galer
                               # WITH_CLOUDFLARE=1 beim setup). Die zufällige *.trycloudflare.com
                               # URL steht in data/tunnel_url.txt und wird automatisch verwendet.
 
+telegram:                     # Benachrichtigungen an einen Telegram-Chat
+  enabled: false
+  bot_token: ""               # von @BotFather (t.me/BotFather -> /newbot)
+  chat_id: ""                 # Chat/Gruppen-ID, an die gesendet wird
+  notify_help: true           # Hilfe-Knopf im Booth sendet eine Nachricht
+  notify_media: true          # Warnung, wenn ein Drucker (fast) leer ist
+
 offline:
   sync_interval_seconds: 60
   sync_url: ""
