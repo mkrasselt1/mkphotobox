@@ -55,6 +55,24 @@ def _split_terse(line: str) -> list[str]:
     return fields
 
 
+def _friendly_error(raw: str) -> str:
+    """Turn nmcli's error text into something an operator can act on.
+
+    The common one on a booth: the app runs as a systemd service without an
+    active login session, so polkit refuses every write action ("Not authorized
+    to control networking"). Scanning needs no auth, which is why the network
+    list looks fine right up until Verbinden.
+    """
+    low = raw.lower()
+    if "not authorized" in low or "insufficient privileges" in low:
+        return ("Keine Berechtigung für die Netzwerksteuerung (polkit). "
+                "Bitte 'sudo ./scripts/setup.sh' erneut ausführen — das legt "
+                "die polkit-Regel für WLAN an.")
+    if "secrets were required" in low or "no secrets provided" in low:
+        return "Falsches WLAN-Passwort."
+    return raw
+
+
 def _wifi_device() -> str | None:
     """Return the name of the first WiFi device, or None."""
     try:
@@ -192,7 +210,7 @@ def connect(ssid: str, password: str | None = None, hidden: bool = False) -> dic
         return {"status": "ok", "ssid": ssid, "message": res.stdout.strip()}
     msg = (res.stderr or res.stdout).strip()
     logger.warning("WiFi connect failed (%s): %s", ssid, msg)
-    return {"status": "error", "message": msg or "Verbindung fehlgeschlagen"}
+    return {"status": "error", "message": _friendly_error(msg) or "Verbindung fehlgeschlagen"}
 
 
 def disconnect() -> dict[str, Any]:
@@ -207,7 +225,7 @@ def disconnect() -> dict[str, Any]:
         return {"status": "error", "message": "Zeitüberschreitung"}
     if res.returncode == 0:
         return {"status": "ok"}
-    return {"status": "error", "message": (res.stderr or res.stdout).strip()}
+    return {"status": "error", "message": _friendly_error((res.stderr or res.stdout).strip())}
 
 
 def forget(ssid: str) -> dict[str, Any]:
@@ -220,7 +238,7 @@ def forget(ssid: str) -> dict[str, Any]:
         return {"status": "error", "message": "Zeitüberschreitung"}
     if res.returncode == 0:
         return {"status": "ok"}
-    return {"status": "error", "message": (res.stderr or res.stdout).strip()}
+    return {"status": "error", "message": _friendly_error((res.stderr or res.stdout).strip())}
 
 
 def set_radio(on: bool) -> dict[str, Any]:
@@ -232,4 +250,4 @@ def set_radio(on: bool) -> dict[str, Any]:
         return {"status": "error", "message": "Zeitüberschreitung"}
     if res.returncode == 0:
         return {"status": "ok", "radio_enabled": on}
-    return {"status": "error", "message": (res.stderr or res.stdout).strip()}
+    return {"status": "error", "message": _friendly_error((res.stderr or res.stdout).strip())}

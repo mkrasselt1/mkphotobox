@@ -132,6 +132,11 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
 - **Herunterfahren / Self-Update**: brauchen die NOPASSWD-sudoers-Regel aus
   `setup.sh` (`/etc/sudoers.d/mkphotobox`). Fehlt sie, melden die Buttons „keine
   Berechtigung".
+- **WLAN verbinden**: Der Dienst läuft ohne Login-Session, deshalb lehnt polkit
+  alle schreibenden NetworkManager-Aktionen ab („Not authorized to control
+  networking") — Scannen geht, Verbinden nicht. `setup.sh` legt dafür
+  `/etc/polkit-1/rules.d/50-mkphotobox-network.rules` an; fehlt die Datei,
+  `setup.sh` erneut ausführen.
 - **Bedienungsfragen** („wie richte ich X ein?") → **Admin → Hilfe** in der App.
 
 ---

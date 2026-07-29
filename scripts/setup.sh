@@ -141,6 +141,46 @@ else
 fi
 rm -f /tmp/mkphotobox-sudoers
 
+# ── 4a) polkit: WLAN-Verwaltung für den Dienst-User ───────────────────────
+# Der Dienst läuft als $RUN_USER ohne aktive Login-Session. NetworkManager
+# fragt für alles Schreibende (Verbinden, Profile, Funk an/aus) polkit —
+# ohne Session gibt es keinen "aktiven" Subject, also lehnt polkit ab:
+# "Not authorized to control networking". Scannen geht ohne Auth, deshalb
+# sieht man die SSIDs, aber Verbinden schlägt fehl.
+echo ">>> polkit: WLAN-Verwaltung erlauben"
+usermod -aG netdev "$RUN_USER" 2>/dev/null || true
+
+# polkit >= 0.106 (Ubuntu 24.04): JS-Regeln
+if [[ -d /etc/polkit-1/rules.d ]]; then
+  cat > /etc/polkit-1/rules.d/50-mkphotobox-network.rules <<RULES
+// MKPhotobox: dem Dienst-User NetworkManager-Steuerung erlauben (WLAN-Seite
+// im Admin-Bereich). Ohne diese Regel: "Not authorized to control networking".
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
+        subject.user === "$RUN_USER") {
+        return polkit.Result.YES;
+    }
+});
+RULES
+  chmod 644 /etc/polkit-1/rules.d/50-mkphotobox-network.rules
+  echo "  polkit-Regel installiert (rules.d)"
+fi
+
+# polkit 0.105 (ältere Debian/Raspbian): .pkla-Fallback
+if [[ -d /etc/polkit-1/localauthority/50-local.d ]]; then
+  cat > /etc/polkit-1/localauthority/50-local.d/50-mkphotobox-network.pkla <<PKLA
+[MKPhotobox network control]
+Identity=unix-user:$RUN_USER
+Action=org.freedesktop.NetworkManager.*
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+PKLA
+  echo "  polkit-Regel installiert (pkla)"
+fi
+
+systemctl restart polkit 2>/dev/null || systemctl restart polkitd 2>/dev/null || true
+
 # ── 4b) optional: Tailscale remote access ─────────────────────────────────
 if [[ "$WITH_TAILSCALE" == 1 ]]; then
   echo ">>> [4b] Tailscale (Remote-Zugang)"
