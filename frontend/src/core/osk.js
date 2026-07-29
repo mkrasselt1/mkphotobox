@@ -22,7 +22,16 @@ const LETTERS = [
 const SYMBOLS = [
     ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
     ['@', '.', '-', '_', '/', ':', '+', '=', '#', '!'],
-    [',', '?', '(', ')', '%', '&', '*', '"', '⌫'],
+    ['=\\<', ',', '?', '(', ')', '%', '&', '*', '"', '⌫'],
+    ['ABC', '.de', '␣', '.com', '↵', '✕'],
+];
+
+// Second symbol page — currencies, brackets and the rest of the characters
+// that turn up in WiFi passwords. Reached via the `=\<` key, back via `?123`.
+const SYMBOLS2 = [
+    ['$', '€', '£', '¥', '¢', '§', '°', '^', '~', '`'],
+    ['[', ']', '{', '}', '<', '>', '\\', '|', ';', "'"],
+    ['?123', '±', '×', '÷', 'µ', '¿', '¡', '…', '⌫'],
     ['ABC', '.de', '␣', '.com', '↵', '✕'],
 ];
 
@@ -64,16 +73,28 @@ function hide() { panel.classList.remove('visible'); target = null; }
 
 function activeLayout() {
     if (layer === 'symbols') return SYMBOLS;
+    if (layer === 'symbols2') return SYMBOLS2;
     return LETTERS.map(row => row.map(k => (shift && k.length === 1 && /[a-zäöüß]/.test(k)) ? k.toUpperCase() : k));
+}
+
+// Keys go into an HTML attribute and a text node, so they must be escaped —
+// otherwise `"` closes data-key early (that key inserted nothing at all) and
+// `<`, `>`, `&` are parsed as markup instead of shown.
+function esc(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function render() {
     panel.innerHTML = activeLayout().map(row =>
         `<div class="osk-row">${row.map(key => {
             const wide = ['␣'].includes(key);
-            const special = ['⇧', '⌫', '?123', 'ABC', '↵', '✕', '␣', '.de', '.com'].includes(key);
+            const special = ['⇧', '⌫', '?123', '=\\<', 'ABC', '↵', '✕', '␣', '.de', '.com'].includes(key);
             const label = key === '␣' ? 'Leerzeichen' : key === '⌫' ? '⌫' : key;
-            return `<button class="osk-key${wide ? ' wide' : ''}${special ? ' special' : ''}${key === '⇧' && shift ? ' active' : ''}" data-key="${key}">${label}</button>`;
+            return `<button class="osk-key${wide ? ' wide' : ''}${special ? ' special' : ''}${key === '⇧' && shift ? ' active' : ''}" data-key="${esc(key)}">${esc(label)}</button>`;
         }).join('')}</div>`
     ).join('');
 
@@ -111,6 +132,7 @@ function press(key) {
         case '⇧': shift = !shift; return render();
         case '⌫': return backspace();
         case '?123': layer = 'symbols'; return render();
+        case '=\\<': layer = 'symbols2'; return render();
         case 'ABC': layer = 'letters'; return render();
         case '␣': return insert(' ');
         case '↵': return enter();
@@ -121,36 +143,54 @@ function press(key) {
     }
 }
 
+/**
+ * Current caret as [start, end].
+ *
+ * input[type=number] and [type=email] don't support selection: per spec the
+ * getters return null, older engines throw. Both mean "no caret", so we work
+ * at the end of the value.
+ */
+function caretRange(el) {
+    try {
+        const start = el.selectionStart;
+        if (start === null || start === undefined) return [el.value.length, el.value.length];
+        return [start, el.selectionEnd ?? start];
+    } catch {
+        return [el.value.length, el.value.length];
+    }
+}
+
+/**
+ * Move the caret, tolerating types that don't support it.
+ *
+ * Must stay separate from the value update: setSelectionRange throws on
+ * number/email inputs, and when that throw shared a try-block with the
+ * assignment, the catch re-appended the character — every digit landed twice.
+ */
+function setCaret(el, pos) {
+    try { el.setSelectionRange(pos, pos); } catch { /* type has no caret */ }
+}
+
 function insert(text) {
     const el = target;
     if (!el) return;
-    try {
-        const start = el.selectionStart ?? el.value.length;
-        const end = el.selectionEnd ?? el.value.length;
-        el.value = el.value.slice(0, start) + text + el.value.slice(end);
-        const pos = start + text.length;
-        el.setSelectionRange(pos, pos);
-    } catch {
-        // number/email inputs may not support selection — just append
-        el.value += text;
-    }
+    const [start, end] = caretRange(el);
+    el.value = el.value.slice(0, start) + text + el.value.slice(end);
+    setCaret(el, start + text.length);
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function backspace() {
     const el = target;
     if (!el) return;
-    try {
-        const start = el.selectionStart, end = el.selectionEnd;
-        if (start === end && start > 0) {
-            el.value = el.value.slice(0, start - 1) + el.value.slice(end);
-            el.setSelectionRange(start - 1, start - 1);
-        } else {
-            el.value = el.value.slice(0, start) + el.value.slice(end);
-            el.setSelectionRange(start, start);
-        }
-    } catch {
-        el.value = el.value.slice(0, -1);
+    const [start, end] = caretRange(el);
+    if (start === end) {
+        if (start === 0) return;               // nothing before the caret
+        el.value = el.value.slice(0, start - 1) + el.value.slice(end);
+        setCaret(el, start - 1);
+    } else {
+        el.value = el.value.slice(0, start) + el.value.slice(end);
+        setCaret(el, start);
     }
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
