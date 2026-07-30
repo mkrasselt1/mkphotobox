@@ -50,7 +50,11 @@ class BluetoothOutput(AbstractOutput):
         }
 
     async def send(self, photo_path: str, metadata: dict[str, Any]) -> dict[str, Any]:
-        address = (metadata.get("bluetooth_address") or self._default_address).strip()
+        # "target" is the generic destination /outputs/send passes through (the
+        # same field the e-mail module reads as the address).
+        address = (metadata.get("target")
+                   or metadata.get("bluetooth_address")
+                   or self._default_address or "").strip()
         if not address:
             return {"status": "error",
                     "message": "Kein Bluetooth-Ziel angegeben — Gerät auswählen oder "

@@ -25,6 +25,7 @@ WITH_WIFI="${WITH_WIFI:-1}"
 WITH_AUDIO="${WITH_AUDIO:-0}"
 WITH_OPENCV="${WITH_OPENCV:-1}"
 WITH_TRIGGERS="${WITH_TRIGGERS:-1}"      # evdev/pynput (host_keyboard, bluetooth, evdev triggers)
+WITH_SERIAL="${WITH_SERIAL:-1}"          # pyserial (serieller Auslöser) — klein
 WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
@@ -61,14 +62,34 @@ sudo -u "$RUN_USER" "$PIP" install --upgrade pip
 sudo -u "$RUN_USER" "$PIP" install -e "$APP_DIR"
 # CRITICAL: pin compatible fastapi/starlette (newer versions silently break include_router)
 sudo -u "$RUN_USER" "$PIP" install "fastapi==0.135.3" "starlette==1.0.0"
-# optional extras (best effort)
-[[ "$WITH_GPHOTO2" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "gphoto2>=2.5"   || true
-[[ "$WITH_OPENCV"  == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "opencv-python-headless>=4.8" || true
-[[ "$WITH_PRINTER" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "pycups>=2.0"    || true
-[[ "$WITH_AUDIO"   == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "sounddevice>=0.4" "numpy>=1.24" || true
-[[ "$WITH_TRIGGERS" == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "evdev>=1.6" "pynput>=1.7" || true
-[[ "$WITH_PAYMENT"  == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "httpx>=0.27" || true
-[[ "$WITH_BG_AI"    == 1 ]] && sudo -u "$RUN_USER" "$PIP" install "rembg>=2.0"  || true
+# Optional extras. These used to end in "|| true", which silenced every failure:
+# a box could run for months with the OpenCV camera and the evdev triggers simply
+# absent, and the admin page had no way to say so. Failures are now collected and
+# reported at the end instead of aborting the run (set -e) or vanishing.
+PIP_FAILED=()
+
+pip_extra() {   # pip_extra <Beschriftung> <paket…>
+  local label="$1"; shift
+  printf '    %-26s' "$label"
+  if sudo -u "$RUN_USER" "$PIP" install "$@" >/tmp/mkphotobox-pip.log 2>&1; then
+    echo "ok"
+  else
+    echo "FEHLGESCHLAGEN"
+    PIP_FAILED+=("$label")
+    tail -3 /tmp/mkphotobox-pip.log | sed 's/^/      /'
+  fi
+}
+
+echo "  optionale Zusatzpakete:"
+[[ "$WITH_GPHOTO2"  == 1 ]] && pip_extra "DSLR (gphoto2)"      "gphoto2>=2.5"
+[[ "$WITH_OPENCV"   == 1 ]] && pip_extra "Webcam (opencv)"     "opencv-python-headless>=4.8"
+[[ "$WITH_PRINTER"  == 1 ]] && pip_extra "Drucker (pycups)"    "pycups>=2.0"
+[[ "$WITH_AUDIO"    == 1 ]] && pip_extra "Akustik-Auslöser"    "sounddevice>=0.4" "numpy>=1.24"
+[[ "$WITH_TRIGGERS" == 1 ]] && pip_extra "Auslöser (evdev)"    "evdev>=1.6" "pynput>=1.7"
+[[ "$WITH_SERIAL"   == 1 ]] && pip_extra "Serieller Auslöser"  "pyserial>=3.5"
+[[ "$WITH_PAYMENT"  == 1 ]] && pip_extra "Bezahlung (httpx)"   "httpx>=0.27"
+[[ "$WITH_BG_AI"    == 1 ]] && pip_extra "KI-Hintergrund"      "rembg>=2.0"
+rm -f /tmp/mkphotobox-pip.log
 
 echo ">>> verify imports + route registration"
 sudo -u "$RUN_USER" "$PY" - <<PYEOF

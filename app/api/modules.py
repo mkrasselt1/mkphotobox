@@ -33,7 +33,6 @@ _DISPLAY_NAMES = {
     "output.printer": "Drucker",
     "output.web_upload": "Web-Upload",
     "output.bluetooth": "Bluetooth",
-    "output.quickshare": "QuickShare / AirDrop",
     "output.usb_copy": "USB-Kopie",
     "payment.sumup_qr": "SumUp QR-Code",
     "payment.sumup_terminal": "SumUp Terminal",

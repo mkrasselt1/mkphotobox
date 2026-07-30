@@ -29,8 +29,20 @@ async def bluetooth_status(request: Request):
 
 @router.get("/devices")
 async def bluetooth_devices():
-    """Paired devices — the only valid targets for sending."""
+    """Paired devices — listed whether present or not (admin view)."""
     devices = await asyncio.to_thread(bluetooth_service.paired_devices)
+    return {"available": bluetooth_service.available(), "devices": devices}
+
+
+@router.get("/scan")
+async def bluetooth_scan(duration: int = 10):
+    """Devices in range right now — what the booth picker offers guests.
+
+    Unauthenticated on purpose: the booth share screen runs without a login,
+    same as the other guest-facing output endpoints.
+    """
+    duration = max(3, min(int(duration), 30))
+    devices = await asyncio.to_thread(bluetooth_service.nearby_devices, duration)
     return {"available": bluetooth_service.available(), "devices": devices}
 
 

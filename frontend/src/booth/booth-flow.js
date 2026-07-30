@@ -917,19 +917,70 @@ export function render(container, state) {
             const w = tooSoon('bluetooth'); if (w) return toast(`Bitte warten… (${w}s)`);
             const o = openOverlay(`
                 <h2 style="margin:0;">Per Bluetooth senden</h2>
-                <p id="m-msg" style="color:var(--pb-color-text-muted);margin:0;">Sende… (Gerät am Handy bestätigen)</p>
+                <p id="m-msg" style="color:var(--pb-color-text-muted);margin:0;">
+                    Suche Geräte in der Nähe… (Bluetooth am Handy einschalten und sichtbar machen)
+                </p>
+                <div id="bt-list" style="display:flex;flex-direction:column;gap:0.5rem;width:100%;max-height:45vh;overflow-y:auto;"></div>
+                <button id="bt-again" class="pb-btn pb-btn-outline" style="display:none;">Erneut suchen</button>
                 <button class="pb-btn pb-btn-outline" data-close>Schließen</button>
             `);
             const msg = o.querySelector('#m-msg');
-            try {
-                const res = await fetch('/api/v1/outputs/send', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ photo_id: photoId, module: 'output.bluetooth' }),
+            const list = o.querySelector('#bt-list');
+            const again = o.querySelector('#bt-again');
+
+            async function sendTo(address, name) {
+                list.innerHTML = '';
+                again.style.display = 'none';
+                msg.style.color = 'var(--pb-color-text-muted)';
+                msg.textContent = `Sende an „${name}" — bitte am Handy bestätigen…`;
+                try {
+                    const res = await fetch('/api/v1/outputs/send', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ photo_id: photoId, module: 'output.bluetooth', target: address }),
+                    });
+                    const r = await res.json();
+                    if (r.status === 'ok') {
+                        msg.textContent = 'Gesendet ✓';
+                        msg.style.color = 'var(--pb-color-success)';
+                    } else throw new Error(r.message || r.detail || 'Senden fehlgeschlagen');
+                } catch (err) {
+                    msg.textContent = 'Fehler: ' + err.message;
+                    msg.style.color = 'var(--pb-color-error)';
+                    again.style.display = '';
+                }
+            }
+
+            async function scan() {
+                list.innerHTML = '';
+                again.style.display = 'none';
+                msg.style.color = 'var(--pb-color-text-muted)';
+                msg.textContent = 'Suche Geräte in der Nähe… (Bluetooth am Handy einschalten und sichtbar machen)';
+                let devices = [];
+                try {
+                    const r = await fetch('/api/v1/bluetooth/scan?duration=10').then(r => r.json());
+                    devices = r.devices || [];
+                } catch { devices = []; }
+
+                if (!devices.length) {
+                    msg.textContent = 'Kein Gerät gefunden. Am Handy Bluetooth einschalten und '
+                        + 'den Sichtbarkeits-Bildschirm offen lassen, dann erneut suchen.';
+                    again.style.display = '';
+                    return;
+                }
+                msg.textContent = 'Gerät auswählen:';
+                devices.forEach(d => {
+                    const b = document.createElement('button');
+                    b.className = 'pb-btn pb-btn-outline';
+                    b.style.cssText = 'text-align:left;display:flex;justify-content:space-between;gap:0.75rem;';
+                    b.innerHTML = `<span>${d.name}</span>`;
+                    b.addEventListener('click', () => sendTo(d.address, d.name));
+                    list.appendChild(b);
                 });
-                const r = await res.json();
-                if (r.status === 'ok') { msg.textContent = 'Gesendet ✓'; msg.style.color = 'var(--pb-color-success)'; }
-                else throw new Error(r.message || r.detail || 'Bluetooth nicht verfügbar');
-            } catch (err) { msg.textContent = 'Fehler: ' + err.message; msg.style.color = 'var(--pb-color-error)'; }
+                again.style.display = '';
+            }
+
+            again.addEventListener('click', scan);
+            scan();
         });
 
         el.querySelector('#card-print')?.addEventListener('click', async () => {

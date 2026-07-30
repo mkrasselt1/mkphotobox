@@ -142,26 +142,81 @@ def set_visible(on: bool) -> dict[str, Any]:
     return {"status": "ok", "discoverable": on}
 
 
-def paired_devices() -> list[dict[str, str]]:
-    """Devices bluez has paired — the only valid targets for sending."""
-    if not available():
-        return []
-    try:
-        res = _run(["bluetoothctl", "devices", "Paired"])
-    except subprocess.TimeoutExpired:
-        return []
-
+def _parse_device_lines(text: str) -> list[dict[str, str]]:
     devices = []
-    for line in res.stdout.splitlines():
-        # "Device AA:BB:CC:DD:EE:FF Michaels iPhone"
+    for line in text.splitlines():
+        # "Device AA:BB:CC:DD:EE:FF Michaels Handy"
         parts = line.strip().split(None, 2)
         if len(parts) >= 2 and parts[0] == "Device":
-            devices.append({"address": parts[1], "name": parts[2] if len(parts) > 2 else parts[1]})
+            devices.append({"address": parts[1],
+                            "name": parts[2] if len(parts) > 2 else parts[1]})
     return devices
 
 
-def is_paired(address: str) -> bool:
-    return any(d["address"].upper() == address.upper() for d in paired_devices())
+def paired_devices() -> list[dict[str, str]]:
+    """Devices bluez has paired (they stay listed whether present or not)."""
+    if not available():
+        return []
+    try:
+        return _parse_device_lines(_run(["bluetoothctl", "devices", "Paired"]).stdout)
+    except subprocess.TimeoutExpired:
+        return []
+
+
+def _is_present(address: str) -> bool:
+    """True if the device was seen on air recently.
+
+    bluez only reports RSSI for devices currently in range, so its presence is
+    what separates "here now" from "paired months ago and long gone".
+    """
+    try:
+        res = _run(["bluetoothctl", "info", address], timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
+    return "RSSI:" in res.stdout
+
+
+def nearby_devices(duration: int = 10) -> list[dict[str, Any]]:
+    """Scan and return only devices that are actually in range right now.
+
+    Guests won't pair from the settings app before taking a photo, so the picker
+    offers whatever is on air. Pushing to an unpaired device is fine: the phone
+    raises its own pairing prompt when the transfer starts. Paired-but-absent
+    devices are deliberately filtered out — offering a phone that left hours ago
+    only produces a confusing timeout.
+    """
+    if not available():
+        return []
+    try:
+        _run(["bluetoothctl", "--timeout", str(duration), "scan", "on"],
+             timeout=duration + 10)
+        res = _run(["bluetoothctl", "devices"])
+    except subprocess.TimeoutExpired:
+        return []
+
+    paired = {d["address"].upper() for d in paired_devices()}
+    devices = []
+    for dev in _parse_device_lines(res.stdout):
+        if not _is_present(dev["address"]):
+            continue
+        devices.append({**dev, "paired": dev["address"].upper() in paired})
+    return devices
+
+
+def is_known(address: str) -> bool:
+    """True if bluez has a device object for this address.
+
+    bt-obex aborts on a failed C assertion for addresses bluez never saw, so
+    this guards the send path. A scanned-but-unpaired device passes — which is
+    exactly the spontaneous case we want to support.
+    """
+    if not available():
+        return False
+    try:
+        res = _run(["bluetoothctl", "info", address], timeout=10)
+    except subprocess.TimeoutExpired:
+        return False
+    return "Device " in res.stdout and "not available" not in res.stdout.lower()
 
 
 # ── sending ───────────────────────────────────────────────────────────────────
@@ -176,11 +231,12 @@ def send_file(address: str, file_path: str) -> dict[str, Any]:
     if not Path(file_path).is_file():
         return {"status": "error", "message": f"Datei nicht gefunden: {file_path}"}
 
-    # Guard the assertion crash described in the module docstring.
-    if not is_paired(address):
+    # Guard the assertion crash described in the module docstring. Pairing is
+    # NOT required — the phone prompts for it itself once the push starts.
+    if not is_known(address):
         return {"status": "error",
-                "message": f"Gerät {address} ist nicht gekoppelt — "
-                           "zuerst über die Bluetooth-Seite koppeln"}
+                "message": f"Gerät {address} ist nicht in Reichweite — "
+                           "Suche erneut starten"}
 
     try:
         res = _run(["bt-obex", "-p", address, file_path], timeout=_SEND_TIMEOUT)

@@ -28,7 +28,6 @@ MODULE_REGISTRY: dict[str, str] = {
     # Output
     "output.email": "app.modules.output.email_out:EmailOutput",
     "output.bluetooth": "app.modules.output.bluetooth_out:BluetoothOutput",
-    "output.quickshare": "app.modules.output.quickshare:QuickShareOutput",
     "output.printer": "app.modules.output.printer:PrinterOutput",
     "output.usb_copy": "app.modules.output.usb_copy:USBCopyOutput",
     "output.web_upload": "app.modules.output.web_upload:WebUploadOutput",
