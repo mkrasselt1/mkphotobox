@@ -7,6 +7,7 @@ import logging
 from typing import Any, Callable
 
 from app.modules.trigger.base import AbstractTrigger
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,11 @@ class GPIOTrigger(AbstractTrigger):
                 GPIO.cleanup(self._pin)
             except Exception:
                 pass
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        return missing_python_package(
+            "RPi.GPIO", "nur auf dem Raspberry Pi verfügbar")
 
     def is_available(self) -> bool:
         try:

@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 from app.modules.camera.base import AbstractCamera
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,11 @@ class OpenCVCamera(AbstractCamera):
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        return missing_python_package(
+            "cv2", "pip install opencv-python-headless")
 
     def is_available(self) -> bool:
         try:

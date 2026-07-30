@@ -15,6 +15,7 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError
 
 from app.modules.camera.base import AbstractCamera
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,12 @@ class DigiCamCamera(AbstractCamera):
 
     async def shutdown(self) -> None:
         pass
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        if platform.system() != "Windows":
+            return "digiCamControl gibt es nur für Windows"
+        return None
 
     def is_available(self) -> bool:
         if platform.system() != "Windows":

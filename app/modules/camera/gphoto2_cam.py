@@ -9,10 +9,12 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import platform
 import threading
 from typing import Any
 
 from app.modules.camera.base import AbstractCamera
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +285,13 @@ class GPhoto2Camera(AbstractCamera):
         except Exception:
             self._camera = None
             self._context = None
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        if platform.system() == "Windows":
+            return "gPhoto2 läuft nicht unter Windows — digiCamControl verwenden"
+        return missing_python_package(
+            "gphoto2", "sudo apt install libgphoto2-dev && pip install gphoto2")
 
     def is_available(self) -> bool:
         try:

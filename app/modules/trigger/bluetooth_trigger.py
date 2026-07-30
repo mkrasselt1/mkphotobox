@@ -13,6 +13,7 @@ import platform
 from typing import Any, Callable
 
 from app.modules.trigger.base import AbstractTrigger
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,12 @@ class BluetoothTrigger(AbstractTrigger):
 
     async def shutdown(self) -> None:
         await self.stop_listening()
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        if platform.system() != "Linux":
+            return "Bluetooth-Remote nur unter Linux"
+        return missing_python_package("evdev", "pip install evdev")
 
     def is_available(self) -> bool:
         # Only available on Linux with evdev

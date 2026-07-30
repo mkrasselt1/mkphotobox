@@ -27,6 +27,7 @@ export function adminShell(contentHTML) {
         { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'output' },
         { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'other', adminOnly: true },
         { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'other' },
+        { key: 'bluetooth', href: '#/admin/bluetooth', label: 'Bluetooth', icon: '🔵', group: 'other' },
         { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'other', adminOnly: true },
         { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'other', adminOnly: true },
         { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'other', adminOnly: true },

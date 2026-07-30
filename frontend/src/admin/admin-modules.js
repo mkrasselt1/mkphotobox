@@ -32,6 +32,7 @@ export async function render(container, state) {
                                     </span>
                                     <div style="flex:1;min-width:0;">
                                         <span style="font-size:0.9rem;">${m.name}</span>
+                                        ${m.requirement ? `<div style="font-size:0.75rem;color:var(--pb-color-text-muted);margin-top:2px;">${_esc(m.requirement)}</div>` : ''}
                                     </div>
                                     ${_badge(m)}
                                 </div>
@@ -46,24 +47,36 @@ export async function render(container, state) {
     setupLogout(container);
 }
 
+function _esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function _statusIcon(m) {
     if (m.loaded) return '&#10003;';
+    if (!m.available) return '&#10007;';
     if (m.enabled) return '&#9888;';
     return '&#9679;';
 }
 
 function _statusColor(m) {
     if (m.loaded) return '#4caf50';
+    if (!m.available) return '#e05252';
     if (m.enabled) return '#ff9800';
     return '#666';
 }
 
+function _pill(text, bg, fg) {
+    return `<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:${bg};color:${fg};white-space:nowrap;">${text}</span>`;
+}
+
+/**
+ * Three separate states the old badge lumped together: the box can't run it,
+ * it's switched off, or it's on but didn't load (misconfigured). Only the last
+ * one is actually a fault to chase.
+ */
 function _badge(m) {
-    if (m.loaded) {
-        return '<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:#4caf50;color:white;">geladen</span>';
-    }
-    if (m.enabled) {
-        return '<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:#ff9800;color:white;">nicht verf\u00fcgbar</span>';
-    }
-    return '<span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;background:#444;color:#aaa;">deaktiviert</span>';
+    if (m.loaded) return _pill('geladen', '#4caf50', 'white');
+    if (!m.available) return _pill('nicht m\u00f6glich', '#e05252', 'white');
+    if (m.enabled) return _pill('nicht konfiguriert', '#ff9800', 'white');
+    return _pill('deaktiviert', '#444', '#aaa');
 }

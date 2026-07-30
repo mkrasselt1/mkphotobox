@@ -218,7 +218,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, telegram, templates, tests, theme, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, bluetooth, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, telegram, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
@@ -241,6 +241,7 @@ def create_app() -> FastAPI:
     app.include_router(triggers.router)
     app.include_router(usb_export.router)
     app.include_router(wifi.router)
+    app.include_router(bluetooth.router)
     app.include_router(ws.router)
 
     # Standalone live photo gallery (shareable via QR; guests on the LAN watch

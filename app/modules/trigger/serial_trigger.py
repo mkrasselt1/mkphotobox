@@ -7,6 +7,7 @@ import logging
 from typing import Any, Callable
 
 from app.modules.trigger.base import AbstractTrigger
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ class SerialTrigger(AbstractTrigger):
 
     async def shutdown(self) -> None:
         await self.stop_listening()
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        return missing_python_package("serial", "pip install pyserial")
 
     def is_available(self) -> bool:
         try:

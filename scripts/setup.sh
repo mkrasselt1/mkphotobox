@@ -48,7 +48,9 @@ PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl r
 [[ "$WITH_CDBURN"  == 1 ]] && PKGS+=(xorriso)
 [[ "$WITH_WIFI"    == 1 ]] && PKGS+=(network-manager)
 [[ "$WITH_AUDIO"   == 1 ]] && PKGS+=(libportaudio2)
-[[ "$WITH_BLUETOOTH" == 1 ]] && PKGS+=(bluez gnome-bluetooth-sendto)
+# bluez-tools liefert bt-obex/bt-agent (senden + empfangen, headless-tauglich);
+# gnome-bluetooth-sendto wäre ein GTK-Dialog und auf einer Kiosk-Box nutzlos.
+[[ "$WITH_BLUETOOTH" == 1 ]] && PKGS+=(bluez bluez-obexd bluez-tools obexftp)
 apt-get update -y
 apt-get install -y "${PKGS[@]}"
 
@@ -180,6 +182,66 @@ PKLA
 fi
 
 systemctl restart polkit 2>/dev/null || systemctl restart polkitd 2>/dev/null || true
+
+# ── 4a2) optional: Bluetooth-Dateiempfang ─────────────────────────────────
+# obexd hängt am D-Bus *Session*-Bus, der Dienst läuft aber als System-Unit
+# ohne Sitzung. Lingering hält /run/user/<uid>/bus dauerhaft am Leben, die
+# Units zeigen DBUS_SESSION_BUS_ADDRESS dann explizit dorthin.
+if [[ "$WITH_BLUETOOTH" == 1 ]]; then
+  echo ">>> [4a2] Bluetooth-Empfang (OBEX)"
+  RUN_UID="$(id -u "$RUN_USER")"
+  RECV_DIR="$APP_DIR/data/bluetooth_in"
+  sudo -u "$RUN_USER" mkdir -p "$RECV_DIR"
+  loginctl enable-linger "$RUN_USER" 2>/dev/null || true
+  usermod -aG bluetooth "$RUN_USER" 2>/dev/null || true
+
+  # Kopplungsanfragen ohne Tastatur/Display annehmen (Gast tippt am Handy).
+  cat > /etc/systemd/system/mkphotobox-btagent.service <<UNIT
+[Unit]
+Description=MKPhotobox Bluetooth-Kopplungsagent
+After=bluetooth.service user@$RUN_UID.service
+Requires=bluetooth.service
+
+[Service]
+User=$RUN_USER
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$RUN_UID/bus
+Environment=XDG_RUNTIME_DIR=/run/user/$RUN_UID
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  # OBEX-Push-Server: eingehende Dateien landen ohne Rückfrage in RECV_DIR.
+  cat > /etc/systemd/system/mkphotobox-btrecv.service <<UNIT
+[Unit]
+Description=MKPhotobox Bluetooth-Dateiempfang (OBEX Object Push)
+After=bluetooth.service user@$RUN_UID.service mkphotobox-btagent.service
+Requires=bluetooth.service
+
+[Service]
+User=$RUN_USER
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$RUN_UID/bus
+Environment=XDG_RUNTIME_DIR=/run/user/$RUN_UID
+ExecStart=/usr/bin/bt-obex --server $RECV_DIR --auto-accept
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  systemctl daemon-reload
+  systemctl enable --now mkphotobox-btagent.service mkphotobox-btrecv.service || \
+    echo "  WARN: Bluetooth-Units nicht gestartet"
+
+  # Sichtbar bleiben, statt nach 180s zu verschwinden.
+  sudo -u "$RUN_USER" XDG_RUNTIME_DIR="/run/user/$RUN_UID" \
+    bluetoothctl discoverable-timeout 0 >/dev/null 2>&1 || true
+  echo "  Empfangsordner: $RECV_DIR"
+fi
 
 # ── 4b) optional: Tailscale remote access ─────────────────────────────────
 if [[ "$WITH_TAILSCALE" == 1 ]]; then

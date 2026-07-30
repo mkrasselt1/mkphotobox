@@ -34,10 +34,8 @@ MODULE_REGISTRY: dict[str, str] = {
     "output.web_upload": "app.modules.output.web_upload:WebUploadOutput",
     "output.download": "app.modules.output.download:DownloadOutput",
     # Payment
-    "payment.stripe_qr": "app.modules.payment.stripe_qr:StripeQRPayment",
     "payment.sumup_qr": "app.modules.payment.sumup_qr:SumUpQRPayment",
     "payment.sumup_terminal": "app.modules.payment.sumup_terminal:SumUpTerminalPayment",
-    "payment.mdb": "app.modules.payment.mdb:MDBPayment",
 }
 
 

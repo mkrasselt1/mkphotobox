@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import importlib
+import logging
+
 from fastapi import APIRouter, Depends, Request
 
 from app.auth import require_role
 from app.models import User
 from app.modules import MODULE_REGISTRY
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/modules", tags=["modules"])
 
@@ -30,15 +35,46 @@ _DISPLAY_NAMES = {
     "output.bluetooth": "Bluetooth",
     "output.quickshare": "QuickShare / AirDrop",
     "output.usb_copy": "USB-Kopie",
-    "payment.stripe_qr": "Stripe QR-Code",
     "payment.sumup_qr": "SumUp QR-Code",
     "payment.sumup_terminal": "SumUp Terminal",
-    "payment.mdb": "MDB (Münzeinwurf)",
 }
 
 
 def _get_category(module_id: str) -> str:
     return module_id.split(".")[0]
+
+
+# Requirements are a property of the machine, not of a request: they only change
+# when someone installs a package, which needs a restart anyway.
+_requirement_cache: dict[str, str | None] = {}
+
+
+def _system_requirement(module_id: str) -> str | None:
+    """What this box is missing before `module_id` could run, else None.
+
+    Asks the class, never an instance — system_requirement() is a classmethod
+    precisely so listing the modules doesn't open cameras or serial ports.
+    """
+    if module_id in _requirement_cache:
+        return _requirement_cache[module_id]
+
+    reason: str | None
+    dotted = MODULE_REGISTRY.get(module_id)
+    if not dotted:
+        reason = "Unbekanntes Modul"
+    else:
+        module_path, class_name = dotted.rsplit(":", 1)
+        try:
+            cls = getattr(importlib.import_module(module_path), class_name)
+            reason = cls.system_requirement()
+        except ModuleNotFoundError as exc:
+            reason = f"Python-Paket fehlt: {exc.name}"
+        except Exception as exc:  # a broken module must not break the list
+            logger.warning("system_requirement failed for %s", module_id, exc_info=True)
+            reason = f"Modul nicht ladbar: {type(exc).__name__}: {exc}"[:200]
+
+    _requirement_cache[module_id] = reason
+    return reason
 
 
 def _build_all_modules(request: Request) -> dict[str, list[dict]]:
@@ -87,6 +123,7 @@ def _build_all_modules(request: Request) -> dict[str, list[dict]]:
             enabled = mod_conf.get("enabled", False)
             loaded = full_id in loaded_ids
             display_name = _DISPLAY_NAMES.get(full_id, full_id)
+            requirement = _system_requirement(full_id)
 
             result_key = category_keys[category]
             result[result_key].append({
@@ -95,7 +132,11 @@ def _build_all_modules(request: Request) -> dict[str, list[dict]]:
                 "name": display_name,
                 "enabled": enabled,
                 "loaded": loaded,
-                "available": loaded,  # if loaded, it's available
+                # "available" = this box could run it. Distinct from "loaded"
+                # (running) and from "enabled" (switched on in the config), so
+                # the UI can tell a missing package from a missing tick.
+                "available": loaded or requirement is None,
+                "requirement": requirement,
                 "config": {k: v for k, v in mod_conf.items() if k != "enabled"},
             })
 
@@ -107,13 +148,15 @@ def _build_all_modules(request: Request) -> dict[str, list[dict]]:
         result_key = category_keys.get(category)
         if not result_key:
             continue
+        requirement = _system_requirement(reg_id)
         result[result_key].append({
             "id": reg_id,
             "short_id": reg_id.split(".", 1)[1],
             "name": _DISPLAY_NAMES.get(reg_id, reg_id),
             "enabled": False,
             "loaded": False,
-            "available": False,
+            "available": requirement is None,
+            "requirement": requirement,
             "config": {},
         })
 

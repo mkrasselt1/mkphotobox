@@ -13,6 +13,7 @@ import platform
 from typing import Any, Callable
 
 from app.modules.trigger.base import AbstractTrigger
+from app.modules.base import missing_python_package
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,14 @@ class HostKeyboardTrigger(AbstractTrigger):
 
     async def shutdown(self) -> None:
         await self.stop_listening()
+
+    @classmethod
+    def system_requirement(cls) -> str | None:
+        if platform.system() == "Linux":
+            return missing_python_package("evdev", "pip install evdev")
+        if platform.system() == "Windows":
+            return missing_python_package("pynput", "pip install pynput")
+        return "Nur unter Linux und Windows verfügbar"
 
     def is_available(self) -> bool:
         system = platform.system()

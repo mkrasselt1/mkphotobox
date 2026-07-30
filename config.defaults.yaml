@@ -129,6 +129,8 @@ outputs:
     base_url: ""
   bluetooth:
     enabled: false
+    device: ""               # feste Ziel-MAC (optional; leer = Gast wählt selbst)
+    receive_dir: ""          # leer = data/bluetooth_in
   quickshare:
     enabled: false
   usb_copy:
