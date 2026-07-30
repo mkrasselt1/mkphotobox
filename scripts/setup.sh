@@ -5,8 +5,16 @@
 #
 #   sudo ./scripts/setup.sh
 #
+# Grundsatz: alles, was ein Modul zum Laufen braucht, wird mitinstalliert — ein
+# Modul soll sich im Admin-Bereich einschalten lassen, ohne dass jemand erst ein
+# Terminal öffnet. Auf 0 stehen nur Dinge, die das nicht rechtfertigen: sehr
+# große Downloads (WITH_BG_AI zieht onnxruntime) und Netzdienste, die eine
+# Anmeldung oder ein Konto brauchen (Tailscale, Cloudflare).
+#
 # Optional env toggles (default 1 = install):
-#   WITH_GPHOTO2=1 WITH_PRINTER=1 WITH_CDBURN=1 WITH_WIFI=1 WITH_AUDIO=1 WITH_OPENCV=1
+#   WITH_GPHOTO2 WITH_PRINTER WITH_CDBURN WITH_WIFI WITH_AUDIO WITH_OPENCV
+#   WITH_TRIGGERS WITH_SERIAL WITH_PAYMENT WITH_BLUETOOTH
+# Standardmäßig aus (=0): WITH_BG_AI WITH_TAILSCALE WITH_CLOUDFLARE
 #   RUN_USER=<user>   (default: the invoking sudo user)
 #
 set -euo pipefail
@@ -22,12 +30,12 @@ WITH_GPHOTO2="${WITH_GPHOTO2:-1}"
 WITH_PRINTER="${WITH_PRINTER:-1}"
 WITH_CDBURN="${WITH_CDBURN:-1}"
 WITH_WIFI="${WITH_WIFI:-1}"
-WITH_AUDIO="${WITH_AUDIO:-0}"
+WITH_AUDIO="${WITH_AUDIO:-1}"            # libportaudio2 + sounddevice (Klatsch-Auslöser)
 WITH_OPENCV="${WITH_OPENCV:-1}"
 WITH_TRIGGERS="${WITH_TRIGGERS:-1}"      # evdev/pynput (host_keyboard, bluetooth, evdev triggers)
 WITH_SERIAL="${WITH_SERIAL:-1}"          # pyserial (serieller Auslöser) — klein
 WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
-WITH_BLUETOOTH="${WITH_BLUETOOTH:-0}"    # bluez + gnome-bluetooth (bluetooth-sendto)
+WITH_BLUETOOTH="${WITH_BLUETOOTH:-1}"    # bluez + bluez-tools (Foto senden/empfangen)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
 WITH_CLOUDFLARE="${WITH_CLOUDFLARE:-0}"  # Cloudflare Quick-Tunnel für öffentliche QR-Links (cloudflared)
