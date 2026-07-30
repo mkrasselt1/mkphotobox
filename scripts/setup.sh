@@ -58,8 +58,17 @@ apt-get install -y "${PKGS[@]}"
 # ── 2) python venv + dependencies ─────────────────────────────────────────
 echo ">>> [2/5] Python-venv + Abhängigkeiten"
 [[ -d "$VENV" ]] || sudo -u "$RUN_USER" python3 -m venv "$VENV"
-sudo -u "$RUN_USER" "$PIP" install --upgrade pip
-sudo -u "$RUN_USER" "$PIP" install -e "$APP_DIR"
+
+# Booths sit on event WLAN, which drops mid-download often enough that a plain
+# `pip install` fails with a resume loop. Long timeout + many retries survives it.
+PIP_OPTS=(--timeout 120 --retries 15)
+
+sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" --upgrade pip
+# Since Python 3.12 `venv` no longer seeds setuptools/wheel, so every package
+# built from source (evdev, pyserial) fails in pip's isolated build env with
+# "Could not find a version that satisfies the requirement setuptools".
+sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" setuptools wheel
+sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" -e "$APP_DIR"
 # CRITICAL: pin compatible fastapi/starlette (newer versions silently break include_router)
 sudo -u "$RUN_USER" "$PIP" install "fastapi==0.135.3" "starlette==1.0.0"
 # Optional extras. These used to end in "|| true", which silenced every failure:
@@ -71,7 +80,7 @@ PIP_FAILED=()
 pip_extra() {   # pip_extra <Beschriftung> <paket…>
   local label="$1"; shift
   printf '    %-26s' "$label"
-  if sudo -u "$RUN_USER" "$PIP" install "$@" >/tmp/mkphotobox-pip.log 2>&1; then
+  if sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" "$@" >/tmp/mkphotobox-pip.log 2>&1; then
     echo "ok"
   else
     echo "FEHLGESCHLAGEN"
@@ -286,3 +295,12 @@ systemctl is-active --quiet mkphotobox.service \
   || { echo "!! Dienst nicht aktiv — Log:"; journalctl -u mkphotobox.service -n 20 --no-pager; }
 echo "    Admin-Login: admin / admin  (bitte ändern)"
 echo "    Optional Kiosk: sudo ./scripts/kiosk-setup.sh"
+
+if [[ ${#PIP_FAILED[@]} -gt 0 ]]; then
+  echo
+  echo "!! Diese optionalen Pakete wurden NICHT installiert:"
+  for f in "${PIP_FAILED[@]}"; do echo "     - $f"; done
+  echo "   Die zugehörigen Module bleiben deaktiviert; Admin → Module nennt den Grund."
+  echo "   Häufigste Ursache ist eine abbrechende Internetverbindung — dann einfach"
+  echo "   das Setup erneut ausführen."
+fi
