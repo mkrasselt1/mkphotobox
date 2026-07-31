@@ -51,7 +51,7 @@ class DigiCamCamera(AbstractCamera):
         except (URLError, OSError):
             return False
 
-    async def capture(self) -> bytes:
+    async def capture_raw(self) -> bytes:
         """Trigger capture via digiCamControl and retrieve the photo."""
         return await asyncio.to_thread(self._capture_sync)
 
@@ -93,7 +93,7 @@ class DigiCamCamera(AbstractCamera):
         img.close()
         return buf.getvalue()
 
-    async def get_preview_frame(self) -> bytes:
+    async def preview_frame_raw(self) -> bytes:
         """Get a live preview frame from digiCamControl."""
         return await asyncio.to_thread(self._preview_sync)
 

@@ -300,7 +300,7 @@ class GPhoto2Camera(AbstractCamera):
         except ImportError:
             return False
 
-    async def capture(self) -> bytes:
+    async def capture_raw(self) -> bytes:
         """Capture a full-resolution photo from the DSLR."""
         return await asyncio.to_thread(self._capture_sync)
 
@@ -336,7 +336,7 @@ class GPhoto2Camera(AbstractCamera):
             pass
         self._camera = None
 
-    async def get_preview_frame(self) -> bytes:
+    async def preview_frame_raw(self) -> bytes:
         """Get a live preview frame from the DSLR viewfinder."""
         return await asyncio.to_thread(self._preview_sync)
 

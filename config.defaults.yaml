@@ -56,9 +56,14 @@ collages:
 
 cameras:
   transform:
+    # Ausrichtung der Kamera korrigieren (gilt für Vorschau UND gespeichertes Foto)
     rotation: 0           # 0, 90, 180, 270
     flip_horizontal: false
     flip_vertical: false
+    # Spiegel-Effekt: Gäste sehen sich seitenverkehrt wie im Spiegel und posieren
+    # dadurch richtig herum — das gespeicherte Foto bleibt seitenrichtig, damit
+    # Schrift und Logos im Bild lesbar sind.
+    mirror_preview: true
   gphoto2:
     enabled: false
     capture_target: 1

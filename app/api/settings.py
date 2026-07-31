@@ -43,12 +43,23 @@ def get_settings(
     return result
 
 
+def _normalize_key(key: str) -> str:
+    """Config keys are dotted paths — accept slash-separated URLs as well.
+
+    ``/api/v1/settings/cameras/transform`` and ``.../cameras.transform`` address
+    the same setting. Without this, a slashed URL was stored verbatim and
+    set_nested() (which only splits on ".") created a bogus top-level key, so the
+    setting silently never took effect."""
+    return key.strip("/").replace("/", ".")
+
+
 @router.get("/{key:path}")
 def get_setting(
     key: str,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    key = _normalize_key(key)
     if not check_permission(session, user, key, "read"):
         raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -71,6 +82,7 @@ def update_setting(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
+    key = _normalize_key(key)
     if not check_permission(session, user, key, "write"):
         raise HTTPException(status_code=403, detail="Permission denied")
 

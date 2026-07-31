@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class OpenCVCamera(AbstractCamera):
     name = "camera.opencv"
+    transforms_internally = True  # rotates/flips numpy frames, see _apply_geometry
 
     def __init__(self):
         self._cap = None
@@ -92,32 +93,13 @@ class OpenCVCamera(AbstractCamera):
             raise RuntimeError("Failed to read frame")
         return frame
 
-    def _apply_geometry(self, frame):
-        """Apply rotation and flip (fast)."""
-        import cv2
-        from app.config import get_config
+    def _apply_geometry(self, frame, *, preview: bool):
+        """Rotation/flip on the numpy frame — far cheaper than a JPEG round-trip.
 
-        cfg = get_config()
-        transform = cfg.get("cameras", {}).get("transform", {})
-        rotation = transform.get("rotation", 0)
-        flip_h = transform.get("flip_horizontal", False)
-        flip_v = transform.get("flip_vertical", False)
+        ``preview=True`` additionally mirrors when the mirror preview is on."""
+        from app.services.image_transform import Transform, apply_to_frame
 
-        if rotation == 90:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        elif rotation == 180:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-        elif rotation == 270:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        if flip_h and flip_v:
-            frame = cv2.flip(frame, -1)
-        elif flip_h:
-            frame = cv2.flip(frame, 1)
-        elif flip_v:
-            frame = cv2.flip(frame, 0)
-
-        return frame
+        return apply_to_frame(frame, Transform.current(), preview=preview)
 
     # ── AI background worker ──────────────────────────────────────────
 
@@ -168,24 +150,24 @@ class OpenCVCamera(AbstractCamera):
 
     # ── Public API ────────────────────────────────────────────────────
 
-    async def capture(self) -> bytes:
+    async def capture_raw(self) -> bytes:
         return await asyncio.to_thread(self._capture_sync)
 
     def _capture_sync(self) -> bytes:
         """Capture a frame with geometry only. BG removal applied by the endpoint."""
         import cv2
         frame = self.get_raw_frame()
-        frame = self._apply_geometry(frame)
+        frame = self._apply_geometry(frame, preview=False)
         _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         return jpeg.tobytes()
 
-    async def get_preview_frame(self) -> bytes:
+    async def preview_frame_raw(self) -> bytes:
         return await asyncio.to_thread(self._preview_sync)
 
     def _preview_sync(self) -> bytes:
         import cv2
         frame = self.get_raw_frame()
-        frame = self._apply_geometry(frame)
+        frame = self._apply_geometry(frame, preview=True)
 
         # Feed the AI worker
         self._ai_input_frame = frame.copy()

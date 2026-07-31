@@ -1358,3 +1358,110 @@ def test_templates_render(request: Request, session: Session):
     assert data[:2] == b"\xff\xd8", "Ergebnis ist kein gültiges JPEG"
     assert len(data) > 2000, f"Collage zu klein ({len(data)} bytes)"
     return f"Collage gerendert: {result['width']}x{result['height']}, {len(data)//1024} KB, {result['slots']} Slots"
+@_register("transform_geometry", "Drehen & Spiegeln", "Bild",
+           "Dreht und spiegelt ein Testbild und prüft, dass Ecken dort landen, wo sie hingehören")
+def test_transform_geometry(request: Request, session: Session):
+    import io
+
+    from PIL import Image
+
+    from app.services.image_transform import Transform, apply_to_jpeg
+
+    # Ein Bild mit vier eindeutigen Ecken: oben-links rot, oben-rechts grün,
+    # unten-links blau, unten-rechts weiß.
+    img = Image.new("RGB", (40, 20))
+    for x in range(40):
+        for y in range(20):
+            img.putpixel((x, y), [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)][
+                (1 if x >= 20 else 0) + (2 if y >= 10 else 0)])
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=100)
+    src = buf.getvalue()
+
+    def corners(data):
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        w, h = im.size
+        def name(px):
+            r, g, b = px
+            if r > 180 and g > 180 and b > 180: return "weiss"
+            if r > 150: return "rot"
+            if g > 150: return "gruen"
+            if b > 150: return "blau"
+            return "?"
+        return (im.size, name(im.getpixel((2, 2))), name(im.getpixel((w - 3, 2))),
+                name(im.getpixel((2, h - 3))), name(im.getpixel((w - 3, h - 3))))
+
+    size, ol, or_, ul, ur = corners(src)
+    assert (ol, or_, ul, ur) == ("rot", "gruen", "blau", "weiss"), \
+        f"Testbild schon falsch: {(ol, or_, ul, ur)}"
+
+    # Ohne Einstellung darf nichts passieren — kein Neukomprimieren.
+    same = apply_to_jpeg(src, Transform(mirror_preview=False), preview=False)
+    assert same is src, "Ohne Transformation wurde die Datei trotzdem neu geschrieben"
+
+    # 90° rechts: oben-links muss nach oben-rechts wandern, Bild wird hochkant.
+    r90 = apply_to_jpeg(src, Transform(rotation=90), preview=False)
+    size90, ol90, or90, ul90, ur90 = corners(r90)
+    assert size90 == (size[1], size[0]), f"90° änderte die Größe nicht: {size90}"
+    assert (ol90, or90, ul90, ur90) == ("blau", "rot", "weiss", "gruen"), \
+        f"90° rechts drehte falsch: {(ol90, or90, ul90, ur90)}"
+
+    # Horizontal spiegeln: linke und rechte Ecken tauschen.
+    fh = apply_to_jpeg(src, Transform(flip_horizontal=True), preview=False)
+    _, olf, orf, ulf, urf = corners(fh)
+    assert (olf, orf, ulf, urf) == ("gruen", "rot", "weiss", "blau"), \
+        f"Horizontale Spiegelung falsch: {(olf, orf, ulf, urf)}"
+
+    # Der Kern der Sache: Spiegel-Vorschau spiegelt die Vorschau, NICHT das Foto.
+    tf = Transform(mirror_preview=True)
+    prev = apply_to_jpeg(src, tf, preview=True)
+    photo = apply_to_jpeg(src, tf, preview=False)
+    _, olp, orp, _, _ = corners(prev)
+    assert (olp, orp) == ("gruen", "rot"), f"Vorschau wurde nicht gespiegelt: {(olp, orp)}"
+    assert photo is src, "Das gespeicherte Foto wurde mitgespiegelt — Schrift wäre verkehrt"
+
+    # Und zwei Spiegelungen heben sich auf (Montage-Korrektur + Spiegel-Effekt).
+    both = apply_to_jpeg(src, Transform(flip_horizontal=True, mirror_preview=True), preview=True)
+    assert both is src, "Doppelte Spiegelung hob sich nicht auf"
+
+    return "Drehen, Spiegeln und Spiegel-Vorschau korrekt; Foto bleibt seitenrichtig"
+
+
+@_register("transform_all_cameras", "Transform für alle Kameras", "Bild",
+           "Prüft, dass jedes Kameramodul die Dreh-/Spiegel-Einstellung anwendet")
+def test_transform_all_cameras(request: Request, session: Session):
+    import inspect
+
+    from app.modules.camera.base import AbstractCamera
+    from app.modules.camera.digicamcontrol import DigiCamCamera
+    from app.modules.camera.opencv_cam import OpenCVCamera
+    from app.modules.camera.webrtc import WebRTCCamera
+
+    modules = [OpenCVCamera, WebRTCCamera, DigiCamCamera]
+    try:
+        from app.modules.camera.gphoto2_cam import GPhoto2Camera
+        modules.append(GPhoto2Camera)
+    except Exception:
+        pass  # gphoto2 nicht installiert (z. B. unter Windows)
+
+    for cls in modules:
+        assert not getattr(cls.capture_raw, "__isabstractmethod__", False), \
+            f"{cls.__name__} implementiert capture_raw nicht"
+        assert not getattr(cls.preview_frame_raw, "__isabstractmethod__", False), \
+            f"{cls.__name__} implementiert preview_frame_raw nicht"
+        # Wer capture() selbst überschreibt, umgeht den Transform.
+        if cls.capture is not AbstractCamera.capture:
+            src = inspect.getsource(cls.capture)
+            assert "_transformed" in src, \
+                f"{cls.__name__}.capture() umgeht die Bild-Transformation"
+        if cls.get_preview_frame is not AbstractCamera.get_preview_frame:
+            src = inspect.getsource(cls.get_preview_frame)
+            assert "_transformed" in src, \
+                f"{cls.__name__}.get_preview_frame() umgeht die Bild-Transformation"
+        assert cls.transforms_internally or True  # nur dokumentierend
+
+    internal = [c.__name__ for c in modules if c.transforms_internally]
+    return (f"{len(modules)} Kameramodule prüfen den Transform "
+            f"(intern: {', '.join(internal) or 'keins'})")
+
+

@@ -63,10 +63,15 @@ export async function render(container, state) {
     const rotation = camSettings.rotation || 0;
     const flipH = camSettings.flip_horizontal || false;
     const flipV = camSettings.flip_vertical || false;
+    const mirrorPreview = camSettings.mirror_preview !== false;
 
     const countdownSeconds = settings?.session?.countdown_seconds ?? 3;
     const captureLeadMs = settings?.session?.capture_lead_ms ?? 0;
     const idleLivePreview = settings?.display?.idle_live_preview !== false;
+    const soundEnabled = settings?.session?.sound_enabled !== false;
+    const soundVolume = Number(settings?.session?.sound_volume ?? 0.6);
+    const flashEnabled = settings?.session?.flash_enabled !== false;
+    const boomerang = settings?.gif?.boomerang === true;
 
     // DSLR focus modes (gphoto2) — loaded ASYNC after render (see loadFocusModes
     // below) so a slow/busy camera (live preview holding the lock) never blocks
@@ -114,6 +119,10 @@ export async function render(container, state) {
 
             <div class="admin-card">
                 <h3>Bild-Transformation</h3>
+                <p style="margin:0 0 0.9rem;font-size:0.85rem;color:var(--pb-color-text-muted);">
+                    Gleicht aus, wie die Kamera montiert ist — gilt für die Vorschau
+                    <em>und</em> das gespeicherte Foto. Wirkt bei allen Kameratypen.
+                </p>
                 <div style="display:flex;flex-wrap:wrap;gap:1.5rem;align-items:flex-start;">
                     <div>
                         <label style="display:block;margin-bottom:0.3rem;font-size:0.9rem;">Drehung</label>
@@ -133,6 +142,18 @@ export async function render(container, state) {
                         </label>
                     </div>
                 </div>
+                <hr style="border:none;border-top:1px solid var(--pb-color-border,#2a3a5e);margin:1.1rem 0 0.9rem;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="mirror-preview" ${mirrorPreview ? 'checked' : ''} style="margin-top:0.25rem;">
+                    <span>
+                        <strong>Vorschau spiegeln (Spiegel-Effekt)</strong>
+                        <span style="display:block;font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.15rem;">
+                            Die Gäste sehen sich wie in einem Spiegel und posieren dadurch richtig herum.
+                            Das <strong>gespeicherte Foto bleibt seitenrichtig</strong>, damit Schrift und
+                            Logos im Bild lesbar sind.
+                        </span>
+                    </span>
+                </label>
             </div>
 
             <div class="admin-card">
@@ -157,6 +178,43 @@ export async function render(container, state) {
                     Der Vorlauf gleicht die Auslöseverzögerung der Kamera aus, damit das Foto genau bei „0" entsteht.
                     Typisch: DSLR 200–600&nbsp;ms, Webcam 0–100&nbsp;ms.
                 </p>
+            </div>
+
+            <div class="admin-card">
+                <h3>Ton &amp; Blitz</h3>
+                <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;margin-bottom:0.7rem;">
+                    <input type="checkbox" id="sound-enabled" ${soundEnabled ? 'checked' : ''}>
+                    <span>Countdown-Piep und Auslöse-Klick</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:0.75rem;margin:0 0 0.9rem 1.9rem;">
+                    <label for="sound-volume" style="font-size:0.9rem;">Lautstärke</label>
+                    <input id="sound-volume" type="range" min="0" max="100" step="5" value="${Math.round(soundVolume * 100)}" style="width:180px;">
+                    <span id="sound-volume-val" style="font-size:0.9rem;color:var(--pb-color-text-muted);width:3rem;">${Math.round(soundVolume * 100)}%</span>
+                    <button id="btn-test-sound" type="button" class="admin-btn admin-btn-outline" style="font-size:0.85rem;">Probe hören</button>
+                </div>
+                <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="flash-enabled" ${flashEnabled ? 'checked' : ''}>
+                    <span>Weißblende im Moment der Aufnahme</span>
+                </label>
+                <p style="color:var(--pb-color-text-muted);font-size:0.82rem;margin-top:0.6rem;">
+                    Die Töne erzeugt der Browser selbst — es werden keine Audiodateien gebraucht, das
+                    funktioniert also auch ohne Internet. Der Bildschirm muss einmal berührt worden sein,
+                    bevor Browser überhaupt Ton abspielen.
+                </p>
+            </div>
+
+            <div class="admin-card">
+                <h3>Animiertes GIF</h3>
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="gif-boomerang" ${boomerang ? 'checked' : ''} style="margin-top:0.25rem;">
+                    <span>
+                        <strong>Boomerang</strong>
+                        <span style="display:block;font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.15rem;">
+                            Die Aufnahme läuft vorwärts und wieder rückwärts, endlos. Nutzt dieselben
+                            Bilder wie bisher — kostet nur Dateigröße, keine Rechenzeit.
+                        </span>
+                    </span>
+                </label>
             </div>
 
             <div class="admin-card">
@@ -295,8 +353,9 @@ export async function render(container, state) {
                 rotation: parseInt(container.querySelector('#rotation').value) || 0,
                 flip_horizontal: container.querySelector('#flip-h').checked,
                 flip_vertical: container.querySelector('#flip-v').checked,
+                mirror_preview: container.querySelector('#mirror-preview').checked,
             };
-            await fetch('/api/v1/settings/cameras/transform', {
+            await fetch('/api/v1/settings/cameras.transform', {
                 method: 'PUT', headers,
                 body: JSON.stringify({ key: 'cameras.transform', value: transform }),
             });
@@ -320,6 +379,18 @@ export async function render(container, state) {
                 body: JSON.stringify({ key: 'display.idle_live_preview', value: idlePreview }),
             });
 
+            // Sound, flash and boomerang
+            const putSetting = (key, value) => fetch(`/api/v1/settings/${key}`, {
+                method: 'PUT', headers, body: JSON.stringify({ key, value }),
+            });
+            await Promise.all([
+                putSetting('session.sound_enabled', container.querySelector('#sound-enabled').checked),
+                putSetting('session.sound_volume',
+                    Math.max(0, Math.min(100, parseInt(container.querySelector('#sound-volume').value) || 0)) / 100),
+                putSetting('session.flash_enabled', container.querySelector('#flash-enabled').checked),
+                putSetting('gif.boomerang', container.querySelector('#gif-boomerang').checked),
+            ]);
+
             msg.style.color = 'var(--pb-color-success)';
             msg.textContent = 'Kamera aktiviert!';
             setTimeout(() => render(container, state), 1500);
@@ -327,5 +398,19 @@ export async function render(container, state) {
             msg.style.color = 'var(--pb-color-error)';
             msg.textContent = 'Fehler: ' + err.message;
         }
+    });
+
+    // ── Sound preview: hear the countdown + shutter without leaving the page ──
+    const volSlider = container.querySelector('#sound-volume');
+    const volLabel = container.querySelector('#sound-volume-val');
+    volSlider?.addEventListener('input', () => { volLabel.textContent = volSlider.value + '%'; });
+
+    container.querySelector('#btn-test-sound')?.addEventListener('click', async () => {
+        const { sounds } = await import('../core/sounds.js');
+        sounds.configure({ enabled: true, volume: (parseInt(volSlider.value) || 0) / 100 });
+        sounds.unlock();   // the click itself is the required user gesture
+        sounds.tick();
+        setTimeout(() => sounds.tick(true), 600);
+        setTimeout(() => sounds.shutter(), 1200);
     });
 }

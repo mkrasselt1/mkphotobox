@@ -36,6 +36,18 @@ let captureLeadMs = 0;      // ms before "0" at which the capture is triggered
 let idleLivePreview = true; // show the live stream on the welcome screen (vs. a static page)
 let galleryEnabled = true;
 let helpButton = false;      // show the "Hilfe" button (Telegram help active)
+// Mirror the browser camera's live image so guests see themselves as in a mirror.
+// Server cameras already mirror in the frame itself; only the local <video> needs
+// CSS. Whatever we do here is undone again when grabbing the frame, so the saved
+// photo stays correct either way. See app/services/image_transform.py.
+let mirrorPreview = true;
+let flashEnabled = true;     // white flash on the capture screen
+// Looks the guests can pick. The CSS goes on the live preview so they see the
+// look while posing; the server bakes the matching version into the photo.
+let photoFilters = [];       // [{id, label, css}] — empty = feature off
+let selectedFilter = 'none';
+let guestbookEnabled = true; // let guests draw / write on their photo
+let guestbookMaxLen = 120;
 let availableOutputs = [];  // loaded output module names (only enabled+available ones)
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
@@ -115,6 +127,7 @@ export function render(container, state) {
                 idleLivePreview = displayData.idle_live_preview !== false;
                 galleryEnabled = displayData.gallery_enabled !== false;
                 helpButton = displayData.help_button === true;
+                mirrorPreview = displayData.mirror_preview !== false;
                 if (displayData.output_aspect?.w && displayData.output_aspect?.h)
                     outputAspect = displayData.output_aspect;
             }
@@ -231,7 +244,7 @@ export function render(container, state) {
         }
         return `
         <div id="${id}" style="${style}">
-            <video id="preview-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>
+            <video id="preview-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;${mirrorPreview ? 'transform:scaleX(-1);' : ''}"></video>
             ${cropGuideHTML()}
         </div>`;
     }
@@ -604,7 +617,7 @@ export function render(container, state) {
         const shotLabel = (seq && seq.total > 1) ? ` (Foto ${seq.index + 1} von ${seq.total})` : '';
         const previewContent = cameraMode === 'server'
             ? `<img id="preview-img" src="/api/v1/camera/stream" style="width:100%;height:100%;object-fit:cover;" alt="Preview">`
-            : `<video id="preview-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;transform:scaleX(-1);"></video>`;
+            : `<video id="preview-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;${mirrorPreview ? 'transform:scaleX(-1);' : ''}"></video>`;
         const countdownOverlay = `<div id="countdown-overlay" style="
             position:absolute;top:0;left:0;right:0;bottom:0;
             display:flex;align-items:center;justify-content:center;
@@ -1066,9 +1079,12 @@ export function render(container, state) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
-        // Mirror compensation — CSS mirrors the preview but we want a normal photo
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
+        // Undo the CSS mirroring of the preview — the guests pose in a mirror, but
+        // the saved photo must be the right way round (text/logos stay readable).
+        if (mirrorPreview) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
         ctx.drawImage(video, 0, 0);
 
         capturedBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
