@@ -37,6 +37,12 @@ filters:                     # Looks, die die Gäste vor der Aufnahme wählen
   available: []
 
 exif:                        # Metadaten in Fotos, Collagen und GIFs
+  enabled: true              # false = Dateien bleiben unbeschriftet
+  include_location: true     # GPS-Standort der Veranstaltung einbetten
+                             # (Ort/Koordinaten pro Veranstaltung: Admin -> Veranstaltungen)
+  artist: ""                 # Fotograf/Betreiber (EXIF "Artist")
+  copyright: ""              # Copyright-Hinweis (EXIF "Copyright")
+
 background_removal:
   enabled: false
   mode: "none"               # none | ai | chromakey

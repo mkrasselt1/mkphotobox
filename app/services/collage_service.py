@@ -284,8 +284,11 @@ def _open_asset(asset_id: Optional[int]):
 
 
 def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
-           jpeg_quality: int = 90) -> dict[str, Any]:
-    """Render *template* with *photo_paths* into *out_path* (JPEG)."""
+           jpeg_quality: int = 90, exif: bytes | None = None) -> dict[str, Any]:
+    """Render *template* with *photo_paths* into *out_path* (JPEG).
+
+    ``exif`` is an optional serialised EXIF block (see
+    :mod:`app.services.exif_service`) written into the result."""
     from PIL import Image
 
     cw = int(template.get("canvas_width", 1200))
@@ -380,12 +383,13 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     flat = Image.new("RGB", canvas.size, (255, 255, 255))
     flat.paste(canvas, mask=canvas.split()[-1])
-    flat.save(out_path, "JPEG", quality=jpeg_quality)
+    flat.save(out_path, "JPEG", quality=jpeg_quality, **({"exif": exif} if exif else {}))
     return {"path": str(out_path), "width": cw, "height": ch, "slots": len(slots)}
 
 
 def render_set_gif(photo_paths: list[str], out_path: Path,
-                   max_size: int = 700, duration_ms: int = 800) -> Optional[Path]:
+                   max_size: int = 700, duration_ms: int = 800,
+                   comment: bytes | None = None) -> Optional[Path]:
     """Build an animated GIF cycling through a set's individual shots.
 
     Each shot is scaled to fit a common max_size square and centred on white so
@@ -421,7 +425,8 @@ def render_set_gif(photo_paths: list[str], out_path: Path,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         canvases[0].save(out_path, "GIF", save_all=True, append_images=canvases[1:],
-                         duration=duration_ms, loop=0, optimize=True, disposal=2)
+                         duration=duration_ms, loop=0, optimize=True, disposal=2,
+                         **({"comment": comment} if comment else {}))
         return out_path
     except Exception:
         logger.exception("Set GIF creation failed")

@@ -46,6 +46,10 @@ def create_event(
         config_json=body.config_json,
         starts_at=body.starts_at,
         ends_at=body.ends_at,
+        location_name=body.location_name,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        altitude=body.altitude,
     )
     session.add(event)
     session.commit()

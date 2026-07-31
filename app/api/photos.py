@@ -168,12 +168,25 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
             photo_filters.apply_to_jpeg, jpeg_bytes, filter_id,
             cfg.get("photos", {}).get("jpeg_quality", 92))
 
+    # Stamp event details, camera info and the venue's GPS position into the
+    # EXIF block (splices the metadata in — the JPEG itself is not re-encoded).
+    from app.services import exif_service
+    meta = None
+    if exif_service.is_enabled(cfg):
+        note = f"Aufnahme {len(seq) + 1}"
+        look = photo_filters.FILTERS.get(filter_id or "")
+        if look and filter_id != photo_filters.DEFAULT_FILTER:
+            note += f", Look: {look['label']}"
+        meta = exif_service.meta_for_event(event, cfg, cameras, note=note)
+        jpeg_bytes = await asyncio.to_thread(
+            exif_service.tag_jpeg_bytes, jpeg_bytes, meta, now)
+
     # Save to disk
     photo_dir = _get_photo_dir(cfg)
     filepath = photo_dir / filename
     await asyncio.to_thread(filepath.write_bytes, jpeg_bytes)
 
-    # Generate thumbnail
+    # Generate thumbnail (inherits the EXIF block of its source)
     thumb_path = await asyncio.to_thread(
         _generate_thumbnail, filepath, _get_thumb_dir(cfg), cfg["photos"]["thumbnail_size"]
     )
@@ -183,7 +196,8 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
     gif_service = getattr(app.state, "gif_service", None)
     if gif_service and gif_service.enabled:
         gif_base = filepath.stem
-        gif_path = await gif_service.create_gif(photo_dir, gif_base)
+        comment = exif_service.gif_comment(meta, now) if meta else None
+        gif_path = await gif_service.create_gif(photo_dir, gif_base, comment=comment)
         if gif_path:
             gif_filename = gif_path.name
 
@@ -760,14 +774,18 @@ def get_latest_photos(
 
 
 def _generate_thumbnail(filepath: Path, thumb_dir: Path, size: list[int]) -> Path | None:
-    """Generate a thumbnail synchronously (called via to_thread)."""
+    """Generate a thumbnail synchronously (called via to_thread).
+
+    The source's EXIF block is carried over so a thumbnail names the same event,
+    camera and location as the full-size photo it came from."""
     try:
         from PIL import Image
 
         img = Image.open(filepath)
+        exif = img.info.get("exif")
         img.thumbnail(tuple(size))
         thumb_path = thumb_dir / f"{filepath.stem}_thumb.jpg"
-        img.save(thumb_path, "JPEG", quality=75)
+        img.save(thumb_path, "JPEG", quality=75, **({"exif": exif} if exif else {}))
         img.close()
         return thumb_path
     except Exception:

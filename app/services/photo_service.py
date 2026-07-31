@@ -20,6 +20,7 @@ from app.eventbus import EventBus
 from app.models import Event, Photo, PhotoSession
 from app.modules.camera import CameraManager
 from app.modules.payment import PaymentManager
+from app.services import exif_service
 from app.websocket_manager import WSManager
 
 logger = logging.getLogger(__name__)
@@ -111,20 +112,10 @@ class PhotoService:
         thumb_dir = photo_dir / "thumbs"
         thumb_dir.mkdir(parents=True, exist_ok=True)
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        now = datetime.utcnow()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
         filename = f"{timestamp}_{secrets.token_hex(4)}.jpg"
         filepath = photo_dir / filename
-
-        # Write file in thread
-        await asyncio.to_thread(filepath.write_bytes, jpeg_bytes)
-
-        # Generate thumbnail in thread
-        thumb_name = await asyncio.to_thread(
-            self._make_thumbnail, filepath, thumb_dir, cfg["photos"]["thumbnail_size"]
-        )
-
-        # Get image dimensions
-        width, height = await asyncio.to_thread(self._get_dimensions, filepath)
 
         # Save to database
         engine = get_engine()
@@ -136,6 +127,24 @@ class PhotoService:
                 session.add(event)
                 session.commit()
                 session.refresh(event)
+
+            # Stamp event details, camera info and venue GPS into the EXIF block
+            # before the file hits the disk (no re-encode — see exif_service).
+            if exif_service.is_enabled(cfg):
+                meta = exif_service.meta_for_event(event, cfg, self.cameras)
+                jpeg_bytes = await asyncio.to_thread(
+                    exif_service.tag_jpeg_bytes, jpeg_bytes, meta, now)
+
+            # Write file in thread
+            await asyncio.to_thread(filepath.write_bytes, jpeg_bytes)
+
+            # Generate thumbnail in thread (inherits the source's EXIF)
+            thumb_name = await asyncio.to_thread(
+                self._make_thumbnail, filepath, thumb_dir, cfg["photos"]["thumbnail_size"]
+            )
+
+            # Get image dimensions
+            width, height = await asyncio.to_thread(self._get_dimensions, filepath)
 
             # Find or create photo session
             photo_session = session.exec(
@@ -156,7 +165,7 @@ class PhotoService:
                 width=width,
                 height=height,
                 file_size=len(jpeg_bytes),
-                captured_at=datetime.utcnow(),
+                captured_at=now,
                 camera_module=self.cameras.active_id,
             )
             session.add(photo)
@@ -174,9 +183,11 @@ class PhotoService:
         try:
             from PIL import Image
             img = Image.open(filepath)
+            exif = img.info.get("exif")  # carry the photo's metadata to its thumbnail
             img.thumbnail(tuple(size))
             thumb_name = f"{filepath.stem}_thumb.jpg"
-            img.save(thumb_dir / thumb_name, "JPEG", quality=75)
+            img.save(thumb_dir / thumb_name, "JPEG", quality=75,
+                     **({"exif": exif} if exif else {}))
             img.close()
             return thumb_name
         except Exception:

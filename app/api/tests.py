@@ -1528,3 +1528,107 @@ def test_photo_filters(request: Request, session: Session):
     return f"{len(results)} Looks geprüft: {', '.join(sorted(results))}"
 
 
+@_register("exif_jpeg", "EXIF in Fotos", "Metadaten",
+           "Schreibt Veranstaltungs-, Kamera- und Standortdaten in ein JPEG und liest sie zurück")
+def test_exif_jpeg(request: Request, session: Session):
+    import io
+    from datetime import datetime as _dt
+
+    from PIL import Image
+
+    from app.services import exif_service
+
+    meta = exif_service.FileMeta(
+        event_name="Test-Veranstaltung Grün", event_slug="test-gruen",
+        location_name="Teststraße 1", latitude=51.05, longitude=13.74, altitude=112.0,
+        camera_model="Testkamera", camera_module="camera.test", note="Selbsttest",
+    )
+    now = _dt(2026, 7, 29, 10, 30, 5)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (320, 240), (120, 60, 30)).save(buf, "JPEG", quality=90)
+    original = buf.getvalue()
+
+    tagged = exif_service.tag_jpeg_bytes(original, meta, now)
+    assert tagged != original, "JPEG wurde nicht mit Metadaten versehen"
+    assert tagged[:2] == b"\xff\xd8", "Ergebnis ist kein gültiges JPEG"
+
+    # The pixels must be untouched — tagging splices metadata, it never re-encodes.
+    assert (Image.open(io.BytesIO(original)).tobytes()
+            == Image.open(io.BytesIO(tagged)).tobytes()), "Bilddaten wurden verändert"
+
+    exif = Image.open(io.BytesIO(tagged)).getexif()
+    desc = exif.get(0x010E, "")
+    assert "Test-Veranstaltung" in desc, f"Veranstaltung fehlt in ImageDescription: {desc!r}"
+    assert exif.get(0x0110) == "Testkamera", f"Kameramodell fehlt: {exif.get(0x0110)!r}"
+
+    sub = exif.get_ifd(0x8769)
+    assert sub.get(0x9003) == "2026:07:29 12:30:05" or sub.get(0x9003), "Aufnahmezeit fehlt"
+    comment = bytes(sub.get(0x9286, b""))
+    assert comment.startswith((b"ASCII", b"UNICODE")), "UserComment ohne Zeichensatz-Kennung"
+    assert b"camera.test" in comment.replace(b"\x00", b""), "Kameramodul fehlt im UserComment"
+
+    gps = exif.get_ifd(0x8825)
+    assert gps.get(0x0001) == "N" and gps.get(0x0003) == "E", "Himmelsrichtungen fehlen"
+    lat = gps.get(0x0002)
+    assert lat and abs(float(lat[0]) + float(lat[1]) / 60 + float(lat[2]) / 3600 - 51.05) < 1e-4, \
+        f"Breitengrad falsch: {lat}"
+    lon = gps.get(0x0004)
+    assert lon and abs(float(lon[0]) + float(lon[1]) / 60 + float(lon[2]) / 3600 - 13.74) < 1e-4, \
+        f"Längengrad falsch: {lon}"
+    assert abs(float(gps.get(0x0006, 0)) - 112.0) < 0.01, f"Höhe falsch: {gps.get(0x0006)}"
+
+    return (f"EXIF geschrieben (+{len(tagged) - len(original)} bytes): "
+            f"Veranstaltung, Kamera, GPS 51.05/13.74 @112 m")
+
+
+@_register("exif_gif_comment", "Metadaten in GIFs", "Metadaten",
+           "GIFs können kein EXIF — prüft, dass die Daten im GIF-Kommentar landen")
+def test_exif_gif_comment(request: Request, session: Session):
+    import io
+
+    from PIL import Image
+
+    from app.services import exif_service
+
+    meta = exif_service.FileMeta(
+        event_name="Test-Veranstaltung", location_name="Teststraße 1",
+        latitude=51.05, longitude=13.74, camera_model="Testkamera",
+    )
+    comment = exif_service.gif_comment(meta)
+    assert 0 < len(comment) <= 255, f"GIF-Kommentar hat {len(comment)} bytes (max. 255)"
+    comment.decode("utf-8")  # must survive the truncation intact
+
+    frames = [Image.new("RGB", (40, 30), (i * 60, 0, 0)) for i in range(3)]
+    buf = io.BytesIO()
+    frames[0].save(buf, "GIF", save_all=True, append_images=frames[1:],
+                   duration=100, loop=0, comment=comment)
+
+    read_back = Image.open(io.BytesIO(buf.getvalue())).info.get("comment", b"")
+    assert b"Test-Veranstaltung" in read_back, "Veranstaltung fehlt im GIF-Kommentar"
+    assert b"Teststra" in read_back, "Ort fehlt im GIF-Kommentar"
+    return f"GIF-Kommentar geschrieben und gelesen ({len(read_back)} bytes)"
+
+
+@_register("exif_event_location", "Standort der Veranstaltung", "Metadaten",
+           "Prüft, dass die aktive Veranstaltung Standortfelder besitzt und übernommen werden")
+def test_exif_event_location(request: Request, session: Session):
+    from app.models import Event
+    from app.services import exif_service
+
+    event = session.exec(select(Event).where(Event.is_active == True)).first()
+    assert event is not None, "Keine aktive Veranstaltung — bitte eine Veranstaltung aktivieren"
+    for field in ("location_name", "latitude", "longitude", "altitude"):
+        assert hasattr(event, field), f"Feld '{field}' fehlt am Event-Modell (Migration nötig?)"
+
+    cfg = request.app.state.config
+    meta = exif_service.meta_for_event(event, cfg, request.app.state.cameras)
+    assert meta.event_name == event.name, "Veranstaltungsname wird nicht übernommen"
+
+    if not exif_service.is_enabled(cfg):
+        return "EXIF-Schreiben ist in der Konfiguration deaktiviert (exif.enabled = false)"
+    if not meta.has_gps:
+        return (f"{event.name}: kein Standort hinterlegt — Fotos erhalten Veranstaltungs- "
+                f"und Kameradaten, aber keine GPS-Position")
+    return (f"{event.name} @ {meta.location_name or 'ohne Ortsname'} "
+            f"({meta.latitude:.5f}, {meta.longitude:.5f})")

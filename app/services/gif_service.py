@@ -78,8 +78,12 @@ class GifService:
             self._task = None
         self._buffer.clear()
 
-    async def create_gif(self, output_dir: Path, filename_base: str) -> Path | None:
-        """Create a GIF from the buffered frames. Returns the file path or None."""
+    async def create_gif(self, output_dir: Path, filename_base: str,
+                         comment: bytes | None = None) -> Path | None:
+        """Create a GIF from the buffered frames. Returns the file path or None.
+
+        ``comment`` is written as the GIF comment block — GIFs cannot carry EXIF,
+        so that is where the event/camera/location details go."""
         if not self._buffer:
             logger.warning("GIF: no frames in buffer")
             return None
@@ -91,10 +95,11 @@ class GifService:
             return None
 
         return await asyncio.to_thread(
-            self._build_gif, frames, output_dir, filename_base
+            self._build_gif, frames, output_dir, filename_base, comment
         )
 
-    def _build_gif(self, frames: list[BufferedFrame], output_dir: Path, filename_base: str) -> Path | None:
+    def _build_gif(self, frames: list[BufferedFrame], output_dir: Path, filename_base: str,
+                   comment: bytes | None = None) -> Path | None:
         try:
             from PIL import Image
 
@@ -129,6 +134,7 @@ class GifService:
                 duration=frame_duration,
                 loop=0,
                 optimize=True,
+                **({"comment": comment} if comment else {}),
             )
 
             # Close all frames

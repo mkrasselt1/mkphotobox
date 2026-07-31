@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────
@@ -44,7 +44,16 @@ class UserUpdate(BaseModel):
 
 # ── Events ────────────────────────────────────────────────────────────────
 
-class EventCreate(BaseModel):
+class EventLocation(BaseModel):
+    """Venue of an event — written into the GPS/EXIF metadata of its files."""
+
+    location_name: Optional[str] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    altitude: Optional[float] = None
+
+
+class EventCreate(EventLocation):
     name: str
     slug: str
     starts_at: Optional[datetime] = None
@@ -52,7 +61,7 @@ class EventCreate(BaseModel):
     config_json: str = "{}"
 
 
-class EventUpdate(BaseModel):
+class EventUpdate(EventLocation):
     name: Optional[str] = None
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
@@ -60,7 +69,7 @@ class EventUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
-class EventResponse(BaseModel):
+class EventResponse(EventLocation):
     id: int
     name: str
     slug: str

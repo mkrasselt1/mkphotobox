@@ -35,6 +35,11 @@ class Event(SQLModel, table=True):
     ends_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=False)
+    # Venue — stamped into the EXIF/GPS metadata of every file this event produces
+    location_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    altitude: Optional[float] = None
 
 
 class PhotoSession(SQLModel, table=True):
