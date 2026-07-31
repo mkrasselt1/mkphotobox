@@ -7,6 +7,8 @@
  *   2. MJPEG (server-side camera) — <img src="/api/v1/camera/stream">
  */
 
+import { sounds } from '../core/sounds.js';
+
 const STATES = {
     idle:         { timeout: null,   timeoutTarget: null },
     template_select: { timeout: 60000, timeoutTarget: 'idle' },
@@ -68,6 +70,11 @@ const PREVIEW_MAX_WIDTHS = {
 export function render(container, state) {
     const { i18n, ws } = window.pb;
 
+    // Browsers keep audio muted until the user has interacted with the page —
+    // arm it on the first touch anywhere in the booth, long before the first
+    // countdown needs to beep.
+    container.addEventListener('pointerdown', () => sounds.unlock(), { once: true });
+
     // Listen for capture events from WS (external/hardware triggers only —
     // the booth handles its own sequence transitions in capturePhoto()).
     ws.on('capture.completed', (data) => {
@@ -128,9 +135,14 @@ export function render(container, state) {
                 galleryEnabled = displayData.gallery_enabled !== false;
                 helpButton = displayData.help_button === true;
                 mirrorPreview = displayData.mirror_preview !== false;
+                flashEnabled = displayData.flash_enabled !== false;
                 guestbookEnabled = displayData.guestbook_enabled !== false;
                 if (Number.isFinite(displayData.guestbook_max_len) && displayData.guestbook_max_len > 0)
                     guestbookMaxLen = displayData.guestbook_max_len;
+                sounds.configure({
+                    enabled: displayData.sound_enabled !== false,
+                    volume: displayData.sound_volume,
+                });
                 if (displayData.output_aspect?.w && displayData.output_aspect?.h)
                     outputAspect = displayData.output_aspect;
             }
@@ -173,6 +185,7 @@ export function render(container, state) {
     }
 
     function transition(newState) {
+        if (newState === 'review' && currentState !== 'review') sounds.success();
         currentState = newState;
         state.setBoothState(newState);
         if (stateTimer) clearTimeout(stateTimer);
@@ -755,6 +768,7 @@ export function render(container, state) {
                 overlay.style.animation = 'none';
                 overlay.offsetHeight;
                 overlay.style.animation = 'pulse 0.5s ease-out';
+                sounds.tick(count === 1);   // last beep before the shot is higher
             } else {
                 clearInterval(countdownTimer);
                 if (overlay) overlay.textContent = '0';
@@ -767,6 +781,7 @@ export function render(container, state) {
         captureLeadTimer = setTimeout(async () => {
             captureLeadTimer = null;
             if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+            sounds.shutter();
             // Capture frame from video BEFORE we destroy the DOM
             await grabFrameFromVideo();
             transition('capture');
@@ -774,8 +789,11 @@ export function render(container, state) {
     }
 
     function renderCapture(el) {
+        const flash = flashEnabled
+            ? '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:white;animation:flash 0.5s ease-out forwards;z-index:10;pointer-events:none;"></div>'
+            : '';
         el.innerHTML = `
-        <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:white;animation:flash 0.5s ease-out forwards;z-index:10;"></div>
+        ${flash}
         <div id="capture-status" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1rem;">
             <div class="spinner" style="width:48px;height:48px;border:4px solid var(--pb-color-surface);border-top-color:var(--pb-color-primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
             <p id="capture-msg" style="font-size:1rem;color:var(--pb-color-text-muted);">${i18n.t('booth.processing')}</p>

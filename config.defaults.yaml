@@ -222,6 +222,10 @@ session:
   auto_end_seconds: 120
   photos_per_session: 0
   countdown_seconds: 3       # Dauer des Countdowns in Sekunden
+  sound_enabled: true        # Countdown-Piep + Auslöse-Klick (im Browser erzeugt,
+                             # keine Audiodateien nötig)
+  sound_volume: 0.6          # 0.0 bis 1.0
+  flash_enabled: true        # kurze Weißblende im Moment der Aufnahme
   capture_lead_ms: 0         # ms vor der Null, an denen ausgelöst wird (gleicht
                              # die Auslöseverzögerung der Kamera aus, damit das
                              # Foto genau bei Null entsteht)
