@@ -128,6 +128,9 @@ export function render(container, state) {
                 galleryEnabled = displayData.gallery_enabled !== false;
                 helpButton = displayData.help_button === true;
                 mirrorPreview = displayData.mirror_preview !== false;
+                guestbookEnabled = displayData.guestbook_enabled !== false;
+                if (Number.isFinite(displayData.guestbook_max_len) && displayData.guestbook_max_len > 0)
+                    guestbookMaxLen = displayData.guestbook_max_len;
                 if (displayData.output_aspect?.w && displayData.output_aspect?.h)
                     outputAspect = displayData.output_aspect;
             }
@@ -793,9 +796,10 @@ export function render(container, state) {
         el.innerHTML = `
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1.5rem;padding:2rem;">
             <h2>${i18n.t('booth.review_title')}</h2>
-            <img src="${photoUrl}" style="max-width:100%;max-height:60vh;border-radius:var(--pb-radius);object-fit:contain;box-shadow:0 4px 30px rgba(0,0,0,0.5);" alt="Photo">
+            <img id="review-photo" src="${photoUrl}" style="max-width:100%;max-height:60vh;border-radius:var(--pb-radius);object-fit:contain;box-shadow:0 4px 30px rgba(0,0,0,0.5);" alt="Photo">
             <div style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;">
                 <button id="btn-retake" class="pb-btn pb-btn-outline">${i18n.t('booth.retake')}</button>
+                ${guestbookEnabled && lastPhoto ? '<button id="btn-guestbook" class="pb-btn pb-btn-outline">✍️ Grußwort</button>' : ''}
                 <button id="btn-continue" class="pb-btn pb-btn-primary">${i18n.t('booth.continue')}</button>
             </div>
         </div>
@@ -806,7 +810,163 @@ export function render(container, state) {
             if (lastTemplate && lastTemplate.photo_count > 1) startCapture(lastTemplate);
             else transition('countdown');
         });
+        el.querySelector('#btn-guestbook')?.addEventListener('click', () => openGuestbook(photoUrl));
         el.querySelector('#btn-continue').addEventListener('click', () => transition('share'));
+    }
+
+    // ── Guest book: draw / write on the photo ────────────────────────
+
+    /** Full-screen editor over the photo. Saves a transparent PNG plus an
+     *  optional greeting; the server composites both into the photo itself. */
+    function openGuestbook(photoUrl) {
+        const COLORS = ['#ffffff', '#ff4d6d', '#ffd166', '#4cc9f0', '#7bdc8b', '#1b1b1b'];
+        closeOverlay();
+        // Deliberately not openOverlay(): that centres a padded card and closes on
+        // a tap outside — here the canvas wants the whole screen, and a stray tap
+        // must not throw away what someone just drew.
+        const o = document.createElement('div');
+        o.id = 'pb-overlay';   // same id, so transition() still cleans it up
+        o.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.9);' +
+            'backdrop-filter:blur(4px);display:flex;';
+        document.body.appendChild(o);
+        o.innerHTML = `
+        <div style="width:100%;height:100%;display:flex;flex-direction:column;gap:0.75rem;padding:1rem;box-sizing:border-box;">
+            <div id="gb-stage" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative;">
+                <!-- Der Rahmen muss das Bild exakt umschließen (inline-block + line-height:0),
+                     sonst ist die Zeichenfläche größer als das Foto: die Striche säßen
+                     versetzt und die Fläche würde die Bedienelemente darunter überdecken.
+                     Die Höhe begrenzt vh, damit Werkzeuge und Textfeld immer Platz haben. -->
+                <div id="gb-frame" style="position:relative;display:inline-block;line-height:0;max-width:100%;">
+                    <img id="gb-photo" src="${photoUrl}" style="display:block;max-width:100%;max-height:58vh;border-radius:var(--pb-radius);" alt="">
+                    <canvas id="gb-canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none;border-radius:var(--pb-radius);cursor:crosshair;"></canvas>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
+                ${COLORS.map((c, i) => `<button class="gb-color" data-color="${c}" style="
+                    width:2.75rem;height:2.75rem;border-radius:50%;background:${c};cursor:pointer;
+                    border:3px solid ${i === 0 ? 'var(--pb-color-primary)' : 'rgba(255,255,255,0.35)'};"></button>`).join('')}
+                <span style="width:1rem;"></span>
+                <button class="gb-size" data-size="4" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid var(--pb-color-primary);background:rgba(127,127,127,0.2);color:inherit;">dünn</button>
+                <button class="gb-size" data-size="10" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid transparent;background:rgba(127,127,127,0.2);color:inherit;">dick</button>
+                <button id="gb-undo" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">↶ Zurück</button>
+                <button id="gb-clear" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">Alles löschen</button>
+            </div>
+            <input id="gb-message" type="text" maxlength="${guestbookMaxLen}" placeholder="Grußwort (optional)" style="
+                width:100%;box-sizing:border-box;padding:0.75rem 0.9rem;border-radius:var(--pb-radius);
+                border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.4);color:inherit;font-size:1.05rem;">
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;flex-wrap:wrap;">
+                <button id="gb-cancel" class="pb-btn pb-btn-outline">Abbrechen</button>
+                <button id="gb-save" class="pb-btn pb-btn-primary">Aufs Foto übernehmen</button>
+            </div>
+            <p id="gb-msg" style="margin:0;text-align:right;font-size:0.9rem;min-height:1.2em;"></p>
+        </div>
+        ${btnStyles()}`;
+
+        const canvas = o.querySelector('#gb-canvas');
+        const photo = o.querySelector('#gb-photo');
+        const ctx = canvas.getContext('2d');
+        const strokes = [];          // for undo — each entry is one finished stroke
+        let current = null;
+        let color = COLORS[0];
+        let width = 4;
+
+        // The canvas gets the photo's on-screen pixel size; the server scales the
+        // exported PNG up to the real photo resolution.
+        function sizeCanvas() {
+            const r = photo.getBoundingClientRect();
+            if (!r.width || !r.height) return;
+            canvas.width = Math.round(r.width);
+            canvas.height = Math.round(r.height);
+            redraw();
+        }
+        function redraw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (const s of strokes) {
+                if (s.points.length < 2) continue;
+                ctx.strokeStyle = s.color;
+                ctx.lineWidth = s.width;
+                ctx.beginPath();
+                ctx.moveTo(s.points[0].x * canvas.width, s.points[0].y * canvas.height);
+                for (const p of s.points.slice(1)) ctx.lineTo(p.x * canvas.width, p.y * canvas.height);
+                ctx.stroke();
+            }
+        }
+        // Points are stored 0..1 so a mid-drawing resize (rotation, keyboard
+        // opening) keeps the strokes where the guest put them.
+        function pos(ev) {
+            const r = canvas.getBoundingClientRect();
+            return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
+        }
+
+        if (photo.complete) sizeCanvas(); else photo.addEventListener('load', sizeCanvas);
+        const onResize = () => sizeCanvas();
+        window.addEventListener('resize', onResize);
+
+        canvas.addEventListener('pointerdown', ev => {
+            canvas.setPointerCapture(ev.pointerId);
+            current = { color, width, points: [pos(ev)] };
+            strokes.push(current);
+        });
+        canvas.addEventListener('pointermove', ev => {
+            if (!current) return;
+            current.points.push(pos(ev));
+            redraw();
+        });
+        const endStroke = () => { current = null; };
+        canvas.addEventListener('pointerup', endStroke);
+        canvas.addEventListener('pointercancel', endStroke);
+        canvas.addEventListener('pointerleave', endStroke);
+
+        o.querySelectorAll('.gb-color').forEach(btn => btn.addEventListener('click', () => {
+            color = btn.dataset.color;
+            o.querySelectorAll('.gb-color').forEach(b =>
+                b.style.borderColor = b === btn ? 'var(--pb-color-primary)' : 'rgba(255,255,255,0.35)');
+        }));
+        o.querySelectorAll('.gb-size').forEach(btn => btn.addEventListener('click', () => {
+            width = parseInt(btn.dataset.size, 10);
+            o.querySelectorAll('.gb-size').forEach(b =>
+                b.style.borderColor = b === btn ? 'var(--pb-color-primary)' : 'transparent');
+        }));
+        o.querySelector('#gb-undo').addEventListener('click', () => { strokes.pop(); redraw(); });
+        o.querySelector('#gb-clear').addEventListener('click', () => { strokes.length = 0; redraw(); });
+
+        const close = () => { window.removeEventListener('resize', onResize); o.remove(); };
+        o.querySelector('#gb-cancel').addEventListener('click', close);
+
+        o.querySelector('#gb-save').addEventListener('click', async () => {
+            const message = o.querySelector('#gb-message').value.trim();
+            const msgEl = o.querySelector('#gb-msg');
+            if (!strokes.length && !message) {
+                msgEl.textContent = 'Erst malen oder etwas schreiben.';
+                msgEl.style.color = 'var(--pb-color-error)';
+                return;
+            }
+            msgEl.style.color = 'var(--pb-color-text-muted)';
+            msgEl.textContent = 'Übernehme…';
+            try {
+                const fd = new FormData();
+                if (strokes.length) {
+                    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                    fd.append('overlay', blob, 'guestbook.png');
+                }
+                fd.append('message', message);
+                const res = await fetch(`/api/v1/photos/${lastPhoto.photo_id}/guestbook`,
+                    { method: 'POST', body: fd });
+                if (!res.ok) {
+                    const e = await res.json().catch(() => ({}));
+                    throw new Error(e.detail || `HTTP ${res.status}`);
+                }
+                close();
+                // Cache-bust: the file changed behind the same URL.
+                const img = document.getElementById('review-photo');
+                if (img) img.src = `/api/v1/photos/${lastPhoto.photo_id}/file?v=${Date.now()}`;
+            } catch (err) {
+                msgEl.style.color = 'var(--pb-color-error)';
+                msgEl.textContent = 'Fehler: ' + err.message;
+            }
+        });
     }
 
     function renderShare(el) {

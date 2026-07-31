@@ -1528,6 +1528,60 @@ def test_photo_filters(request: Request, session: Session):
     return f"{len(results)} Looks geprüft: {', '.join(sorted(results))}"
 
 
+@_register("guestbook_apply", "Gästebuch", "Bild",
+           "Malt und schreibt auf ein Testfoto und prüft, dass das Original erhalten bleibt")
+def test_guestbook_apply(request: Request, session: Session):
+    import io
+    import tempfile
+    from pathlib import Path as _Path
+
+    from PIL import Image
+
+    from app.services import guestbook
+
+    tmp = _Path(tempfile.mkdtemp())
+    photo = tmp / "shot.jpg"
+    Image.new("RGB", (240, 180), (30, 60, 90)).save(photo, "JPEG", quality=95)
+    before = list(Image.open(photo).convert("RGB").getdata())
+
+    # Eine rote Linie quer über die obere Bildhälfte, in halber Auflösung —
+    # der Server muss sie hochskalieren.
+    ov = Image.new("RGBA", (120, 90), (0, 0, 0, 0))
+    for x in range(10, 110):
+        for y in range(20, 26):
+            ov.putpixel((x, y), (255, 0, 0, 255))
+    buf = io.BytesIO()
+    ov.save(buf, "PNG")
+
+    original_rel = guestbook.preserve_original(tmp, "shot.jpg", None)
+    assert (tmp / original_rel).exists(), "Original wurde nicht gesichert"
+
+    result = guestbook.apply(photo, buf.getvalue(), "Danke für den schönen Abend!")
+    assert result["drawing"] and result["message"], result
+
+    out = Image.open(photo).convert("RGB")
+    assert out.size == (240, 180), f"Größe verändert: {out.size}"
+    assert list(out.getdata()) != before, "Foto wurde gar nicht verändert"
+    # Die Zeichnung muss dort liegen, wo sie hingehört (skaliert: y≈40..52).
+    r, g, b = out.getpixel((120, 46))
+    assert r > 120 and g < 90, f"Zeichnung fehlt oder sitzt falsch: {(r, g, b)}"
+    # Das Grußwort dunkelt den unteren Rand ab.
+    assert sum(out.getpixel((120, 175))) < sum(Image.open(tmp / original_rel).convert("RGB").getpixel((120, 175))), \
+        "Grußwort-Balken fehlt am unteren Rand"
+    # Und oben, außerhalb von Zeichnung und Balken, ist das Bild unberührt.
+    assert out.getpixel((5, 5)) == Image.open(tmp / original_rel).convert("RGB").getpixel((5, 5)), \
+        "Bild außerhalb der Zeichnung wurde verändert"
+
+    # Zweiter Durchgang startet wieder vom sauberen Original, statt zu stapeln.
+    guestbook.preserve_original(tmp, "shot.jpg", original_rel)
+    restored = Image.open(photo).convert("RGB")
+    assert list(restored.getdata()) == before, "Zweiter Versuch startete nicht vom Original"
+
+    return "Zeichnung skaliert aufgetragen, Grußwort gesetzt, Original bleibt erhalten"
+
+
+# ── Metadaten (EXIF) ─────────────────────────────────────────────────────
+
 @_register("exif_jpeg", "EXIF in Fotos", "Metadaten",
            "Schreibt Veranstaltungs-, Kamera- und Standortdaten in ein JPEG und liest sie zurück")
 def test_exif_jpeg(request: Request, session: Session):

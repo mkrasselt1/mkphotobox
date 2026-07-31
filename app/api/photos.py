@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import Session, select
 
@@ -221,6 +221,67 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
         "intermediate": part_of_set,
     })
     return photo
+
+
+# ── Guest book ────────────────────────────────────────────────────────────
+
+@router.post("/photos/{photo_id}/guestbook")
+async def photo_guestbook(
+    photo_id: int,
+    request: Request,
+    overlay: UploadFile | None = File(default=None),
+    message: str = Form(default=""),
+    session: Session = Depends(get_session),
+):
+    """Composite the guests' drawing and/or greeting into their photo (public).
+
+    ``overlay`` is a transparent PNG from the booth canvas at whatever size the
+    screen had — the server scales it to the photo. The untouched original is
+    preserved once so a second attempt starts clean instead of stacking."""
+    from app.services import guestbook
+
+    cfg = request.app.state.config
+    if not guestbook.is_enabled(cfg):
+        raise HTTPException(status_code=403, detail="Gästebuch ist deaktiviert")
+
+    photo = session.get(Photo, photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Foto nicht gefunden")
+
+    storage = _get_photo_dir(cfg)
+    photo_file = storage / photo.filename
+    if not photo_file.exists():
+        raise HTTPException(status_code=404, detail="Bilddatei fehlt")
+
+    overlay_bytes = await overlay.read() if overlay is not None else None
+    message = (message or "").strip()[:guestbook.max_message_length(cfg)]
+    if not overlay_bytes and not message:
+        raise HTTPException(status_code=400, detail="Weder Zeichnung noch Text übergeben")
+
+    try:
+        original_rel = await asyncio.to_thread(
+            guestbook.preserve_original, storage, photo.filename, photo.original_path)
+        result = await asyncio.to_thread(
+            guestbook.apply, photo_file, overlay_bytes, message,
+            jpeg_quality=cfg.get("photos", {}).get("jpeg_quality", 92),
+            font=cfg.get("guestbook", {}).get("font", "Sans"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Konnte nicht aufs Foto zeichnen: {e}")
+
+    # The thumbnail has to follow, otherwise the gallery still shows the plain photo.
+    await asyncio.to_thread(
+        _generate_thumbnail, photo_file, _get_thumb_dir(cfg), cfg["photos"]["thumbnail_size"])
+
+    photo.original_path = original_rel
+    photo.file_size = photo_file.stat().st_size
+    meta = json.loads(photo.metadata_json or "{}")
+    meta["guestbook"] = {"drawing": result["drawing"], "message": message}
+    photo.metadata_json = json.dumps(meta)
+    session.add(photo)
+    session.commit()
+
+    await request.app.state.bus.emit("photo.updated", {"photo_id": photo.id, "guestbook": True})
+    return {"status": "ok", "photo_id": photo.id, **result}
 
 
 @router.post("/photos/upload")

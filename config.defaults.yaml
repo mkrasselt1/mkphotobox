@@ -30,6 +30,11 @@ photos:
   filename_template: "{event}_{date}_{time}_{seq}"  # placeholders: {event}, {date}, {time}, {seq}, {random}
   download_filename_template: "{event}_{date}_{time}"
 
+guestbook:                   # Gäste malen/schreiben nach der Aufnahme aufs Foto
+  enabled: true
+  max_message_len: 120       # Zeichen für das Grußwort unter dem Bild
+  font: "Sans"               # Schriftart des Grußworts (siehe Vorlagen-Editor)
+
 filters:                     # Looks, die die Gäste vor der Aufnahme wählen
   enabled: true              # false = keine Auswahl im Booth, immer Original
   # Reihenfolge/Auswahl der angebotenen Looks. Leer lassen = alle. Verfügbar:
