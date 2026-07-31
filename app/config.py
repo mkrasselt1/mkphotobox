@@ -155,7 +155,9 @@ def apply_db_settings(session) -> int:
             value = json.loads(setting.value_json)
         except (ValueError, TypeError):
             continue
-        set_nested(cfg, setting.key, value)
+        # Heal rows written before the settings API normalized slashed keys —
+        # "cameras/transform" would otherwise stay a dead top-level entry.
+        set_nested(cfg, setting.key.strip("/").replace("/", "."), value)
         count += 1
     return count
 

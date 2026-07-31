@@ -9,31 +9,31 @@ export function adminShell(contentHTML) {
     const isAdmin = auth.role === 'admin';
 
     // key = section key (matches backend MIETER_SECTIONS); adminOnly hides it from a Mieter
-    // group = nav grouping (top | interface | capture | process | output | other)
+    // group = nav grouping; 'top' items sit above the groups and are always visible.
     let navItems = [
         { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊', group: 'top' },
-        { key: 'appearance', href: '#/admin/appearance', label: 'Design', icon: '🎨', group: 'interface', adminOnly: true },
-        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'interface', adminOnly: true },
-        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'interface' },
+        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'event' },
+        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'event', adminOnly: true },
+        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'event', adminOnly: true },
         { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷', group: 'capture' },
         { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', group: 'capture', adminOnly: true },
-        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'process' },
-        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️', group: 'process' },
-        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'process' },
-        { key: 'presets', href: '#/admin/presets', label: 'Ausgabe-Formate', icon: '📐', group: 'output' },
-        { key: 'remote-gallery', href: '#/admin/remote-gallery', label: 'Online-Galerie', icon: '☁️', group: 'output', adminOnly: true },
+        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'capture' },
+        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'design' },
+        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️', group: 'design' },
+        { key: 'presets', href: '#/admin/presets', label: 'Ausgabe-Formate', icon: '📐', group: 'design' },
+        { key: 'appearance', href: '#/admin/appearance', label: 'Design', icon: '🎨', group: 'design', adminOnly: true },
         { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️', group: 'output' },
+        { key: 'remote-gallery', href: '#/admin/remote-gallery', label: 'Online-Galerie', icon: '☁️', group: 'output', adminOnly: true },
         { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿', group: 'output' },
         { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'output' },
-        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'other', adminOnly: true },
-        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'other' },
-        { key: 'bluetooth', href: '#/admin/bluetooth', label: 'Bluetooth', icon: '🔵', group: 'other' },
-        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'other', adminOnly: true },
-        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'other', adminOnly: true },
-        { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'other', adminOnly: true },
-        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'other', adminOnly: true },
-        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'other', adminOnly: true },
-        { key: 'help', href: '#/admin/help', label: 'Hilfe', icon: '❓', group: 'other', adminOnly: true },
+        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'system', adminOnly: true },
+        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'system' },
+        { key: 'bluetooth', href: '#/admin/bluetooth', label: 'Bluetooth', icon: '🔵', group: 'system' },
+        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'system', adminOnly: true },
+        { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'system', adminOnly: true },
+        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'system', adminOnly: true },
+        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'system', adminOnly: true },
+        { key: 'help', href: '#/admin/help', label: 'Hilfe', icon: '❓', group: 'top', adminOnly: true },
     ];
 
     if (!isAdmin) {
@@ -42,23 +42,43 @@ export function adminShell(contentHTML) {
         navItems = navItems.filter(n => !n.adminOnly && sections.includes(n.key));
     }
 
-    // Render the nav grouped by stage; group headers shown only when non-empty.
+    // Collapsible groups: listing all 22 entries at once makes the sidebar taller
+    // than a booth screen, so only the group holding the current page is open.
+    // Everything else is one tap away and the whole nav fits without scrolling.
     const GROUPS = [
-        { id: 'interface', label: 'Oberfläche' },
-        { id: 'capture', label: 'Aufnehmen' },
-        { id: 'process', label: 'Verarbeiten' },
-        { id: 'output', label: 'Ausgeben' },
-        { id: 'other', label: 'Alles andere' },
+        { id: 'event', label: 'Veranstaltung' },
+        { id: 'capture', label: 'Aufnahme' },
+        { id: 'design', label: 'Gestaltung' },
+        { id: 'output', label: 'Ausgabe' },
+        { id: 'system', label: 'System' },
     ];
+    const isActive = (n) => hash === n.href.replace('#/', '');
     const itemHtml = (n) => `
-        <a href="${n.href}" class="nav-item ${hash === n.href.replace('#/', '') ? 'active' : ''}">
+        <a href="${n.href}" class="nav-item ${isActive(n) ? 'active' : ''}">
             <span class="nav-icon">${n.icon}</span><span>${n.label}</span>
         </a>`;
+
+    // The group containing the current page wins; otherwise fall back to the last
+    // one the user opened, so navigating back and forth doesn't fight them.
+    const activeGroup = (navItems.find(isActive) || {}).group;
+    let openGroup = activeGroup && activeGroup !== 'top' ? activeGroup : null;
+    if (!openGroup) {
+        try { openGroup = localStorage.getItem('pb_nav_group'); } catch { openGroup = null; }
+    }
+    if (!GROUPS.some(g => g.id === openGroup)) openGroup = GROUPS[0].id;
+
     let navHtml = navItems.filter(n => n.group === 'top').map(itemHtml).join('');
     for (const g of GROUPS) {
         const items = navItems.filter(n => n.group === g.id);
         if (!items.length) continue;
-        navHtml += `<div class="nav-group-label">${g.label}</div>` + items.map(itemHtml).join('');
+        const open = g.id === openGroup;
+        navHtml += `
+        <button class="nav-group" data-group="${g.id}" aria-expanded="${open}">
+            <span>${g.label}</span><span class="nav-chevron">${open ? '▾' : '▸'}</span>
+        </button>
+        <div class="nav-group-items" data-group-items="${g.id}" ${open ? '' : 'hidden'}>
+            ${items.map(itemHtml).join('')}
+        </div>`;
     }
 
     return `
@@ -92,10 +112,16 @@ export function adminShell(contentHTML) {
             color:var(--pb-color-text);text-decoration:none;font-size:0.93rem;
             transition:background 0.15s, transform 0.05s;position:relative;
         }
-        .nav-group-label {
+        .nav-group {
+            display:flex;align-items:center;justify-content:space-between;width:100%;
             font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
-            color:var(--pb-color-text-muted);padding:0.85rem 0.85rem 0.3rem;opacity:0.75;
+            color:var(--pb-color-text-muted);padding:0.7rem 0.85rem 0.35rem;opacity:0.8;
+            background:none;border:none;cursor:pointer;font-family:inherit;text-align:left;
         }
+        .nav-group:hover { opacity:1; }
+        .nav-chevron { font-size:0.85rem;line-height:1; }
+        .nav-group-items { display:flex;flex-direction:column;gap:0.15rem; }
+        .nav-group-items[hidden] { display:none; }
         .nav-icon { width:1.4rem;text-align:center;font-size:1.05rem;flex-shrink:0; }
         .nav-item:hover { background:rgba(255,255,255,0.07); }
         .nav-item:active { transform:scale(0.98); }
@@ -133,7 +159,34 @@ export function getHeaders() {
     return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
+/** Wire the collapsible nav groups. Called from setupLogout so every admin page
+ *  gets it without each one having to remember. */
+export function setupNav(container) {
+    container.querySelectorAll('.nav-group').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.dataset.group;
+            const items = container.querySelector(`[data-group-items="${id}"]`);
+            if (!items) return;
+            const open = items.hasAttribute('hidden');
+            // One group at a time — that is what keeps the nav on one screen.
+            container.querySelectorAll('[data-group-items]').forEach(el => el.setAttribute('hidden', ''));
+            container.querySelectorAll('.nav-group').forEach(b => {
+                b.setAttribute('aria-expanded', 'false');
+                b.querySelector('.nav-chevron').textContent = '▸';
+            });
+            if (open) {
+                items.removeAttribute('hidden');
+                btn.setAttribute('aria-expanded', 'true');
+                btn.querySelector('.nav-chevron').textContent = '▾';
+                try { localStorage.setItem('pb_nav_group', id); } catch { /* private mode */ }
+            }
+        });
+    });
+}
+
 export function setupLogout(container) {
+    setupNav(container);
+
     container.querySelector('#btn-logout')?.addEventListener('click', (e) => {
         e.preventDefault();
         window.pb.state.clearAuth();

@@ -41,7 +41,12 @@
       "Bash(powershell.exe -Command 'Get-PnpDevice -Status OK | Where-Object { $_.Class -match '\\\\''Camera|Image|Media'\\\\'' } | Select-Object FriendlyName,Class,InstanceId | Format-Table -AutoSize')",
       "Bash(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"1234\"}')",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} - %{size_download} bytes\\\\n\" http://127.0.0.1:8080/api/v1/camera/snapshot)",
-      "PowerShell($ssh = \\(Get-Command ssh -ErrorAction SilentlyContinue\\); $sshpass = \\(Get-Command sshpass -ErrorAction SilentlyContinue\\); $plink = \\(Get-Command plink -ErrorAction SilentlyContinue\\); \"ssh: $\\($ssh.Source\\)\"; \"sshpass: $\\($sshpass.Source\\)\"; \"plink: $\\($plink.Source\\)\")"
+      "PowerShell($ssh = \\(Get-Command ssh -ErrorAction SilentlyContinue\\); $sshpass = \\(Get-Command sshpass -ErrorAction SilentlyContinue\\); $plink = \\(Get-Command plink -ErrorAction SilentlyContinue\\); \"ssh: $\\($ssh.Source\\)\"; \"sshpass: $\\($sshpass.Source\\)\"; \"plink: $\\($plink.Source\\)\")",
+      "Bash(tailscale status *)",
+      "Bash(export SSH_ASKPASS=/c/Users/mkrasselt1/AppData/Local/Temp/pb_askpass.sh)",
+      "Bash(export SSH_ASKPASS_REQUIRE=force)",
+      "Bash(export DISPLAY=localhost:0)",
+      "Bash(ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o ConnectTimeout=15 photobooth@100.68.8.29 'echo CONNECTED; hostname; echo ---; ls -la /opt/mkphotobox/data 2>/dev/null | head -40')"
     ]
   }
 }

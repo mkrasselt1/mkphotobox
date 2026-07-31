@@ -20,7 +20,16 @@ const SECTIONS = [
         icon: '🎉', title: 'Veranstaltungen',
         html: `<p>Pro Event lassen sich eigene Einstellungen und die angebotenen Foto-Vorlagen festlegen.
         Es ist immer genau <strong>eine Veranstaltung aktiv</strong> — deren Fotos landen in der Galerie
-        und im Online-Feed. Neue Box-Sessions starten automatisch unter dem aktiven Event.</p>`,
+        und im Online-Feed. Neue Box-Sessions starten automatisch unter dem aktiven Event.</p>
+        <p><strong>Standort:</strong> Unter <em>Bearbeiten</em> lassen sich Ortsbezeichnung und
+        GPS-Koordinaten hinterlegen — per Hand, als eingefügtes Koordinatenpaar oder mit
+        <em>„Standort dieses Geräts"</em> (Ortung erlauben die Browser meist nur über HTTPS
+        oder localhost).</p>
+        <p>Veranstaltungsname, Ort, Koordinaten, Aufnahmezeit und die verwendete Kamera schreibt die Box
+        in die <strong>EXIF-Informationen</strong> jedes Fotos, jeder Collage und jedes Thumbnails; GIFs
+        bekommen die gleichen Angaben als Kommentar (GIF kann kein EXIF). Die Bilddaten selbst bleiben
+        dabei unangetastet — es wird nichts neu komprimiert. Abschalten oder um Fotograf/Copyright
+        ergänzen lässt sich das im Abschnitt <code>exif</code> der Konfiguration.</p>`,
     },
     {
         icon: '📷', title: 'Kameras',
@@ -30,7 +39,51 @@ const SECTIONS = [
             <li>Die DSLR kann nur von <em>einem</em> Programm gleichzeitig genutzt werden.</li>
             <li>Vorschaugröße, Countdown und der „Auslöse-Vorlauf" (Foto landet exakt bei „0")
                 stellst du in den <em>Einstellungen</em> ein.</li>
+        </ul>
+        <p><strong>Drehen &amp; Spiegeln</strong> gleicht aus, wie die Kamera montiert ist, und wirkt
+        bei allen Kameratypen auf Vorschau und Foto gleichermaßen.</p>
+        <p><strong>Vorschau spiegeln</strong> ist etwas anderes: Die Gäste sehen sich wie in einem
+        Spiegel und posieren dadurch richtig herum — das <em>gespeicherte Foto bleibt seitenrichtig</em>,
+        damit Schrift und Logos im Bild lesbar sind. Für eine Fotobox in aller Regel die richtige
+        Einstellung, und deshalb ab Werk an.</p>`,
+    },
+    {
+        icon: '🔊', title: 'Ton, Blitz & Boomerang',
+        html: `<p>Unter <em>Kameras</em> lassen sich drei Kleinigkeiten schalten, die viel ausmachen:</p>
+        <ul>
+            <li><strong>Countdown-Piep und Auslöse-Klick.</strong> Die Töne erzeugt der Browser selbst —
+                keine Audiodateien, funktioniert also auch ohne Internet. Der Bildschirm muss einmal
+                berührt worden sein, bevor Browser überhaupt Ton abspielen; das erledigt der erste
+                Tipp im Booth automatisch. Über <em>Probe hören</em> kannst du die Lautstärke einstellen.</li>
+            <li><strong>Weißblende</strong> im Moment der Aufnahme.</li>
+            <li><strong>Boomerang</strong> — das GIF läuft vorwärts und wieder rückwärts, endlos.
+                Nutzt dieselben Bilder wie bisher, kostet also nur Dateigröße.</li>
         </ul>`,
+    },
+    {
+        icon: '🎨', title: 'Looks (Farbfilter)',
+        html: `<p>Die Gäste wählen vor der Aufnahme einen Look — Schwarzweiß, Noir, Sepia, Vintage,
+        warm, kühl oder knallig. Die Auswahl steht auf der Willkommensseite, und die
+        <strong>Live-Vorschau zeigt den Look sofort</strong>, sodass man schon beim Posieren sieht,
+        was herauskommt.</p>
+        <p>Der Look wird fest ins Foto gerechnet und ist damit überall dabei: in der Collage, im Druck,
+        auf dem USB-Stick und im Download der Gäste. Nach jedem Gast steht die Auswahl wieder auf
+        „Original".</p>
+        <p>Abschalten oder auf einzelne Looks beschränken lässt sich das im Abschnitt
+        <code>filters</code> der Konfiguration.</p>`,
+    },
+    {
+        icon: '✍️', title: 'Gästebuch',
+        html: `<p>Nach der Aufnahme können die Gäste über <em>Grußwort</em> mit dem Finger direkt
+        aufs Foto malen und eine kurze Nachricht darunter schreiben — das digitale Gästebuch.</p>
+        <ul>
+            <li>Sechs Farben, zwei Strichstärken, <em>Zurück</em> und <em>Alles löschen</em>.</li>
+            <li>Das Ergebnis wird ins Foto gerechnet und ist damit auch im Druck und im Download dabei.</li>
+            <li>Das <strong>unberührte Original</strong> bleibt erhalten (Ordner <code>originals/</code>).
+                Ein zweiter Versuch startet deshalb wieder vom sauberen Bild, statt sich zu stapeln.</li>
+        </ul>
+        <p>Abschalten und die Länge des Grußworts stellst du im Abschnitt <code>guestbook</code> der
+        Konfiguration ein.</p>`,
     },
     {
         icon: '⚡', title: 'Auslöser',
@@ -47,6 +100,11 @@ const SECTIONS = [
             <li><strong>Text</strong>: Schriftart, Größe, Farbe, Kontur, Ausrichtung, Drehung.</li>
             <li><strong>Ausgabe-Format</strong> zuweisen → die Leinwandgröße folgt dem Format (siehe unten).</li>
             <li><em>Vorschau rendern</em> zeigt das echte Ergebnis (mit Platzhaltern oder echten Fotos).</li>
+            <li>Beim Speichern entsteht zusätzlich ein <strong>Vorschaubild</strong>, das in der
+                Vorlagenliste und im Booth auf den Karten der Layout-Auswahl erscheint — die Gäste
+                sehen also das fertige Layout statt eines Symbols. Es erneuert sich automatisch,
+                sobald du die Vorlage änderst; für die Vorschau werden immer nummerierte
+                Platzhalter benutzt, nie echte Gästefotos.</li>
         </ul>
         <p>Mehrbild-Vorlagen nimmt der Booth nacheinander auf und erzeugt zusätzlich ein <strong>animiertes GIF</strong> der Aufnahmen.</p>`,
     },

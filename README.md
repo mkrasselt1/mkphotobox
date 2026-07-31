@@ -44,7 +44,8 @@ hinterher herauskommt.
 ![Booth mit ausgewähltem Sepia-Look, die Vorschau ist bereits sepiafarben](docs/media/booth-looks.png)
 
 **2 · Layout wählen.** Einzelfoto oder Mehrbild-Streifen — was du für die
-Veranstaltung freigegeben hast.
+Veranstaltung freigegeben hast. Jede Karte zeigt das **fertig gerenderte Layout**
+mit Rahmen, Text und durchnummerierten Plätzen, nicht bloß ein Symbol.
 
 ![Layout-Auswahl mit Einzelfoto und Dreier-Streifen](docs/media/booth-templates.png)
 
@@ -85,6 +86,9 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
 - Vorlagen-Editor mit frei platzierbaren Foto-Slots, Rahmen, Logos und Text
   (Schriftart, Kontur, Drehung) — direkt auf dem Touchscreen bedienbar.
 - Ausgabe-Formate (10×15, A6, A4 …) bestimmen die Leinwandgröße der Vorlage.
+- Jede Vorlage bekommt automatisch ein **Vorschaubild** — im Booth auf den
+  Auswahlkarten und in der Vorlagenliste. Es wird beim Speichern erzeugt und
+  erneuert sich von selbst, sobald du die Vorlage änderst.
 - Ein Foto darf in mehreren Slots auftauchen: zwei Aufnahmen füllen ein
   Drei-Bilder-Layout.
 

@@ -1358,6 +1358,10 @@ def test_templates_render(request: Request, session: Session):
     assert data[:2] == b"\xff\xd8", "Ergebnis ist kein gültiges JPEG"
     assert len(data) > 2000, f"Collage zu klein ({len(data)} bytes)"
     return f"Collage gerendert: {result['width']}x{result['height']}, {len(data)//1024} KB, {result['slots']} Slots"
+
+
+# ── Bild-Transformation ──────────────────────────────────────────────────
+
 @_register("transform_geometry", "Drehen & Spiegeln", "Bild",
            "Dreht und spiegelt ein Testbild und prüft, dass Ecken dort landen, wo sie hingehören")
 def test_transform_geometry(request: Request, session: Session):
