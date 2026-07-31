@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -71,6 +72,22 @@ def end_session(token: str, session: Session = Depends(get_session)):
     return ps
 
 
+# ── Looks / Filter ────────────────────────────────────────────────────────
+
+@router.get("/photos/filters")
+def list_photo_filters(request: Request):
+    """Looks the booth may offer (public — the booth builds its chooser from this).
+
+    The CSS string is what the booth puts on the live preview so guests see the
+    look before posing; the server bakes the matching version into the photo."""
+    from app.services import photo_filters
+
+    cfg = request.app.state.config
+    if not photo_filters.is_enabled(cfg):
+        return {"enabled": False, "filters": []}
+    return {"enabled": True, "filters": photo_filters.available(cfg)}
+
+
 # ── Capture ───────────────────────────────────────────────────────────────
 
 @router.post("/photos/capture", response_model=PhotoResponse)
@@ -80,8 +97,12 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
 
     ``part_of_set`` (from the booth) marks a raw shot of a multi-photo set —
     those are intermediate and not mirrored to the remote gallery individually
-    (only the finished collage is)."""
+    (only the finished collage is).
+
+    ``filter`` is the look the guest picked (see /photos/filters); it is baked
+    into the stored photo so it survives into collage, print and download."""
     part_of_set = bool((body or {}).get("part_of_set"))
+    filter_id = (body or {}).get("filter") or None
     app = request.app
     cfg = app.state.config
     cameras = app.state.cameras
@@ -139,6 +160,14 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
     filename_template = cfg.get("photos", {}).get("filename_template", "{event}_{date}_{time}_{seq}")
     filename = build_filename(filename_template, event_slug=event.slug, seq=len(seq), now=now)
 
+    # Bake in the look the guest chose, before the metadata is written (the
+    # filter re-encodes, EXIF splicing afterwards does not).
+    from app.services import photo_filters
+    if filter_id and photo_filters.is_enabled(cfg):
+        jpeg_bytes = await asyncio.to_thread(
+            photo_filters.apply_to_jpeg, jpeg_bytes, filter_id,
+            cfg.get("photos", {}).get("jpeg_quality", 92))
+
     # Save to disk
     photo_dir = _get_photo_dir(cfg)
     filepath = photo_dir / filename
@@ -167,6 +196,7 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
         file_size=len(jpeg_bytes),
         captured_at=now,
         camera_module=cameras.active_id,
+        metadata_json=json.dumps({"filter": filter_id}) if filter_id else "{}",
     )
     session.add(photo)
     session.commit()

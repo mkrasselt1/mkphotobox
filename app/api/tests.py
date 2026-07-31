@@ -1465,3 +1465,66 @@ def test_transform_all_cameras(request: Request, session: Session):
             f"(intern: {', '.join(internal) or 'keins'})")
 
 
+@_register("photo_filters", "Looks (Farbfilter)", "Bild",
+           "Wendet jeden Look auf ein Testbild an und prüft, dass er wirkt und nichts kaputtgeht")
+def test_photo_filters(request: Request, session: Session):
+    import io
+
+    from PIL import Image
+
+    from app.services import photo_filters
+
+    img = Image.new("RGB", (32, 32))
+    for x in range(32):
+        for y in range(32):
+            img.putpixel((x, y), (200, 120, 60) if x < 16 else (40, 90, 180))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=95)
+    src = buf.getvalue()
+
+    def mean(data):
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        px = list(im.getdata())
+        n = len(px)
+        return tuple(round(sum(p[c] for p in px) / n, 1) for c in range(3))
+
+    base = mean(src)
+
+    # "none" darf die Datei nicht anfassen.
+    assert photo_filters.apply_to_jpeg(src, "none") is src, "Original-Look hat die Datei verändert"
+    assert photo_filters.apply_to_jpeg(src, None) is src, "Kein Look gewählt und trotzdem verändert"
+
+    results = {}
+    for fid in photo_filters.FILTERS:
+        if fid == photo_filters.DEFAULT_FILTER:
+            continue
+        out = photo_filters.apply_to_jpeg(src, fid)
+        assert out[:2] == b"\xff\xd8", f"{fid}: Ergebnis ist kein gültiges JPEG"
+        assert out != src, f"{fid}: Look hatte keine Wirkung"
+        assert Image.open(io.BytesIO(out)).size == (32, 32), f"{fid}: Größe verändert"
+        results[fid] = mean(out)
+
+    # Schwarzweiß heißt: alle drei Kanäle gleich.
+    r, g, b = results["bw"]
+    assert abs(r - g) < 2 and abs(g - b) < 2, f"bw ist nicht grau: {results['bw']}"
+    # Warm zieht ins Rote, kühl ins Blaue — jeweils relativ zum Original.
+    assert results["warm"][0] - results["warm"][2] > base[0] - base[2], \
+        f"warm wurde nicht wärmer: {results['warm']} vs {base}"
+    assert results["cool"][2] - results["cool"][0] > base[2] - base[0], \
+        f"cool wurde nicht kühler: {results['cool']} vs {base}"
+    # Sepia: Rotkanal über Blaukanal.
+    assert results["sepia"][0] > results["sepia"][2], f"sepia ist nicht warm: {results['sepia']}"
+
+    # Unbekannter Look darf nicht knallen, sondern gibt das Original zurück.
+    assert photo_filters.apply_to_jpeg(src, "gibtsnicht") is src, \
+        "Unbekannter Look hätte das Original zurückgeben müssen"
+
+    # Die Auswahl-Liste beginnt immer mit "Original" und filtert Unsinn raus.
+    avail = photo_filters.available({"filters": {"available": ["sepia", "quatsch", "bw"]}})
+    ids = [f["id"] for f in avail]
+    assert ids == ["none", "sepia", "bw"], f"Auswahlliste falsch: {ids}"
+    assert all(f.get("label") and "css" in f for f in avail), "Label oder CSS fehlt"
+
+    return f"{len(results)} Looks geprüft: {', '.join(sorted(results))}"
+
+

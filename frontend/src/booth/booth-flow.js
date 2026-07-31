@@ -139,6 +139,13 @@ export function render(container, state) {
         } catch {
             templates = [];
         }
+        try {
+            const f = await fetch('/api/v1/photos/filters').then(r => r.json());
+            // A single entry is only "Original" — not worth a chooser.
+            photoFilters = f.enabled && (f.filters || []).length > 1 ? f.filters : [];
+        } catch {
+            photoFilters = [];
+        }
         // Default crop aspect for idle / single-photo framing = the actual print
         // output (e.g. 10x15 = 3:2) so a single photo shows no false crop. Fall
         // back to the first template's canvas only when no print size is known.
@@ -231,6 +238,63 @@ export function render(container, state) {
         const a = currentCropAspect();
         const ar = (a && a.w && a.h) ? `${a.w}/${a.h}` : '4/3';
         return `width:100%;max-width:${maxW};aspect-ratio:${ar};background:#000;border-radius:var(--pb-radius);overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative;`;
+    }
+
+    // ── Looks (colour filters) ───────────────────────────────────────
+
+    /** The CSS of the currently chosen look, '' for the untouched image. */
+    function currentLookCss() {
+        return (photoFilters.find(f => f.id === selectedFilter) || {}).css || '';
+    }
+
+    /** Put the chosen look on whatever preview element is on screen right now.
+     *  Works for both camera modes — the MJPEG <img> takes a CSS filter just as
+     *  well as the WebRTC <video>. */
+    function applyLookToPreview() {
+        const css = currentLookCss();
+        document.querySelectorAll('#preview-img, #preview-video').forEach(elm => {
+            elm.style.filter = css;
+        });
+    }
+
+    /** Touch-friendly row of look buttons. Empty string when looks are off. */
+    function filterBarHTML(onDark = false) {
+        if (!photoFilters.length) return '';
+        const fg = onDark ? 'rgba(255,255,255,0.9)' : 'var(--pb-color-text)';
+        const bg = onDark ? 'rgba(0,0,0,0.35)' : 'var(--pb-color-surface)';
+        return `
+        <div id="filter-bar" style="display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;
+             padding:0.5rem;border-radius:var(--pb-radius);background:${bg};
+             ${onDark ? 'backdrop-filter:blur(8px);' : ''}pointer-events:auto;max-width:100%;">
+            ${photoFilters.map(f => `
+                <button class="look-btn" data-look="${f.id}" style="
+                    padding:0.55rem 0.95rem;border-radius:calc(var(--pb-radius) - 4px);
+                    border:2px solid ${f.id === selectedFilter ? 'var(--pb-color-primary)' : 'transparent'};
+                    background:${f.id === selectedFilter ? 'var(--pb-color-primary)' : 'rgba(127,127,127,0.18)'};
+                    color:${f.id === selectedFilter ? '#fff' : fg};
+                    font-size:0.95rem;cursor:pointer;min-height:2.75rem;white-space:nowrap;
+                ">${f.label}</button>`).join('')}
+        </div>`;
+    }
+
+    function wireFilterBar(el) {
+        const bar = el.querySelector('#filter-bar');
+        if (!bar) return;
+        bar.querySelectorAll('.look-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                selectedFilter = btn.dataset.look;
+                sounds.unlock();  // a tap here also counts as the audio gesture
+                bar.querySelectorAll('.look-btn').forEach(b => {
+                    const on = b.dataset.look === selectedFilter;
+                    b.style.borderColor = on ? 'var(--pb-color-primary)' : 'transparent';
+                    b.style.background = on ? 'var(--pb-color-primary)' : 'rgba(127,127,127,0.18)';
+                    if (on) b.style.color = '#fff';
+                    else b.style.removeProperty('color');
+                });
+                applyLookToPreview();
+            });
+        });
+        applyLookToPreview();
     }
 
     function cameraPreviewHTML(id = 'camera-preview') {
@@ -451,6 +515,7 @@ export function render(container, state) {
         seq = null;
         lastTemplate = null;
         boothInitiated = false;
+        selectedFilter = 'none';   // every new guest starts from the untouched image
         const isFS = previewSize === 'fullscreen';
         if (!idleLivePreview) {
             // Normal welcome page without live view — the camera rests until "Start"
@@ -458,6 +523,7 @@ export function render(container, state) {
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:2rem;padding:2rem;text-align:center;">
                 <div style="font-size:clamp(3rem,12vw,6rem);line-height:1;">📸</div>
                 <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;">${i18n.t('booth.welcome')}</h1>
+                ${filterBarHTML()}
                 <button id="btn-start" style="
                     padding:1.5rem 3rem;border-radius:var(--pb-radius);border:none;
                     background:var(--pb-color-primary);color:white;font-size:1.5rem;
@@ -476,6 +542,7 @@ export function render(container, state) {
                 <div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:2rem;pointer-events:none;z-index:2;">
                     <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;text-shadow:0 2px 12px rgba(0,0,0,0.7);">${i18n.t('booth.welcome')}</h1>
                     <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;pointer-events:auto;">
+                        ${filterBarHTML(true)}
                         <button id="btn-start" style="
                             padding:1.5rem 3rem;border-radius:var(--pb-radius);border:none;
                             background:rgba(74,144,217,0.7);backdrop-filter:blur(8px);color:white;font-size:1.5rem;
@@ -494,6 +561,7 @@ export function render(container, state) {
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:2rem;padding:2rem;">
                 <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;">${i18n.t('booth.welcome')}</h1>
                 ${cameraPreviewHTML()}
+                ${filterBarHTML()}
                 <button id="btn-start" style="
                     padding:1.5rem 3rem;border-radius:var(--pb-radius);border:none;
                     background:var(--pb-color-primary);color:white;font-size:1.5rem;
@@ -511,6 +579,7 @@ export function render(container, state) {
         scheduleCropSizing();
         showStorage(el);
         showHelpButton(el);
+        wireFilterBar(el);
 
         const btn = el.querySelector('#btn-start');
         btn.addEventListener('click', () => beginFlow());
@@ -656,6 +725,9 @@ export function render(container, state) {
 
         activatePreview();
         scheduleCropSizing();
+        applyLookToPreview();   // keep the chosen look on screen while posing
+
+        sounds.tick(count === 1);
 
         // Visible countdown ticks once per second (only updates the number).
         countdownTimer = setInterval(() => {
@@ -1120,7 +1192,7 @@ export function render(container, state) {
         const partOfSet = !!(seq && seq.total > 1);
         const res = await fetch('/api/v1/photos/capture', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ part_of_set: partOfSet }),
+            body: JSON.stringify({ part_of_set: partOfSet, filter: selectedFilter }),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
