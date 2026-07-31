@@ -433,15 +433,74 @@ def render_set_gif(photo_paths: list[str], out_path: Path,
         return None
 
 
-def make_placeholder(slot_index: int, w: int, h: int):
-    """A numbered, colored tile used for template previews without real photos."""
+# Backdrop per shot — a different colour per placeholder makes it obvious at a
+# glance which slot holds which shot, without printing a number into the corner.
+PLACEHOLDER_COLORS = [
+    ((44, 84, 140), (91, 155, 213)),
+    ((150, 70, 22), (237, 125, 49)),
+    ((52, 104, 40), (112, 173, 71)),
+    ((150, 110, 0), (255, 192, 0)),
+    ((92, 52, 120), (165, 105, 189)),
+    ((16, 96, 92), (39, 174, 160)),
+]
+PLACEHOLDER_SKIN = [(232, 190, 160), (208, 158, 122), (166, 116, 84), (120, 82, 60)]
+
+#: Placeholders are drawn at a camera-like aspect, never at the slot's aspect.
+PLACEHOLDER_ASPECT = 4 / 3
+
+
+def make_placeholder(slot_index: int, w: int | None = None, h: int | None = None,
+                     *, long_edge: int = 900):
+    """A photo-like stand-in for a shot that hasn't been taken yet.
+
+    Deliberately rendered at **camera aspect**, not at the slot's aspect: the
+    renderer then crops it exactly like a real photo, so a template preview shows
+    how much of a shot each slot actually keeps. Filling the slot exactly (which
+    is what passing the slot size would do) would hide precisely that.
+
+    ``w``/``h`` are the slot's pixel size and only nudge the resolution — a tiny
+    slot doesn't need a 900 px stand-in.
+
+    The number sits on the figure's face, roughly in the middle of the frame, so
+    it survives whatever the crop does to the edges.
+    """
     from PIL import Image, ImageDraw
 
-    colors = [(91, 155, 213), (237, 125, 49), (112, 173, 71),
-              (255, 192, 0), (165, 105, 189), (39, 174, 160)]
-    color = colors[slot_index % len(colors)]
-    img = Image.new("RGB", (max(1, int(w)), max(1, int(h))), color)
+    if w and h:
+        long_edge = max(240, min(long_edge, round(max(int(w), int(h)) * 1.4)))
+    pw = max(120, int(long_edge))
+    ph = max(90, round(pw / PLACEHOLDER_ASPECT))
+
+    dark, light = PLACEHOLDER_COLORS[slot_index % len(PLACEHOLDER_COLORS)]
+    img = Image.new("RGB", (pw, ph), dark)
     draw = ImageDraw.Draw(img)
+    for y in range(ph):
+        t = (y / ph) ** 1.3
+        draw.line([(0, y), (pw, y)],
+                  fill=tuple(round(dark[c] + (light[c] - dark[c]) * t) for c in range(3)))
+
+    # ── Stand-in guest: shoulders, neck, head, hair ──────────────────────
+    skin = PLACEHOLDER_SKIN[slot_index % len(PLACEHOLDER_SKIN)]
+    cx = pw // 2
+    head_r = round(ph * 0.22)
+    head_cy = round(ph * 0.42)
+    body_w = round(head_r * 3.4)
+    body_top = head_cy + round(head_r * 1.45)
+
+    draw.rounded_rectangle([cx - body_w // 2, body_top, cx + body_w // 2, ph + head_r],
+                           radius=round(head_r * 1.1), fill=(246, 246, 250))
+    neck = round(head_r * 0.34)
+    draw.rectangle([cx - neck, head_cy, cx + neck, body_top + neck], fill=skin)
+    draw.ellipse([cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r], fill=skin)
+    # Hair as a cap that stops well above the eyes
+    draw.chord([cx - head_r, head_cy - head_r, cx + head_r, head_cy + round(head_r * 0.45)],
+               180, 360, fill=(58, 44, 38))
+
+    # ── The shot number, big, across the face ────────────────────────────
     label = str(slot_index + 1)
-    draw.text((img.width // 2 - 10, img.height // 2 - 20), label, fill="white")
+    font = _load_font("Sans", max(14, round(head_r * 1.5)), bold=True)
+    left, top, right, bottom = draw.textbbox((0, 0), label, font=font)
+    draw.text((cx - (right - left) / 2 - left, head_cy - (bottom - top) / 2 - top),
+              label, font=font, fill=(255, 255, 255),
+              stroke_width=max(2, round(head_r * 0.09)), stroke_fill=(30, 30, 40))
     return img

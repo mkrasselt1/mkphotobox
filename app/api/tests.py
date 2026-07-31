@@ -1465,6 +1465,83 @@ def test_transform_all_cameras(request: Request, session: Session):
             f"(intern: {', '.join(internal) or 'keins'})")
 
 
+@_register("template_preview", "Vorlagen-Vorschau", "Vorlagen",
+           "Rendert die Vorschau einer Vorlage, prüft Zwischenspeicher und Erneuerung bei Änderung")
+def test_template_preview(request: Request, session: Session):
+    import json as _json
+
+    from PIL import Image
+
+    from app.models import Template
+    from app.services import template_preview
+
+    cfg = request.app.state.config
+    slots = [{"x": 40, "y": 40 + i * 400, "w": 520, "h": 360, "fit": "cover"} for i in range(3)]
+    t = Template(name="_selftest_preview", mode="grid", canvas_width=600, canvas_height=1240,
+                 photo_count=3, definition_json=_json.dumps({"slots": slots, "overlays": []}))
+    session.add(t)
+    session.commit()
+    session.refresh(t)
+    try:
+        path = template_preview.ensure(cfg, t)
+        assert path is not None and path.exists(), "Vorschau wurde nicht erzeugt"
+        assert path.parent.name == "template_previews", f"Falscher Ordner: {path.parent}"
+        # Darf NICHT im Fotospeicher liegen — sonst landet sie im USB-Export,
+        # auf der gebrannten Disc und in der Galerie.
+        photos_dir = Path(cfg["photos"]["storage_path"]).resolve()
+        assert photos_dir not in path.resolve().parents, \
+            f"Vorschau liegt im Fotospeicher: {path}"
+
+        with Image.open(path) as img:
+            assert img.size[0] <= template_preview.MAX_EDGE, f"Zu breit: {img.size}"
+            assert img.size[1] <= template_preview.MAX_EDGE, f"Zu hoch: {img.size}"
+            # Hochformat-Leinwand muss Hochformat bleiben.
+            assert img.size[1] > img.size[0], f"Seitenverhältnis verloren: {img.size}"
+            first_size = img.size
+
+        # Zweiter Aufruf darf nicht neu rendern.
+        mtime = path.stat().st_mtime_ns
+        again = template_preview.ensure(cfg, t)
+        assert again == path and again.stat().st_mtime_ns == mtime, \
+            "Vorschau wurde trotz Zwischenspeicher neu gerendert"
+
+        # Änderung an der Vorlage => neue Signatur, neue Datei, alte weg.
+        old_path = path
+        t.canvas_width, t.canvas_height = 1200, 600
+        t.definition_json = _json.dumps({"slots": slots[:1], "overlays": []})
+        session.add(t)
+        session.commit()
+        session.refresh(t)
+        new_path = template_preview.ensure(cfg, t)
+        assert new_path is not None and new_path != old_path, "Signatur änderte sich nicht"
+        assert not old_path.exists(), "Alte Vorschau wurde nicht aufgeräumt"
+        with Image.open(new_path) as img:
+            assert img.size[0] > img.size[1], f"Querformat erwartet, {img.size} bekommen"
+
+        # Ohne Foto-Slots gibt es nichts zu zeigen (statt eines leeren Bildes).
+        empty = Template(name="_selftest_empty", mode="grid", canvas_width=600,
+                         canvas_height=600, photo_count=0,
+                         definition_json=_json.dumps({"slots": [], "overlays": []}))
+        session.add(empty)
+        session.commit()
+        session.refresh(empty)
+        try:
+            assert template_preview.ensure(cfg, empty) is None, \
+                "Vorlage ohne Slots hätte keine Vorschau liefern dürfen"
+        finally:
+            session.delete(empty)
+            session.commit()
+
+        removed = template_preview.delete_for(cfg, t.id)
+        assert removed >= 1, "Aufräumen beim Löschen entfernte nichts"
+        return (f"Vorschau gerendert ({first_size[0]}x{first_size[1]}), zwischengespeichert, "
+                f"bei Änderung erneuert und beim Löschen entfernt")
+    finally:
+        template_preview.delete_for(cfg, t.id)
+        session.delete(t)
+        session.commit()
+
+
 @_register("photo_filters", "Looks (Farbfilter)", "Bild",
            "Wendet jeden Look auf ein Testbild an und prüft, dass er wirkt und nichts kaputtgeht")
 def test_photo_filters(request: Request, session: Session):

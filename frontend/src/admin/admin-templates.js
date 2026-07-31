@@ -72,6 +72,9 @@ async function renderList(container, state) {
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;">
                     ${templates.map(t => `
                         <div class="admin-card" style="margin:0;">
+                            ${t.preview_url ? `<img src="${t.preview_url}" alt=""
+                                style="display:block;width:100%;height:150px;object-fit:contain;
+                                       background:rgba(0,0,0,0.25);border-radius:8px;margin-bottom:0.6rem;">` : ''}
                             <h3 style="margin-bottom:0.25rem;">${t.name}</h3>
                             <p>${t.photo_count} Foto-Slot(s) · ${t.canvas_width}×${t.canvas_height} · ${t.mode === 'grid' ? 'Raster' : 'Frei'}</p>
                             <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">

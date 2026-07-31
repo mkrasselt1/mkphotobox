@@ -428,13 +428,18 @@ export function render(container, state) {
             <h1 style="font-size:clamp(1.5rem,5vw,2.5rem);text-align:center;">${i18n.t('booth.choose_layout') || 'Layout wählen'}</h1>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;width:100%;max-width:720px;">
                 <button class="tpl-card" data-single="1">
-                    <span style="font-size:2rem;">📷</span>
+                    <span class="tpl-thumb tpl-thumb-icon">📷</span>
                     <strong>Einzelfoto</strong>
                     <small>1 Foto</small>
                 </button>
                 ${templates.map((t, i) => `
                     <button class="tpl-card" data-idx="${i}">
-                        <span style="font-size:2rem;">${t.photo_count > 1 ? '🖼️' : '📷'}</span>
+                        ${t.preview_url
+                            // The rendered layout itself — far more telling than an
+                            // icon. Falls back to the icon if the render is missing.
+                            ? `<img class="tpl-thumb" src="${t.preview_url}" alt=""
+                                 onerror="this.outerHTML='<span class=\\'tpl-thumb tpl-thumb-icon\\'>🖼️</span>'">`
+                            : `<span class="tpl-thumb tpl-thumb-icon">${t.photo_count > 1 ? '🖼️' : '📷'}</span>`}
                         <strong>${t.name}</strong>
                         <small>${t.photo_count} Foto${t.photo_count > 1 ? 's' : ''}</small>
                     </button>`).join('')}
@@ -451,6 +456,15 @@ export function render(container, state) {
             .tpl-card:active { transform:scale(0.96); }
             .tpl-card:hover { background:var(--pb-color-surface-2, #232c4a); }
             .tpl-card small { color:var(--pb-color-text-muted); }
+            /* Fixed box so portrait strips and landscape layouts line up in one
+               row; contain keeps every layout's real proportions visible.
+               Scales with the screen — a booth runs anywhere from a 10" tablet
+               to a 27" upright display. */
+            .tpl-thumb {
+                height:clamp(150px, 24vh, 260px);width:100%;object-fit:contain;
+                display:flex;align-items:center;justify-content:center;margin-bottom:0.35rem;
+            }
+            .tpl-thumb-icon { font-size:3rem; }
         </style>
         ${btnStyles()}`;
 

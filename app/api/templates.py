@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 import tempfile
 from datetime import datetime
@@ -19,6 +20,8 @@ from app.database import get_engine, get_session
 from app.models import Event, OutputPreset, Photo, PhotoSession, Template
 from app.services import collage_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
 
 
@@ -28,7 +31,23 @@ def _template_dict(t: Template) -> dict:
         d["definition"] = json.loads(t.definition_json or "{}")
     except json.JSONDecodeError:
         d["definition"] = {"slots": [], "overlays": []}
+    d["preview_url"] = preview_url(t)
     return d
+
+
+def preview_url(t: Template) -> str | None:
+    """URL of the template's rendered preview, or None if it has no slots yet.
+
+    Carries the render signature so an edited template busts the browser cache
+    while an unchanged one stays cached."""
+    from app.services import template_preview
+
+    try:
+        if not (json.loads(t.definition_json or "{}").get("slots") or []):
+            return None
+    except json.JSONDecodeError:
+        return None
+    return f"/api/v1/templates/{t.id}/preview.jpg?v={template_preview.signature(t)}"
 
 
 def _sync_canvas_from_preset(t: Template, session: Session) -> None:
@@ -78,7 +97,7 @@ def _shot_count(slots: list) -> int:
 
 
 @router.post("", status_code=201)
-def create_template(body: dict, session: Session = Depends(get_session),
+def create_template(body: dict, request: Request, session: Session = Depends(get_session),
                     _user=Depends(require_role("admin", "organizer"))):
     definition = body.get("definition", {"slots": [], "overlays": []})
     slots = definition.get("slots", [])
@@ -97,7 +116,20 @@ def create_template(body: dict, session: Session = Depends(get_session),
     session.add(t)
     session.commit()
     session.refresh(t)
+    _refresh_preview(request, t)
     return _template_dict(t)
+
+
+def _refresh_preview(request: Request, t: Template) -> None:
+    """Render the preview right after saving, so the booth never waits for it.
+
+    Best effort — a template must save even if its preview cannot be drawn."""
+    from app.services import template_preview
+
+    try:
+        template_preview.ensure(request.app.state.config, t)
+    except Exception:
+        logger.exception("Preview refresh failed for template %s", t.id)
 
 
 @router.get("/{template_id:int}")
@@ -110,7 +142,8 @@ def get_template(template_id: int, session: Session = Depends(get_session),
 
 
 @router.put("/{template_id:int}")
-def update_template(template_id: int, body: dict, session: Session = Depends(get_session),
+def update_template(template_id: int, body: dict, request: Request,
+                    session: Session = Depends(get_session),
                     _user=Depends(require_role("admin", "organizer"))):
     t = session.get(Template, template_id)
     if t is None:
@@ -130,17 +163,20 @@ def update_template(template_id: int, body: dict, session: Session = Depends(get
     session.add(t)
     session.commit()
     session.refresh(t)
+    _refresh_preview(request, t)
     return _template_dict(t)
 
 
 @router.delete("/{template_id:int}", status_code=204)
-def delete_template(template_id: int, session: Session = Depends(get_session),
+def delete_template(template_id: int, request: Request, session: Session = Depends(get_session),
                     _user=Depends(require_role("admin", "organizer"))):
     t = session.get(Template, template_id)
     if t is None:
         raise HTTPException(status_code=404, detail="Template not found")
     session.delete(t)
     session.commit()
+    from app.services import template_preview
+    template_preview.delete_for(request.app.state.config, template_id)
 
 
 @router.post("/preview")
@@ -180,7 +216,10 @@ async def preview_template(body: dict, request: Request,
         if not photo_paths:
             ph_paths = []
             for i, slot in enumerate(slots):
-                img = collage_service.make_placeholder(i, slot.get("w", 100), slot.get("h", 100))
+                # Pass the slot size as a resolution hint only — the stand-in is
+                # drawn at camera aspect so the preview shows the real crop.
+                edge = max(int(slot.get("w", 400) or 400), int(slot.get("h", 300) or 300))
+                img = collage_service.make_placeholder(i, edge, edge)
                 p = tmp_dir / f"_tpl_ph_{i}.jpg"
                 img.save(p, "JPEG", quality=85)
                 ph_paths.append(str(p))
@@ -191,6 +230,31 @@ async def preview_template(body: dict, request: Request,
 
     data = await asyncio.to_thread(_render)
     return Response(content=data, media_type="image/jpeg")
+
+
+@router.get("/{template_id:int}/preview.jpg")
+def template_preview_image(template_id: int, request: Request,
+                           session: Session = Depends(get_session)):
+    """Cached preview of a saved template (public — the booth shows it on the
+    layout cards, and the booth has no login).
+
+    Always rendered with numbered placeholders, never with real photos."""
+    from fastapi.responses import FileResponse
+
+    from app.services import template_preview
+
+    t = session.get(Template, template_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    path = template_preview.ensure(request.app.state.config, t)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Vorlage hat noch keine Foto-Slots")
+    # Clients fetch this with ?v=<signature> (see preview_url below); editing a
+    # template changes that signature, so long caching can never show a stale
+    # layout while an unchanged one is never re-fetched.
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ── Booth-facing (no auth) ───────────────────────────────────────────────
@@ -229,7 +293,10 @@ def booth_templates(session: Session = Depends(get_session)):
     return {"templates": [
         {"id": t.id, "name": t.name, "photo_count": t.photo_count,
          "canvas_width": t.canvas_width, "canvas_height": t.canvas_height,
-         "slots": _slots(t)}
+         "slots": _slots(t),
+         # Rendered layout for the booth's selection cards (placeholders, not
+         # real photos) — see app/services/template_preview.py.
+         "preview_url": preview_url(t)}
         for t in chosen
     ]}
 
@@ -275,8 +342,20 @@ async def render_collage(body: dict, request: Request,
         "overlay_asset_id": t.overlay_asset_id,
         "definition_json": json.loads(t.definition_json or "{}"),
     }
+    # Event details / camera / venue GPS for the rendered file (see exif_service)
+    from app.services import exif_service
+    meta = exif_blob = gif_comment = None
+    if exif_service.is_enabled(cfg):
+        event = session.exec(select(Event).where(Event.is_active == True)).first()
+        meta = exif_service.meta_for_event(
+            event, cfg, request.app.state.cameras,
+            note=f"Collage aus {len(photo_paths)} Aufnahme(n)")
+        exif_blob = exif_service.exif_bytes(meta, now)
+        gif_comment = exif_service.gif_comment(meta, now)
+
     quality = cfg.get("photos", {}).get("jpeg_quality", 90)
-    await asyncio.to_thread(collage_service.render, template, photo_paths, out, quality)
+    await asyncio.to_thread(collage_service.render, template, photo_paths, out, quality,
+                            exif_blob)
 
     thumb_rel = await asyncio.to_thread(_make_collage_thumb, out, storage,
                                         tuple(cfg["photos"]["thumbnail_size"]))
@@ -285,7 +364,8 @@ async def render_collage(body: dict, request: Request,
     gif_filename = None
     if len(photo_paths) >= 2:
         gif_out = storage / f"{out.stem}_anim.gif"
-        gif_path = await asyncio.to_thread(collage_service.render_set_gif, photo_paths, gif_out)
+        gif_path = await asyncio.to_thread(collage_service.render_set_gif, photo_paths,
+                                           gif_out, comment=gif_comment)
         if gif_path is not None:
             gif_filename = gif_path.name
 
@@ -316,10 +396,12 @@ def _make_collage_thumb(src: Path, storage: Path, size: tuple) -> str | None:
         thumb_dir = storage / "thumbs"
         thumb_dir.mkdir(parents=True, exist_ok=True)
         with Image.open(src) as img:
+            exif = img.info.get("exif")  # keep the collage's event/location metadata
             img = img.convert("RGB")
             img.thumbnail(size)
             name = f"{src.stem}_thumb.jpg"
-            img.save(thumb_dir / name, "JPEG", quality=75)
+            img.save(thumb_dir / name, "JPEG", quality=75,
+                     **({"exif": exif} if exif else {}))
         return f"thumbs/{name}"
     except Exception:
         return None
