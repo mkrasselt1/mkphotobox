@@ -32,6 +32,7 @@ class GifService:
         self._enabled = False
         self._gif_width = 480
         self._gif_height = 360
+        self._boomerang = False
 
     def configure(self, config: dict[str, Any]) -> None:
         gif_cfg = config.get("gif", {})
@@ -40,6 +41,7 @@ class GifService:
         self._fps = gif_cfg.get("fps", 10)
         self._gif_width = gif_cfg.get("width", 480)
         self._gif_height = gif_cfg.get("height", 360)
+        self._boomerang = bool(gif_cfg.get("boomerang", False))
 
     @property
     def enabled(self) -> bool:
@@ -124,13 +126,21 @@ class GifService:
             if not pil_frames:
                 return None
 
+            # Boomerang: play the middle frames again in reverse so the loop runs
+            # forward and back. The endpoints are left out — otherwise the first and
+            # last frame show twice each and the motion stutters exactly there.
+            # These are repeated *references*, so only pil_frames gets closed below.
+            sequence = pil_frames
+            if self._boomerang and len(pil_frames) > 2:
+                sequence = pil_frames + pil_frames[-2:0:-1]
+
             gif_path = output_dir / f"{filename_base}.gif"
             frame_duration = int(1000 / self._fps)  # ms per frame
 
-            pil_frames[0].save(
+            sequence[0].save(
                 gif_path,
                 save_all=True,
-                append_images=pil_frames[1:],
+                append_images=sequence[1:],
                 duration=frame_duration,
                 loop=0,
                 optimize=True,
@@ -142,7 +152,8 @@ class GifService:
                 img.close()
 
             file_size = gif_path.stat().st_size
-            logger.info("GIF created: %s (%d frames, %d KB)", gif_path.name, len(pil_frames), file_size // 1024)
+            logger.info("GIF created: %s (%d frames%s, %d KB)", gif_path.name, len(sequence),
+                        " boomerang" if sequence is not pil_frames else "", file_size // 1024)
             return gif_path
 
         except Exception:

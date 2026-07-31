@@ -62,6 +62,9 @@ gif:
   enabled: true
   buffer_seconds: 5
   fps: 10
+  # Boomerang: die Aufnahme läuft vorwärts und wieder rückwärts, endlos. Aus den
+  # bereits gepufferten Frames gebaut — kostet nur Dateigröße, keine Rechenzeit.
+  boomerang: false
   # Bounding box for the GIF (aspect ratio of the source is preserved — no
   # distortion). Frames are only ever DOWNSCALED to fit (never upscaled), so
   # generation stays cheap during a live event; the viewers scale the GIF up for
