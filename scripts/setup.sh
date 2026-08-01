@@ -52,14 +52,14 @@ fi
 # ── 1) system packages ────────────────────────────────────────────────────
 echo ">>> [1/5] System-Pakete (apt)"
 PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl rsync sshpass)
-[[ "$WITH_GPHOTO2" == 1 ]] && PKGS+=(libgphoto2-dev)
-[[ "$WITH_PRINTER" == 1 ]] && PKGS+=(cups libcups2-dev)
-[[ "$WITH_CDBURN"  == 1 ]] && PKGS+=(xorriso)
-[[ "$WITH_WIFI"    == 1 ]] && PKGS+=(network-manager)
-[[ "$WITH_AUDIO"   == 1 ]] && PKGS+=(libportaudio2)
+if [[ "$WITH_GPHOTO2" == 1 ]]; then PKGS+=(libgphoto2-dev); fi
+if [[ "$WITH_PRINTER" == 1 ]]; then PKGS+=(cups libcups2-dev); fi
+if [[ "$WITH_CDBURN"  == 1 ]]; then PKGS+=(xorriso); fi
+if [[ "$WITH_WIFI"    == 1 ]]; then PKGS+=(network-manager); fi
+if [[ "$WITH_AUDIO"   == 1 ]]; then PKGS+=(libportaudio2); fi
 # bluez-tools liefert bt-obex/bt-agent (senden + empfangen, headless-tauglich);
 # gnome-bluetooth-sendto wäre ein GTK-Dialog und auf einer Kiosk-Box nutzlos.
-[[ "$WITH_BLUETOOTH" == 1 ]] && PKGS+=(bluez bluez-obexd bluez-tools obexftp)
+if [[ "$WITH_BLUETOOTH" == 1 ]]; then PKGS+=(bluez bluez-obexd bluez-tools obexftp); fi
 apt-get update -y
 apt-get install -y "${PKGS[@]}"
 
@@ -98,14 +98,14 @@ pip_extra() {   # pip_extra <Beschriftung> <paket…>
 }
 
 echo "  optionale Zusatzpakete:"
-[[ "$WITH_GPHOTO2"  == 1 ]] && pip_extra "DSLR (gphoto2)"      "gphoto2>=2.5"
-[[ "$WITH_OPENCV"   == 1 ]] && pip_extra "Webcam (opencv)"     "opencv-python-headless>=4.8"
-[[ "$WITH_PRINTER"  == 1 ]] && pip_extra "Drucker (pycups)"    "pycups>=2.0"
-[[ "$WITH_AUDIO"    == 1 ]] && pip_extra "Akustik-Auslöser"    "sounddevice>=0.4" "numpy>=1.24"
-[[ "$WITH_TRIGGERS" == 1 ]] && pip_extra "Auslöser (evdev)"    "evdev>=1.6" "pynput>=1.7"
-[[ "$WITH_SERIAL"   == 1 ]] && pip_extra "Serieller Auslöser"  "pyserial>=3.5"
-[[ "$WITH_PAYMENT"  == 1 ]] && pip_extra "Bezahlung (httpx)"   "httpx>=0.27"
-[[ "$WITH_BG_AI"    == 1 ]] && pip_extra "KI-Hintergrund"      "rembg>=2.0"
+if [[ "$WITH_GPHOTO2"  == 1 ]]; then pip_extra "DSLR (gphoto2)"      "gphoto2>=2.5"; fi
+if [[ "$WITH_OPENCV"   == 1 ]]; then pip_extra "Webcam (opencv)"     "opencv-python-headless>=4.8"; fi
+if [[ "$WITH_PRINTER"  == 1 ]]; then pip_extra "Drucker (pycups)"    "pycups>=2.0"; fi
+if [[ "$WITH_AUDIO"    == 1 ]]; then pip_extra "Akustik-Auslöser"    "sounddevice>=0.4" "numpy>=1.24"; fi
+if [[ "$WITH_TRIGGERS" == 1 ]]; then pip_extra "Auslöser (evdev)"    "evdev>=1.6" "pynput>=1.7"; fi
+if [[ "$WITH_SERIAL"   == 1 ]]; then pip_extra "Serieller Auslöser"  "pyserial>=3.5"; fi
+if [[ "$WITH_PAYMENT"  == 1 ]]; then pip_extra "Bezahlung (httpx)"   "httpx>=0.27"; fi
+if [[ "$WITH_BG_AI"    == 1 ]]; then pip_extra "KI-Hintergrund"      "rembg>=2.0"; fi
 rm -f /tmp/mkphotobox-pip.log
 
 echo ">>> verify imports + route registration"
@@ -142,10 +142,40 @@ sudo -u "$RUN_USER" bash "$APP_DIR/scripts/install-fonts.sh" || echo "  (Font-Do
 # ── 3) data dirs + groups ─────────────────────────────────────────────────
 echo ">>> [3/5] Datenverzeichnisse + Gruppen"
 sudo -u "$RUN_USER" mkdir -p "$APP_DIR/data/photos/thumbs" "$APP_DIR/data/assets" "$APP_DIR/data/imports"
-# allow access to optical drive / serial without sudo
-[[ "$WITH_CDBURN" == 1 ]] && usermod -aG cdrom "$RUN_USER" 2>/dev/null || true
-usermod -aG dialout "$RUN_USER" 2>/dev/null || true   # serial touchscreen / triggers
-[[ "$WITH_TRIGGERS" == 1 ]] && usermod -aG input "$RUN_USER" 2>/dev/null || true   # evdev /dev/input access
+
+# Diese Zeilen endeten früher auf "2>/dev/null || true" und verschluckten damit
+# jeden Fehlschlag. Auf einer laufenden Box fehlte dadurch die Gruppe 'input',
+# ohne dass es irgendwo sichtbar war: /dev/input war für den Dienst unlesbar,
+# also funktionierten Host-Tastatur, Bluetooth-Fernauslöser und der
+# Touchscreen-Auslöser schlicht nicht — kommentarlos.
+GROUP_FAILED=()
+
+add_group() {   # add_group <gruppe> <wofür>
+  local grp="$1" purpose="$2"
+  printf '    %-10s (%s) ' "$grp" "$purpose"
+  if ! getent group "$grp" >/dev/null; then
+    echo "übersprungen — Gruppe existiert auf diesem System nicht"
+    return
+  fi
+  # "|| true" ist hier Absicht: ohne es würde set -e das Skript beenden, bevor
+  # die Prüfung unten den Fehlschlag melden kann. Die Ausgabe wird aufgehoben
+  # statt verworfen, damit der Grund im Klartext dasteht.
+  local err
+  err="$(usermod -aG "$grp" "$RUN_USER" 2>&1)" || true
+  # Am Ergebnis messen, nicht am Rückgabewert.
+  if id -nG "$RUN_USER" | tr ' ' '\n' | grep -qx "$grp"; then
+    echo "ok"
+  else
+    echo "FEHLGESCHLAGEN"
+    [[ -n "$err" ]] && echo "      $err"
+    GROUP_FAILED+=("$grp ($purpose)")
+  fi
+}
+
+echo "  Gruppen für $RUN_USER:"
+if [[ "$WITH_CDBURN" == 1 ]]; then add_group cdrom "CD/DVD brennen"; fi
+add_group dialout "serieller Touchscreen / Auslöser"
+if [[ "$WITH_TRIGGERS" == 1 ]]; then add_group input "evdev — Tastatur-/Bluetooth-Auslöser"; fi
 
 # ── 4) systemd service ────────────────────────────────────────────────────
 echo ">>> [4/5] systemd-Dienst"
@@ -188,7 +218,7 @@ rm -f /tmp/mkphotobox-sudoers
 # "Not authorized to control networking". Scannen geht ohne Auth, deshalb
 # sieht man die SSIDs, aber Verbinden schlägt fehl.
 echo ">>> polkit: WLAN-Verwaltung erlauben"
-usermod -aG netdev "$RUN_USER" 2>/dev/null || true
+add_group netdev "NetworkManager"
 
 # polkit >= 0.106 (Ubuntu 24.04): JS-Regeln
 if [[ -d /etc/polkit-1/rules.d ]]; then
@@ -231,7 +261,7 @@ if [[ "$WITH_BLUETOOTH" == 1 ]]; then
   RECV_DIR="$APP_DIR/data/bluetooth_in"
   sudo -u "$RUN_USER" mkdir -p "$RECV_DIR"
   loginctl enable-linger "$RUN_USER" 2>/dev/null || true
-  usermod -aG bluetooth "$RUN_USER" 2>/dev/null || true
+  add_group bluetooth "Bluetooth-Adapter steuern"
 
   # Kopplungsanfragen ohne Tastatur/Display annehmen (Gast tippt am Handy).
   cat > /etc/systemd/system/mkphotobox-btagent.service <<UNIT
@@ -296,6 +326,11 @@ if [[ "$WITH_CLOUDFLARE" == 1 ]]; then
 fi
 
 # ── 5) done ───────────────────────────────────────────────────────────────
+# Neu starten, bevor der Status gemeldet wird: frisch hinzugefügte Gruppen
+# greifen erst ab dem nächsten Prozessstart, sonst läuft der Dienst mit den
+# alten Rechten weiter und findet z.B. kein /dev/input.
+systemctl restart mkphotobox.service 2>/dev/null || true
+
 echo ">>> [5/5] Fertig"
 sleep 4
 systemctl is-active --quiet mkphotobox.service \
@@ -311,4 +346,14 @@ if [[ ${#PIP_FAILED[@]} -gt 0 ]]; then
   echo "   Die zugehörigen Module bleiben deaktiviert; Admin → Module nennt den Grund."
   echo "   Häufigste Ursache ist eine abbrechende Internetverbindung — dann einfach"
   echo "   das Setup erneut ausführen."
+fi
+
+if [[ ${#GROUP_FAILED[@]} -gt 0 ]]; then
+  echo
+  echo "!! $RUN_USER konnte diesen Gruppen NICHT hinzugefügt werden:"
+  for f in "${GROUP_FAILED[@]}"; do echo "     - $f"; done
+  echo "   Ohne sie kommt der Dienst nicht an die Geräte und die betroffenen Auslöser"
+  echo "   bleiben still, ohne eine Fehlermeldung zu zeigen. Von Hand nachholen mit"
+  echo "   'sudo usermod -aG <gruppe> $RUN_USER', danach 'sudo systemctl restart"
+  echo "   mkphotobox.service' — Gruppen gelten erst ab dem nächsten Prozessstart."
 fi
