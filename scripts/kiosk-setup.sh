@@ -48,7 +48,11 @@ echo "    Browser: $BROWSER"
 
 case "$BROWSER" in
   firefox) CMD="firefox --kiosk $LOADING_URL" ;;
-  *) CMD="$BROWSER --kiosk --noerrordialogs --disable-infobars --disable-session-crashed-bubble --disable-translate --no-first-run --no-default-browser-check --incognito --check-for-update-interval=31536000 --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --overscroll-history-navigation=0 --disable-pinch $LOADING_URL" ;;
+  # Gleiche Schalter wie scripts/kiosk/xinitrc — beide Startwege müssen sich
+  # gleich verhalten. --disable-infobars steht hier bewusst NICHT mehr: Chrome
+  # ignoriert ihn seit Version 76 stillschweigend. Was wirklich hilft, ist die
+  # Richtliniendatei weiter unten.
+  *) CMD="$BROWSER --kiosk --noerrordialogs --disable-session-crashed-bubble --disable-translate --no-first-run --no-default-browser-check --incognito --check-for-update-interval=31536000 --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --overscroll-history-navigation=0 --disable-pinch --disable-search-engine-choice-screen --password-store=basic --disable-background-networking --disable-component-update --disable-breakpad --disable-features=Translate,TranslateUI,OptimizationHints,MediaRouter,DialMediaRouteProvider,ChromeWhatsNewUI,PrivacySandboxSettings4 $LOADING_URL" ;;
 esac
 
 # ── openbox autostart: respawn loop + health watchdog (unattended) ────────
