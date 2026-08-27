@@ -42,6 +42,31 @@ export async function render(container, state) {
                         Im Vollbild-Modus werden Tasten halbtransparent über dem Kamerabild angezeigt.
                     </p>
                 </div>
+                <div style="margin-top:1.25rem;">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Sicherer Rand (Pixel)</label>
+                    <input id="safe-margin" type="number" min="0" max="200" step="5"
+                           value="${Number(settings?.display?.safe_margin) || 0}" style="${selectStyle}">
+                    <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                        Wenn am Bildschirmrand etwas fehlt: hochdrehen, bis alles zu sehen ist.
+                        Viele Kiosk-Bildschirme zeigen nicht das ganze Bild — analoge VGA-Panels sitzen
+                        oft ein Stück daneben, Fernseher schneiden per Overscan ab, Einbaurahmen
+                        verdecken den Rest. Das lässt sich nicht messen, nur sehen. 20 bis 40 reichen meist.
+                    </p>
+                </div>
+                <div style="margin-top:1.25rem;">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Speicheranzeige im Booth</label>
+                    <select id="storage-badge" style="${selectStyle}">
+                        ${[
+                            { value: 'low', label: 'Nur wenn es eng wird' },
+                            { value: 'always', label: 'Immer anzeigen' },
+                            { value: 'never', label: 'Nie anzeigen' },
+                        ].map(o => `<option value="${o.value}" ${o.value === (settings?.display?.storage_badge || 'low') ? 'selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                    <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                        Die freie Plattenkapazität interessiert die Gäste nicht — sichtbar sein muss sie erst,
+                        wenn es knapp wird. „Immer" ist für den Aufbau nützlich.
+                    </p>
+                </div>
             </div>
 
             <div class="admin-card" style="margin-bottom:1.5rem;">
@@ -141,6 +166,9 @@ export async function render(container, state) {
         const status = container.querySelector('#save-status');
         const saves = [
             { key: 'display.preview_size', value: container.querySelector('#preview-size-select').value },
+            { key: 'display.safe_margin',
+              value: Math.max(0, Math.min(200, parseInt(container.querySelector('#safe-margin').value) || 0)) },
+            { key: 'display.storage_badge', value: container.querySelector('#storage-badge').value },
             { key: 'gallery.enabled', value: container.querySelector('#gallery-enabled').checked },
             { key: 'gallery.delete_mode', value: container.querySelector('#delete-mode-select').value },
             { key: 'gallery.delete_recent_minutes', value: parseInt(container.querySelector('#delete-minutes').value) || 5 },

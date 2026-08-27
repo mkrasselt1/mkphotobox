@@ -1836,3 +1836,25 @@ async def test_module_toggle(request: Request, session: Session):
         assert exc.status_code == 404, f"Falscher Fehlercode: {exc.status_code}"
 
     return f"{mod} aus- und wieder eingeschaltet, Ausgangszustand ({'an' if before else 'aus'}) erhalten"
+
+
+@_register("display_safe_margin", "Sicherer Rand", "System",
+           "Prüft, dass der sichere Rand ausgeliefert und auf sinnvolle Werte begrenzt wird")
+def test_display_safe_margin(request: Request, session: Session):
+    from app.api.system import get_display_config
+    from app.config import get_config, set_nested
+
+    cfg = get_config()
+    before = cfg.get("display", {}).get("safe_margin", 0)
+    try:
+        for value, expected in ((0, 0), (30, 30), (-5, 0), (9999, 200), ("40", 40)):
+            set_nested(cfg, "display.safe_margin", value)
+            got = get_display_config()["safe_margin"]
+            assert got == expected, f"safe_margin {value!r} ergab {got}, erwartet {expected}"
+    finally:
+        set_nested(cfg, "display.safe_margin", before)
+
+    data = get_display_config()
+    assert data["storage_badge"] in ("low", "always", "never"), \
+        f"Unerwarteter Wert für storage_badge: {data['storage_badge']!r}"
+    return f"Rand {data['safe_margin']} px · Speicheranzeige: {data['storage_badge']}"

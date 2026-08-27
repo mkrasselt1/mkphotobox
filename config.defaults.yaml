@@ -225,6 +225,16 @@ display:
   preview_size: "medium"  # small (320px), medium (640px), large (960px), fullscreen
   idle_live_preview: true # true = Live-Bild auf der Willkommensseite, false =
                           # normale Willkommensseite (Kamera ruht bis "Start")
+  # Sicherer Rand in Pixeln, rundum. Viele Kiosk-Bildschirme zeigen nicht das
+  # ganze Bild: analoge VGA-Panels sitzen oft ein Stück daneben, Fernseher
+  # schneiden per Overscan ab, Einbaurahmen verdecken den Rest. X meldet
+  # trotzdem die volle Auflösung — es ist also nichts messbar, nur sichtbar.
+  # Wenn am Rand etwas fehlt (Speicheranzeige, Hilfe-Knopf): hier hochdrehen,
+  # bis alles drin ist. 20 bis 40 reichen meist.
+  safe_margin: 0
+  # Speicheranzeige im Booth: low = nur wenn es eng wird (Vorgabe), always =
+  # immer, never = nie. Gäste interessiert die freie Plattenkapazität nicht.
+  storage_badge: "low"
 
 session:
   auto_end_seconds: 120

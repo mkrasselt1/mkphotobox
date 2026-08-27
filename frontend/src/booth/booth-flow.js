@@ -66,6 +66,11 @@ let remoteGallery = null;    // {active, gallery_url, image_base} when off-box g
 // Server entscheidet das (gallery.live_card): ohne Upload und ohne Tunnel zeigt
 // ihr QR-Code auf die LAN-IP der Box, die ein Gästehandy ohne WLAN nie erreicht.
 let liveGalleryCard = false;
+// Sicherer Rand in Pixeln: was der Bildschirm zeigt, ist nicht immer, was X
+// meldet (VGA-Versatz, Overscan, Einbaurahmen). Siehe display.safe_margin.
+let safeMargin = 0;
+// Speicheranzeige: low | always | never.
+let storageBadge = 'low';
 let cropAspect = null;       // {w,h} default output aspect to outline on the live preview
 let outputAspect = null;     // {w,h} of the print paper — single-photo framing target
 
@@ -118,6 +123,20 @@ export function render(container, state) {
 
     container.innerHTML = `<div id="booth" style="width:100%;height:100%;position:relative;overflow:hidden;"></div>`;
 
+    /** Rückt die ganze Bühne um den sicheren Rand nach innen.
+     *
+     *  Padding hilft hier nicht: absolut positionierte Kinder rechnen ab der
+     *  Polsterkante, nicht ab dem Inhalt — die Speicheranzeige säße also
+     *  weiterhin am Bildschirmrand. Also die Fläche selbst verkleinern. */
+    function applySafeMargin() {
+        const b = document.getElementById('booth');
+        if (!b) return;
+        const m = Math.max(0, Math.min(200, safeMargin | 0));
+        b.style.margin = m ? `${m}px` : '';
+        b.style.width = m ? `calc(100% - ${2 * m}px)` : '100%';
+        b.style.height = m ? `calc(100% - ${2 * m}px)` : '100%';
+    }
+
     // Keep crop guides correctly sized when the viewport changes
     window.addEventListener('resize', sizeCropGuides);
 
@@ -154,6 +173,10 @@ export function render(container, state) {
                 });
                 if (displayData.output_aspect?.w && displayData.output_aspect?.h)
                     outputAspect = displayData.output_aspect;
+                if (Number.isFinite(displayData.safe_margin)) safeMargin = displayData.safe_margin;
+                if (typeof displayData.storage_badge === 'string')
+                    storageBadge = displayData.storage_badge;
+                applySafeMargin();
             }
         } catch {
             cameraMode = 'webrtc';
@@ -549,12 +572,19 @@ export function render(container, state) {
     }
 
     async function showStorage(el) {
+        if (storageBadge === 'never') return;
         let s;
         try { s = await fetch('/api/v1/system/storage').then(r => r.json()); } catch { return; }
         if (!s || s.photos_remaining == null) return;
+        // Wie viel Platz noch frei ist, geht die Gäste nichts an — erst wenn es
+        // eng wird, muss es jemand sehen. "always" für den Aufbau/Test.
+        if (storageBadge !== 'always' && !s.low) return;
         const badge = document.createElement('div');
+        // max-width, damit der lange Warntext auf schmalen Kiosk-Bildschirmen
+        // nicht über den Rand hinauswächst statt umzubrechen.
         badge.style.cssText = `position:absolute;top:12px;left:12px;z-index:5;padding:0.45rem 0.85rem;
             border-radius:10px;font-size:0.85rem;font-weight:600;color:#fff;backdrop-filter:blur(4px);pointer-events:none;
+            max-width:calc(100% - 24px);
             background:${s.low ? 'rgba(249,105,90,0.92)' : 'rgba(0,0,0,0.45)'};`;
         badge.textContent = s.low
             ? `⚠️ Speicher fast voll — noch ca. ${s.photos_remaining} Fotos`

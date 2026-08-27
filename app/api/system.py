@@ -595,6 +595,15 @@ def get_display_config():
         "output_aspect": _output_aspect(cfg),
         # Show the booth help button only when Telegram help is actually active.
         "help_button": _help_button_enabled(),
+        # Sicherer Rand in Pixeln. Viele Kiosk-Bildschirme zeigen nicht das
+        # ganze Bild: analoge VGA-Panels sitzen oft ein paar Zentimeter daneben,
+        # Fernseher schneiden per Overscan ab, und Einbaurahmen verdecken den
+        # Rest. X meldet trotzdem die volle Auflösung, es ist also nichts
+        # messbar — nur sichtbar. Damit rückt der Booth alles nach innen.
+        "safe_margin": max(0, min(200, int(get_nested(cfg, "display.safe_margin", 0) or 0))),
+        # low | always | never — Gäste interessiert die freie Plattenkapazität
+        # nicht; erst wenn es eng wird, muss es jemand sehen.
+        "storage_badge": str(get_nested(cfg, "display.storage_badge", "low") or "low").lower(),
     }
 
 
