@@ -6,6 +6,15 @@
 # reachable. The health watchdog only kills the browser AFTER the app has been up
 # at least once — so the splash is never killed during boot.
 #
+# Zu den Chrome-Schaltern weiter unten: --disable-infobars stand hier jahrelang
+# und tut seit Chrome 76 nichts mehr — Google hat den Schalter entfernt, ohne
+# dass er einen Fehler wirft. Deshalb erscheinen im Kiosk-Modus trotzdem
+# Sprechblasen, und zwar OBEN LINKS: sie hängen normalerweise an der
+# Adressleiste, und wo keine ist, rutschen sie in die Ecke des Fensters.
+# Der verlässliche Weg sind Richtlinien (scripts/kiosk/chrome-policy.json,
+# installiert nach /etc/opt/chrome/policies/managed/) — die überleben Updates.
+# Die Schalter hier sind nur die zweite Verteidigungslinie.
+#
 # Adjust APP_DIR if the checkout lives elsewhere.
 APP_DIR="/opt/mkphotobox"
 URL="http://localhost:8080"
@@ -33,10 +42,15 @@ openbox &
 # then relaunch — survives browser crashes/closes. loading.html handles the
 # redirect to the booth once the app is up.
 while true; do
-  google-chrome-stable --kiosk --noerrordialogs --disable-infobars \
+  google-chrome-stable --kiosk --noerrordialogs \
     --disable-session-crashed-bubble --disable-translate --no-first-run \
     --no-default-browser-check --incognito --check-for-update-interval=31536000 \
     --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required \
-    --overscroll-history-navigation=0 --disable-pinch "$LOADING"
+    --overscroll-history-navigation=0 --disable-pinch \
+    --disable-search-engine-choice-screen \
+    --password-store=basic \
+    --disable-background-networking --disable-component-update --disable-breakpad \
+    --disable-features=Translate,TranslateUI,OptimizationHints,MediaRouter,DialMediaRouteProvider,ChromeWhatsNewUI,PrivacySandboxSettings4,DesktopPWAsAdditionalWindowingControls \
+    "$LOADING"
   sleep 2
 done

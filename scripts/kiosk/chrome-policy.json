@@ -1,0 +1,52 @@
+{
+  "_comment": [
+    "Chrome-Richtlinien für den Kiosk-Betrieb der MKPhotobox.",
+    "Wird nach /etc/opt/chrome/policies/managed/mkphotobox.json installiert.",
+    "",
+    "Warum eine Richtliniendatei und nicht nur Startparameter: Google entfernt",
+    "Kommandozeilenschalter regelmäßig. --disable-infobars zum Beispiel wird seit",
+    "Jahren stillschweigend ignoriert. Richtlinien überleben Chrome-Updates und",
+    "sind der einzige verlässliche Weg, die Sprechblasen loszuwerden, die sich im",
+    "Kiosk-Modus oben links ins Bild schieben — dort, wo sonst die Adressleiste",
+    "wäre, an der sie normalerweise hängen.",
+    "",
+    "Die Box steht vor Gästen. Es darf nichts erscheinen, das nach Browser aussieht."
+  ],
+
+  "IncognitoModeAvailability": 0,
+
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "PromotionalTabsEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "BackgroundModeEnabled": false,
+  "UserFeedbackAllowed": false,
+
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+
+  "TranslateEnabled": false,
+  "SpellcheckEnabled": false,
+  "SearchSuggestEnabled": false,
+  "ShoppingListEnabled": false,
+
+  "MetricsReportingEnabled": false,
+  "ChromeVariations": 2,
+  "ComponentUpdatesEnabled": false,
+  "SafeBrowsingEnabled": false,
+
+  "PrivacySandboxPromptEnabled": false,
+  "PrivacySandboxAdTopicsEnabled": false,
+  "PrivacySandboxSiteEnabledAdsEnabled": false,
+  "PrivacySandboxAdMeasurementEnabled": false,
+
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2,
+  "DefaultPopupsSetting": 2,
+  "DefaultSensorsSetting": 2,
+
+  "DefaultSearchProviderEnabled": true,
+  "DefaultSearchProviderName": "MKPhotobox",
+  "DefaultSearchProviderSearchURL": "http://localhost:8080/?q={searchTerms}"
+}

@@ -120,6 +120,20 @@ if ! grep -qF 'exec startx' "$PROFILE" 2>/dev/null; then
 fi
 echo "    ~/.xinitrc aktualisiert (Ladebildschirm sofort, kein schwarzes Warten)"
 
+# ── Chrome-Richtlinien: keine Sprechblasen vor Gästen ─────────────────────
+# Startparameter reichen nicht. Google entfernt sie (--disable-infobars ist seit
+# Chrome 76 wirkungslos), und im Kiosk-Modus erscheinen die Blasen oben links,
+# weil sie an der fehlenden Adressleiste hängen. Richtlinien überleben Updates.
+if [[ "$BROWSER" == google-chrome-stable || "$BROWSER" == chromium* ]]; then
+  case "$BROWSER" in
+    chromium*) POLICY_DIR=/etc/chromium/policies/managed ;;
+    *)         POLICY_DIR=/etc/opt/chrome/policies/managed ;;
+  esac
+  install -d "$POLICY_DIR"
+  install -m 0644 "$APP_DIR/scripts/kiosk/chrome-policy.json" "$POLICY_DIR/mkphotobox.json"
+  echo "    Browser-Richtlinien: $POLICY_DIR/mkphotobox.json"
+fi
+
 # ── kiosk X session + SDDM autologin ──────────────────────────────────────
 cat > /usr/share/xsessions/kiosk.desktop <<'XS'
 [Desktop Entry]
