@@ -6,6 +6,14 @@ export async function render(container, state) {
     try { data = await fetch('/api/v1/remote-gallery/status', { headers }).then(r => r.json()); } catch {}
     let tunnel = { enabled: false, installed: false, service_active: false, url: '' };
     try { tunnel = await fetch('/api/v1/system/tunnel', { headers }).then(r => r.json()); } catch {}
+    // Was der Booth gerade entscheidet — damit die Auswahl unten nicht raten muss.
+    let share = { base_url: '', public: false, live_gallery: false, remote_gallery: null };
+    try { share = await fetch('/api/v1/system/share-base', { headers }).then(r => r.json()); } catch {}
+    let liveCard = 'auto';
+    try {
+        const s = await fetch('/api/v1/settings/gallery.live_card', { headers }).then(r => r.json());
+        if (typeof s?.value === 'string' && s.value) liveCard = s.value;
+    } catch {}
     const c = data.config || {};
     const st = data.state || {};
     const protos = data.protocols || ['webdav', 'ftps', 'ftp', 'rsync', 'scp'];
@@ -98,11 +106,53 @@ export async function render(container, state) {
                     ${tunnel.url ? `· URL: <a href="${tunnel.url}" target="_blank" style="color:var(--pb-color-primary);word-break:break-all;">${tunnel.url}</a>` : ''}
                 </div>
             </div>
+
+            <h2 style="margin-top:2rem;margin-bottom:0.4rem;font-size:1.15rem;">Kachel „Galerie (Live)" im Booth</h2>
+            <p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.75rem;">
+                Der QR-Code dieser Kachel nützt nur, wenn das Gästehandy die Adresse auch aufrufen kann.
+                Ohne Gäste-WLAN und ohne Upload zeigt er auf die LAN-IP der Box — dort kommt niemand an.
+            </p>
+            <div class="admin-card">
+                <label style="font-size:0.85rem;">Anzeigen</label>
+                <select id="f-livecard" class="admin-input" style="width:100%;margin:0.25rem 0 0.75rem;">
+                    <option value="auto"   ${liveCard === 'auto'   ? 'selected' : ''}>Automatisch — nur wenn ein Weg nach draußen existiert</option>
+                    <option value="always" ${liveCard === 'always' ? 'selected' : ''}>Immer anzeigen</option>
+                    <option value="never"  ${liveCard === 'never'  ? 'selected' : ''}>Nie anzeigen</option>
+                </select>
+                <div style="font-size:0.85rem;color:var(--pb-color-text-muted);">
+                    <span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:0.4rem;
+                                 background:${share.live_gallery ? 'var(--pb-color-success)' : '#888'};"></span>
+                    Aktuell: <strong>${share.live_gallery ? 'wird angezeigt' : 'wird ausgeblendet'}</strong>
+                    · ${share.remote_gallery?.active ? 'Online-Galerie aktiv'
+                        : share.public ? 'öffentliche Adresse vorhanden'
+                        : 'nur im LAN erreichbar'}
+                    ${share.base_url ? `<div style="margin-top:0.3rem;word-break:break-all;">Adresse: <code>${share.base_url}</code></div>` : ''}
+                </div>
+                <button id="btn-livecard" class="admin-btn admin-btn-primary" style="margin-top:0.75rem;">Speichern</button>
+                <span id="livecard-msg" style="margin-left:0.6rem;font-size:0.85rem;"></span>
+            </div>
         </div>
     `);
     setupLogout(container);
 
     const setMsg = (t, k) => { const m = container.querySelector('#msg'); m.textContent = t; m.style.color = k === 'error' ? 'var(--pb-color-error)' : k === 'ok' ? 'var(--pb-color-success)' : 'var(--pb-color-text-muted)'; };
+
+    container.querySelector('#btn-livecard').addEventListener('click', async () => {
+        const value = container.querySelector('#f-livecard').value;
+        const m = container.querySelector('#livecard-msg');
+        m.textContent = 'Speichere…'; m.style.color = 'var(--pb-color-text-muted)';
+        try {
+            const r = await fetch('/api/v1/settings/gallery.live_card', {
+                method: 'PUT', headers, body: JSON.stringify({ key: 'gallery.live_card', value }),
+            });
+            if (!r.ok) throw new Error(await r.text());
+            m.textContent = 'Gespeichert — gilt ab dem nächsten Booth-Aufruf.';
+            m.style.color = 'var(--pb-color-success)';
+        } catch (e) {
+            m.textContent = 'Fehlgeschlagen: ' + e.message;
+            m.style.color = 'var(--pb-color-error)';
+        }
+    });
 
     container.querySelector('#f-protocol').addEventListener('change', (e) => {
         const p = e.target.value;

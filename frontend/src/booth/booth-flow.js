@@ -62,6 +62,10 @@ let lastTemplate = null;     // template of the last capture — so "Nochmal" re
 let boothInitiated = false;  // true while the booth drives its own capture sequence
 let shareBase = '';          // LAN base URL for QR codes (phone-reachable, not localhost)
 let remoteGallery = null;    // {active, gallery_url, image_base} when off-box gallery is live
+// Ob die Kachel "Galerie (Live)" im Teilen-Bildschirm überhaupt erscheint. Der
+// Server entscheidet das (gallery.live_card): ohne Upload und ohne Tunnel zeigt
+// ihr QR-Code auf die LAN-IP der Box, die ein Gästehandy ohne WLAN nie erreicht.
+let liveGalleryCard = false;
 let cropAspect = null;       // {w,h} default output aspect to outline on the live preview
 let outputAspect = null;     // {w,h} of the print paper — single-photo framing target
 
@@ -180,9 +184,11 @@ export function render(container, state) {
             const sb = await fetch('/api/v1/system/share-base').then(r => r.json());
             shareBase = sb.base_url || '';
             remoteGallery = sb.remote_gallery || null;
+            liveGalleryCard = sb.live_gallery !== false;
         } catch {
             shareBase = location.origin;
             remoteGallery = null;
+            liveGalleryCard = false;
         }
         try {
             const outs = await fetch('/api/v1/outputs/available').then(r => r.json());
@@ -1031,10 +1037,11 @@ export function render(container, state) {
                     <span style="font-size:1.8rem;">📱</span>
                     Foto aufs Handy
                 </button>
+                ${liveGalleryCard ? `
                 <button id="card-live" class="share-card">
                     <span style="font-size:1.8rem;">📺</span>
-                    Galerie (Live)
-                </button>
+                    ${remoteGallery?.active ? 'Galerie' : 'Galerie (Live)'}
+                </button>` : ''}
                 ${hasGif ? `
                 <button id="card-gif" class="share-card">
                     <span style="font-size:1.8rem;">🎞️</span>

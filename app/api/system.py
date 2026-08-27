@@ -366,7 +366,34 @@ def get_share_base(request: Request):
         port = cfg.get("server", {}).get("port", 8080)
         base_url = f"http://{ip}:{port}"
 
-    return {"base_url": base_url, "remote_gallery": _remote_gallery_share(cfg)}
+    rg = _remote_gallery_share(cfg)
+    # Ist die Basis-URL von einem fremden Handy aus erreichbar? Ein Tunnel oder
+    # eine gesetzte Basis-URL sind es; die nackte LAN-IP nur, solange die Gäste
+    # im WLAN der Box hängen — und das ist auf vielen Veranstaltungen nicht so.
+    public = bool(override or tunnel)
+    return {
+        "base_url": base_url,
+        "remote_gallery": rg,
+        "public": public,
+        "live_gallery": _show_live_gallery(cfg, public, bool(rg)),
+    }
+
+
+def _show_live_gallery(cfg: dict, public: bool, remote: bool) -> bool:
+    """Ob der Booth die Kachel „Galerie (Live)" anbieten soll.
+
+    Der QR-Code dahinter nützt nur, wenn das Gästehandy die Adresse auch
+    aufrufen kann. Ohne Gäste-WLAN und ohne Upload zeigt er auf eine LAN-IP,
+    die niemand erreicht — die Kachel führt dann bloß in die Irre.
+
+    ``gallery.live_card``: auto (Vorgabe) | always | never
+    """
+    mode = str(get_nested(cfg, "gallery.live_card", "auto") or "auto").lower()
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return remote or public
 
 
 def _tunnel_base_url(cfg: dict) -> str | None:

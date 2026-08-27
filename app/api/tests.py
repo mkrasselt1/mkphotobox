@@ -1767,3 +1767,36 @@ def test_exif_event_location(request: Request, session: Session):
                 f"und Kameradaten, aber keine GPS-Position")
     return (f"{event.name} @ {meta.location_name or 'ohne Ortsname'} "
             f"({meta.latitude:.5f}, {meta.longitude:.5f})")
+
+
+@_register("live_gallery_gate", "Kachel „Galerie (Live)“", "Galerie",
+           "Prüft, dass die Live-Galerie nur erscheint, wenn Gäste sie auch erreichen können")
+def test_live_gallery_gate(request: Request, session: Session):
+    from app.api.system import _show_live_gallery
+
+    # auto: ohne Weg nach draußen bleibt die Kachel weg — der QR-Code zeigte
+    # sonst auf die LAN-IP der Box, die ein Gästehandy ohne WLAN nie erreicht.
+    assert _show_live_gallery({}, public=False, remote=False) is False, \
+        "auto zeigt die Kachel, obwohl niemand sie erreichen kann"
+    assert _show_live_gallery({}, public=True, remote=False) is True, \
+        "auto blendet die Kachel aus, obwohl eine öffentliche Adresse existiert"
+    assert _show_live_gallery({}, public=False, remote=True) is True, \
+        "auto blendet die Kachel aus, obwohl die Online-Galerie läuft"
+
+    always = {"gallery": {"live_card": "always"}}
+    never = {"gallery": {"live_card": "never"}}
+    assert _show_live_gallery(always, public=False, remote=False) is True, "always greift nicht"
+    assert _show_live_gallery(never, public=True, remote=True) is False, "never greift nicht"
+
+    # Unsinn in der Einstellung darf nicht knallen, sondern fällt auf auto zurück.
+    quatsch = {"gallery": {"live_card": "vielleicht"}}
+    assert _show_live_gallery(quatsch, public=False, remote=False) is False, \
+        "Unbekannter Wert verhält sich nicht wie auto"
+
+    # Und der Endpunkt liefert die Felder, auf die der Booth sich stützt.
+    from app.api.system import get_share_base
+    data = get_share_base(request)
+    for field in ("base_url", "public", "live_gallery", "remote_gallery"):
+        assert field in data, f"Feld '{field}' fehlt in /system/share-base"
+    return (f"Kachel {'sichtbar' if data['live_gallery'] else 'ausgeblendet'} · "
+            f"Adresse {'öffentlich' if data['public'] else 'nur LAN'}")

@@ -242,6 +242,14 @@ gallery:
   public: false
   require_event_slug: true
   enabled: true                # false = Galerie-Link wird ausgeblendet
+  # Die Kachel „Galerie (Live)" im Teilen-Bildschirm. Ihr QR-Code nützt nur,
+  # wenn das Gästehandy die Adresse erreicht. Ohne Gäste-WLAN und ohne Upload
+  # zeigt er auf die LAN-IP der Box — dort kommt niemand an.
+  #   auto   = nur zeigen, wenn ein Weg nach draußen existiert: Remote-Galerie
+  #            aktiv, Cloudflare-Tunnel an oder share.base_url gesetzt
+  #   always = immer zeigen (Verhalten wie früher)
+  #   never  = nie zeigen
+  live_card: "auto"
   delete_mode: "off"           # off | recent | all — recent = nur Fotos der letzten 5 Min
   delete_recent_minutes: 5     # Zeitfenster für "recent"-Modus
 
