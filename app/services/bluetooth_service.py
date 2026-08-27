@@ -14,8 +14,15 @@ Two things about this stack are easy to get wrong, so they are handled here:
    lingering for the run user so ``/run/user/<uid>/bus`` always exists, and
    every call gets ``DBUS_SESSION_BUS_ADDRESS`` pointed at it.
 2. ``bt-obex -p`` aborts with a failed C assertion (not a clean error) when the
-   target MAC is not a device bluez knows. Callers must never reach it with an
-   unpaired address, so :func:`send_file` checks the pairing list first.
+   target MAC is not a device bluez knows, so :func:`send_file` checks that
+   first — and then checks the bond separately, because "known" and "paired"
+   are not the same thing and only the second one lets a transfer through.
+
+Pairing is required, whatever the OPP specification once allowed: a current
+Android will not accept the connection from an unbonded device. The pairing
+itself needs no PIN — ``scripts/bt-agent.py`` registers a NoInputNoOutput agent,
+so the guest only confirms on their phone. (``bt-agent`` from bluez-tools cannot
+do this headlessly; it asks on stdin and a systemd service has none.)
 
 Linux-only; every entry point degrades to a clear message elsewhere.
 """
@@ -203,12 +210,24 @@ def nearby_devices(duration: int = 10) -> list[dict[str, Any]]:
     return devices
 
 
+def is_paired(address: str) -> bool:
+    """True if bluez has a bond with this device.
+
+    Object Push was once meant to work without pairing, and the code here used
+    to assume that. It does not hold any more: a current Android refuses the
+    incoming connection unless the two sides are bonded, and iOS refuses it
+    either way. Checking is cheap and turns a mysterious timeout into a
+    sentence the operator can act on.
+    """
+    return address.upper() in {d["address"].upper() for d in paired_devices()}
+
+
 def is_known(address: str) -> bool:
     """True if bluez has a device object for this address.
 
     bt-obex aborts on a failed C assertion for addresses bluez never saw, so
-    this guards the send path. A scanned-but-unpaired device passes — which is
-    exactly the spontaneous case we want to support.
+    this guards the send path. Being known is weaker than being paired — see
+    :func:`is_paired`, which the send path checks separately.
     """
     if not available():
         return False
@@ -231,12 +250,20 @@ def send_file(address: str, file_path: str) -> dict[str, Any]:
     if not Path(file_path).is_file():
         return {"status": "error", "message": f"Datei nicht gefunden: {file_path}"}
 
-    # Guard the assertion crash described in the module docstring. Pairing is
-    # NOT required — the phone prompts for it itself once the push starts.
+    # Guard the assertion crash described in the module docstring.
     if not is_known(address):
         return {"status": "error",
                 "message": f"Gerät {address} ist nicht in Reichweite — "
                            "Suche erneut starten"}
+
+    # Ohne Kopplung nimmt ein heutiges Handy die Verbindung gar nicht erst an.
+    # Ein blindes bt-obex läuft dann in einen nichtssagenden Zeitfehler, statt
+    # zu sagen, was fehlt — deshalb hier vorher nachsehen und es benennen.
+    if not is_paired(address):
+        return {"status": "error",
+                "message": "Handy ist noch nicht gekoppelt. Am Handy unter "
+                           "Bluetooth die Box auswählen und die Kopplung "
+                           "bestätigen, dann erneut senden."}
 
     try:
         res = _run(["bt-obex", "-p", address, file_path], timeout=_SEND_TIMEOUT)

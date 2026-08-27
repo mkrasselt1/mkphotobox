@@ -267,6 +267,13 @@ if [[ "$WITH_BLUETOOTH" == 1 ]]; then
   add_group bluetooth "Bluetooth-Adapter steuern"
 
   # Kopplungsanfragen ohne Tastatur/Display annehmen (Gast tippt am Handy).
+  # NICHT bt-agent aus bluez-tools: das fragt bei einer PIN-Anfrage auf stdin
+  # nach, hat als systemd-Dienst aber keins, stirbt an
+  # "g_variant_new_string: assertion 'string != NULL' failed" — und das Handy
+  # zeigt eine PIN-Abfrage, die niemand beantworten kann. Eigener Agent:
+  apt-get install -y python3-dbus python3-gi >/dev/null 2>&1 || \
+    echo "   !! python3-dbus/python3-gi fehlen — Kopplung wird nicht funktionieren"
+
   cat > /etc/systemd/system/mkphotobox-btagent.service <<UNIT
 [Unit]
 Description=MKPhotobox Bluetooth-Kopplungsagent
@@ -277,7 +284,7 @@ Requires=bluetooth.service
 User=$RUN_USER
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$RUN_UID/bus
 Environment=XDG_RUNTIME_DIR=/run/user/$RUN_UID
-ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+ExecStart=/usr/bin/python3 $APP_DIR/scripts/bt-agent.py
 Restart=always
 RestartSec=5
 
