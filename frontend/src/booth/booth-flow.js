@@ -48,6 +48,11 @@ let flashEnabled = true;     // white flash on the capture screen
 // look while posing; the server bakes the matching version into the photo.
 let photoFilters = [];       // [{id, label, css}] — empty = feature off
 let selectedFilter = 'none';
+// Whether the look may go on the LIVE image. Filtering every frame costs real
+// time in the browser; on a weak box the preview drops to a slideshow. Off means
+// the guests still pick a look and still get it in the photo — the live image
+// just stays unfiltered and smooth.
+let filterLivePreview = true;
 let guestbookEnabled = true; // let guests draw / write on their photo
 let guestbookMaxLen = 120;
 let availableOutputs = [];  // loaded output module names (only enabled+available ones)
@@ -158,6 +163,7 @@ export function render(container, state) {
             const f = await fetch('/api/v1/photos/filters').then(r => r.json());
             // A single entry is only "Original" — not worth a chooser.
             photoFilters = f.enabled && (f.filters || []).length > 1 ? f.filters : [];
+            filterLivePreview = f.live_preview !== false;
         } catch {
             photoFilters = [];
         }
@@ -258,18 +264,22 @@ export function render(container, state) {
 
     // ── Looks (colour filters) ───────────────────────────────────────
 
-    /** The CSS of the currently chosen look, '' for the untouched image. */
+    /** The CSS of the currently chosen look, '' for the untouched image.
+     *  Always '' when the live look is switched off — see filterLivePreview. */
     function currentLookCss() {
+        if (!filterLivePreview) return '';
         return (photoFilters.find(f => f.id === selectedFilter) || {}).css || '';
     }
 
     /** Put the chosen look on whatever preview element is on screen right now.
      *  Works for both camera modes — the MJPEG <img> takes a CSS filter just as
-     *  well as the WebRTC <video>. */
+     *  well as the WebRTC <video>. Clearing it is what keeps a weak box smooth,
+     *  so always write the property, never skip the reset. */
     function applyLookToPreview() {
         const css = currentLookCss();
         document.querySelectorAll('#preview-img, #preview-video').forEach(elm => {
-            elm.style.filter = css;
+            if (css) elm.style.filter = css;
+            else elm.style.removeProperty('filter');
         });
     }
 
@@ -290,6 +300,11 @@ export function render(container, state) {
                     color:${f.id === selectedFilter ? '#fff' : fg};
                     font-size:0.95rem;cursor:pointer;min-height:2.75rem;white-space:nowrap;
                 ">${f.label}</button>`).join('')}
+            ${filterLivePreview ? '' : `
+            <div style="flex-basis:100%;text-align:center;font-size:0.8rem;opacity:0.75;
+                        color:${onDark ? 'rgba(255,255,255,0.85)' : 'var(--pb-color-text-muted)'};">
+                Der Look erscheint auf dem fertigen Foto.
+            </div>`}
         </div>`;
     }
 

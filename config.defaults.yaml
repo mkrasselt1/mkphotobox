@@ -37,6 +37,11 @@ guestbook:                   # Gäste malen/schreiben nach der Aufnahme aufs Fot
 
 filters:                     # Looks, die die Gäste vor der Aufnahme wählen
   enabled: true              # false = keine Auswahl im Booth, immer Original
+  # Look schon im Live-Bild zeigen. Das ist zwar schöner, kostet aber pro Einzelbild
+  # Rechenzeit im Browser — auf schwacher Hardware wird die Vorschau dadurch zum
+  # Daumenkino. Dann hier auf false: die Auswahl bleibt, der Look wird weiterhin
+  # ins Foto gerechnet, nur das Live-Bild bleibt unbearbeitet und damit flüssig.
+  live_preview: true
   # Reihenfolge/Auswahl der angebotenen Looks. Leer lassen = alle. Verfügbar:
   # none, bw, noir, sepia, vintage, warm, cool, pop
   available: []

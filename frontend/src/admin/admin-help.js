@@ -69,8 +69,13 @@ const SECTIONS = [
         <p>Der Look wird fest ins Foto gerechnet und ist damit überall dabei: in der Collage, im Druck,
         auf dem USB-Stick und im Download der Gäste. Nach jedem Gast steht die Auswahl wieder auf
         „Original".</p>
-        <p>Abschalten oder auf einzelne Looks beschränken lässt sich das im Abschnitt
-        <code>filters</code> der Konfiguration.</p>`,
+        <p><strong>Wenn die Live-Vorschau ruckelt:</strong> Den Look im Live-Bild zu zeigen kostet
+        pro Einzelbild Rechenzeit im Browser — auf schwacher Hardware wird die Vorschau dadurch zum
+        Daumenkino. Unter <em>Kameras → Looks</em> lässt sich <em>„Look schon im Live-Bild zeigen"</em>
+        abschalten: Die Gäste wählen weiterhin einen Look und bekommen ihn auch aufs Foto, nur das
+        Live-Bild bleibt unbearbeitet und dadurch flüssig.</p>
+        <p>Die Auswahl ganz abschalten oder auf einzelne Looks beschränken lässt sich ebenfalls dort
+        bzw. im Abschnitt <code>filters</code> der Konfiguration.</p>`,
     },
     {
         icon: '✍️', title: 'Gästebuch',

@@ -117,6 +117,17 @@ def is_enabled(cfg: dict | None) -> bool:
     return bool(cfg.get("filters", {}).get("enabled", True))
 
 
+def live_preview_enabled(cfg: dict | None) -> bool:
+    """Whether the booth may put the look on the *live* image.
+
+    Filtering every preview frame costs real time in the browser; on a weak box
+    the preview turns into a slideshow. Switching this off keeps the choice and
+    still bakes the look into the photo — only the live image stays untouched."""
+    if not isinstance(cfg, dict):
+        return True
+    return bool(cfg.get("filters", {}).get("live_preview", True))
+
+
 def available(cfg: dict | None = None) -> list[dict[str, str]]:
     """The looks the booth may offer, in the configured order.
 

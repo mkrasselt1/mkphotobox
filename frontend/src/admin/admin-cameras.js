@@ -72,6 +72,8 @@ export async function render(container, state) {
     const soundVolume = Number(settings?.session?.sound_volume ?? 0.6);
     const flashEnabled = settings?.session?.flash_enabled !== false;
     const boomerang = settings?.gif?.boomerang === true;
+    const filtersEnabled = settings?.filters?.enabled !== false;
+    const filtersLive = settings?.filters?.live_preview !== false;
 
     // DSLR focus modes (gphoto2) — loaded ASYNC after render (see loadFocusModes
     // below) so a slow/busy camera (live preview holding the lock) never blocks
@@ -201,6 +203,26 @@ export async function render(container, state) {
                     funktioniert also auch ohne Internet. Der Bildschirm muss einmal berührt worden sein,
                     bevor Browser überhaupt Ton abspielen.
                 </p>
+            </div>
+
+            <div class="admin-card">
+                <h3>Looks (Farbfilter)</h3>
+                <label style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;margin-bottom:0.7rem;">
+                    <input type="checkbox" id="filters-enabled" ${filtersEnabled ? 'checked' : ''}>
+                    <span>Gäste dürfen einen Look wählen</span>
+                </label>
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;margin-left:1.9rem;">
+                    <input type="checkbox" id="filters-live" ${filtersLive ? 'checked' : ''} style="margin-top:0.25rem;">
+                    <span>
+                        <strong>Look schon im Live-Bild zeigen</strong>
+                        <span style="display:block;font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.15rem;">
+                            Schöner, kostet aber pro Einzelbild Rechenzeit im Browser. Wenn die
+                            <strong>Live-Vorschau ruckelt oder zum Daumenkino wird, hier ausschalten</strong> —
+                            die Auswahl bleibt bestehen und der Look landet weiterhin im fertigen Foto,
+                            nur das Live-Bild bleibt unbearbeitet und dadurch flüssig.
+                        </span>
+                    </span>
+                </label>
             </div>
 
             <div class="admin-card">
@@ -389,6 +411,8 @@ export async function render(container, state) {
                     Math.max(0, Math.min(100, parseInt(container.querySelector('#sound-volume').value) || 0)) / 100),
                 putSetting('session.flash_enabled', container.querySelector('#flash-enabled').checked),
                 putSetting('gif.boomerang', container.querySelector('#gif-boomerang').checked),
+                putSetting('filters.enabled', container.querySelector('#filters-enabled').checked),
+                putSetting('filters.live_preview', container.querySelector('#filters-live').checked),
             ]);
 
             msg.style.color = 'var(--pb-color-success)';

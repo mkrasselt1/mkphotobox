@@ -84,8 +84,11 @@ def list_photo_filters(request: Request):
 
     cfg = request.app.state.config
     if not photo_filters.is_enabled(cfg):
-        return {"enabled": False, "filters": []}
-    return {"enabled": True, "filters": photo_filters.available(cfg)}
+        return {"enabled": False, "live_preview": False, "filters": []}
+    return {"enabled": True,
+            # False = Auswahl ja, Look im Live-Bild nein (schont schwache Hardware)
+            "live_preview": photo_filters.live_preview_enabled(cfg),
+            "filters": photo_filters.available(cfg)}
 
 
 # ── Capture ───────────────────────────────────────────────────────────────
