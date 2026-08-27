@@ -94,6 +94,32 @@ sed -i "s|__URL__|$KIOSK_URL|g; s|__CMD__|$CMD|g" "$HOME_DIR/.config/openbox/aut
 chmod +x "$HOME_DIR/.config/openbox/autostart"
 chown -R "$KIOSK_USER:$KIOSK_USER" "$HOME_DIR/.config/openbox"
 
+# ── zweiter Startweg: tty1-Autologin + startx (~/.xinitrc) ────────────────
+# Nicht jede Box hat SDDM. Wo die Sitzung über die Konsole hochkommt, startet
+# `openbox &` aus ~/.xinitrc — und dann wird ~/.config/openbox/autostart NICHT
+# ausgeführt (das macht nur openbox-session). Ohne eine gepflegte ~/.xinitrc
+# läuft dort also weiter eine alte Fassung, typischerweise die, die vor dem
+# Browserstart auf die App wartet: minutenlang schwarzer Bildschirm.
+# Darum hier dieselbe Logik ein zweites Mal ablegen, aus derselben Quelle.
+if [[ -f "$HOME_DIR/.xinitrc" ]] && ! cmp -s "$APP_DIR/scripts/kiosk/xinitrc" "$HOME_DIR/.xinitrc"; then
+  cp -a "$HOME_DIR/.xinitrc" "$HOME_DIR/.xinitrc.bak-$(date +%Y%m%d-%H%M%S)"
+  echo "    alte ~/.xinitrc gesichert"
+fi
+sed -e "s|^APP_DIR=.*|APP_DIR=\"$APP_DIR\"|" \
+    -e "s|^URL=.*|URL=\"$KIOSK_URL\"|" \
+    "$APP_DIR/scripts/kiosk/xinitrc" > "$HOME_DIR/.xinitrc"
+chmod +x "$HOME_DIR/.xinitrc"
+chown "$KIOSK_USER:$KIOSK_USER" "$HOME_DIR/.xinitrc"
+
+# Autologin-Shell auf tty1 startet X, falls dieser Weg genutzt wird.
+PROFILE="$HOME_DIR/.bash_profile"
+LINE='if [ "$(tty)" = "/dev/tty1" ] && [ -z "$DISPLAY" ]; then exec startx -- -nocursor; fi'
+if ! grep -qF 'exec startx' "$PROFILE" 2>/dev/null; then
+  printf '%s\n' '#!/bin/sh' "$LINE" >> "$PROFILE"
+  chown "$KIOSK_USER:$KIOSK_USER" "$PROFILE"
+fi
+echo "    ~/.xinitrc aktualisiert (Ladebildschirm sofort, kein schwarzes Warten)"
+
 # ── kiosk X session + SDDM autologin ──────────────────────────────────────
 cat > /usr/share/xsessions/kiosk.desktop <<'XS'
 [Desktop Entry]

@@ -182,8 +182,11 @@ echo ">>> [4/5] systemd-Dienst"
 cat > /etc/systemd/system/mkphotobox.service <<UNIT
 [Unit]
 Description=MKPhotobox
-After=network-online.target
-Wants=network-online.target
+# Bewusst NICHT network-online.target: die Box arbeitet offline. Warten wir auf
+# eine Internetverbindung, blockiert NetworkManager-wait-online den Start bis zu
+# seinem Timeout (30s) — und der Kiosk zeigt so lange einen schwarzen Bildschirm.
+# network.target genügt: der Uvicorn bindet auf 0.0.0.0, eine Route braucht er nicht.
+After=network.target
 
 [Service]
 User=$RUN_USER
