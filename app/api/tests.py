@@ -9,7 +9,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from app.auth import require_role
@@ -1800,3 +1800,39 @@ def test_live_gallery_gate(request: Request, session: Session):
         assert field in data, f"Feld '{field}' fehlt in /system/share-base"
     return (f"Kachel {'sichtbar' if data['live_gallery'] else 'ausgeblendet'} · "
             f"Adresse {'öffentlich' if data['public'] else 'nur LAN'}")
+
+
+@_register("module_toggle", "Module ein-/ausschalten", "System",
+           "Schaltet eine Ausgabe wirklich ab und wieder an und prüft, dass die Box es übernimmt")
+async def test_module_toggle(request: Request, session: Session):
+    from app.api.modules import set_module_enabled
+    from app.config import get_config, get_nested
+
+    mod = "output.download"
+    before = bool(get_nested(get_config(), "outputs.download.enabled", True))
+    loaded = lambda: any(o.get("name") == mod for o in request.app.state.outputs.list_outputs())
+
+    try:
+        off = await set_module_enabled(mod, {"enabled": False}, request, session)
+        assert off["enabled"] is False, "Ausschalten wurde nicht übernommen"
+        assert off["restart_required"] is False, "Ausgaben sollten ohne Neustart greifen"
+        assert not loaded(), "Modul läuft nach dem Ausschalten weiter"
+        assert get_nested(get_config(), "outputs.download.enabled") is False, \
+            "Einstellung wurde nicht in die Konfiguration geschrieben"
+
+        on = await set_module_enabled(mod, {"enabled": True}, request, session)
+        assert on["enabled"] is True and on["loaded"] is True, \
+            f"Wiedereinschalten fehlgeschlagen: {on}"
+        assert loaded(), "Modul ist nach dem Einschalten nicht geladen"
+    finally:
+        # Der Ausgangszustand muss stehen bleiben — ein Test darf die Box nicht umbauen.
+        await set_module_enabled(mod, {"enabled": before}, request, session)
+
+    # Ein unbekanntes Modul muss abgelehnt werden, nicht stillschweigend angelegt.
+    try:
+        await set_module_enabled("output.gibtsnicht", {"enabled": True}, request, session)
+        raise AssertionError("Unbekanntes Modul wurde angenommen")
+    except HTTPException as exc:
+        assert exc.status_code == 404, f"Falscher Fehlercode: {exc.status_code}"
+
+    return f"{mod} aus- und wieder eingeschaltet, Ausgangszustand ({'an' if before else 'aus'}) erhalten"

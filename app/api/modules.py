@@ -5,9 +5,12 @@ from __future__ import annotations
 import importlib
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlmodel import Session
 
 from app.auth import require_role
+from app.config import get_config, persist_settings
+from app.database import get_session
 from app.models import User
 from app.modules import MODULE_REGISTRY
 
@@ -169,6 +172,59 @@ def list_modules(
 ):
     """List all modules (loaded and unloaded) with their status."""
     return _build_all_modules(request)
+
+
+#: Kategorie -> Abschnitt in der Konfiguration. "payment" ist im Singular, weil
+#: der Abschnitt in config.yaml so heißt — die Mehrzahl wäre hier ein Fehler.
+_CONFIG_SECTION = {
+    "camera": "cameras",
+    "trigger": "triggers",
+    "output": "outputs",
+    "payment": "payment",
+}
+
+
+@router.post("/{module_id:path}/enabled")
+async def set_module_enabled(
+    module_id: str,
+    body: dict,
+    request: Request,
+    session: Session = Depends(get_session),
+    _user: User = Depends(require_role("admin")),
+):
+    """Ein Modul ein- oder ausschalten.
+
+    Die Einstellung landet in der DB-Ebene und überlebt damit einen Neustart.
+    Ausgaben lassen sich sofort nachladen; Kameras, Auslöser und Bezahlung
+    werden nur beim Start aufgebaut — dort meldet die Antwort ``restart_required``,
+    damit die Oberfläche nicht behauptet, es sei schon erledigt.
+    """
+    if module_id not in MODULE_REGISTRY:
+        raise HTTPException(status_code=404, detail=f"Unbekanntes Modul: {module_id}")
+    enabled = bool(body.get("enabled"))
+
+    category, short_id = module_id.split(".", 1)
+    section = _CONFIG_SECTION.get(category)
+    if not section:
+        raise HTTPException(status_code=400, detail=f"Unbekannte Kategorie: {category}")
+
+    # Erst prüfen, ob die Box das überhaupt kann — sonst schaltet die Oberfläche
+    # etwas ein, das anschließend still nicht lädt.
+    requirement = _system_requirement(module_id)
+    if enabled and requirement:
+        raise HTTPException(status_code=409, detail=requirement)
+
+    persist_settings(session, {f"{section}.{short_id}.enabled": enabled})
+    cfg = get_config()
+    mod_conf = (cfg.get(section, {}) or {}).get(short_id, {}) or {}
+
+    if category == "output":
+        loaded = await request.app.state.outputs.reload_output(module_id, mod_conf)
+        return {"status": "ok", "id": module_id, "enabled": enabled,
+                "loaded": loaded, "restart_required": False}
+
+    return {"status": "ok", "id": module_id, "enabled": enabled,
+            "loaded": False, "restart_required": True}
 
 
 @router.get("/{module_id:path}/config")
