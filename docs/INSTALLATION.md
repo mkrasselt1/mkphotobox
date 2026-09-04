@@ -71,6 +71,50 @@ Toggles z. B. `WITH_GPHOTO2=1 WITH_PRINTER=1 WITH_TAILSCALE=1 …` — siehe Kop
 Standard-Login: **`admin` / `admin`** (nach dem ersten Start in den Einstellungen
 ändern).
 
+### Zwischen Kiosk und Desktop umschalten
+
+`kiosk-setup.sh` richtet den Kiosk **einmalig** ein (SDDM, Autologin, openbox).
+Danach wechselt [`scripts/mode.sh`](../scripts/mode.sh) zwischen den beiden
+Betriebsarten hin und her — praktisch, wenn dieselbe Box mal Fotobox und mal
+Arbeitsrechner ist.
+
+**Im Alltag genügt der Button:** Admin-Bereich → **Anzeigemodus** (unten in der
+Seitenleiste, neben *Software aktualisieren*). Der Dialog zeigt den aktuellen
+Modus, schaltet um und bietet an, gleich neu zu starten. Ist der Kiosk noch nicht
+eingerichtet, sagt er das statt eine tote Schaltfläche anzubieten.
+
+Auf der Konsole:
+
+```bash
+sudo ./scripts/mode.sh status           # Wo stehe ich gerade?
+sudo ./scripts/mode.sh desktop          # GDM3, normaler Anmeldebildschirm
+sudo ./scripts/mode.sh kiosk            # SDDM, Autologin in den Vollbild-Browser
+sudo ./scripts/mode.sh desktop --now    # sofort, ohne Neustart
+```
+
+Ohne `--now` greift der Wechsel beim nächsten Neustart. Mit `--now` wird der
+Displaymanager sofort getauscht — **die laufende grafische Sitzung stirbt dabei**,
+also nur per SSH oder von einer Textkonsole (`Strg`+`Alt`+`F3`) aus benutzen.
+
+Umgeschaltet werden drei Dinge, die `kiosk-setup.sh` gesetzt hat: der
+Displaymanager (`/etc/systemd/system/display-manager.service` und
+`/etc/X11/default-display-manager`), der SDDM-Autologin und die von `kiosk-setup.sh`
+nach `.disabled` verschobenen X-Sitzungen. Dazu die `exec startx`-Zeile in der
+`~/.bash_profile` des Kiosk-Benutzers, die sonst auch im Desktop-Modus jede
+tty1-Anmeldung in den Kiosk kippen würde.
+
+`mkphotobox.service` läuft in **beiden** Modi weiter — im Desktop-Modus erreichst
+du die Box einfach im normalen Browser unter <http://localhost:8080>.
+
+**Berechtigungen:** `setup.sh` installiert eine root-eigene Kopie des Umschalters
+als `/usr/local/sbin/mkphotobox-mode` und nimmt `mkphotobox-mode kiosk` und
+`mkphotobox-mode desktop` in die sudoers-Regel auf. Bewusst eine Kopie und nicht
+das Skript im Checkout: Ein passwortlos als root ausführbares Skript, das der
+Dienst-Benutzer selbst überschreiben kann, wäre ein Freifahrtschein zu root.
+Ebenso bewusst sind die erlaubten Argumente ausgeschrieben — `--now` bleibt damit
+der Konsole vorbehalten, und die Oberfläche kann sich nicht selbst den Bildschirm
+unter den Füßen wegziehen.
+
 ### Schnellstart (Entwicklung, ohne Dienst)
 
 ```bash
@@ -132,9 +176,12 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
   `libgphoto2-dev`). Die DSLR ist nur von **einem** Prozess gleichzeitig nutzbar.
 - **Serieller Touchscreen** (z. B. EETI eGalax): `inputattach` als Dienst +
   `libinput`-Kalibriermatrix — richtet `kiosk-setup.sh` ein (`TOUCH_SERIAL=…`).
-- **Herunterfahren / Self-Update**: brauchen die NOPASSWD-sudoers-Regel aus
-  `setup.sh` (`/etc/sudoers.d/mkphotobox`). Fehlt sie, melden die Buttons „keine
-  Berechtigung".
+- **Herunterfahren / Self-Update / Anzeigemodus**: brauchen die NOPASSWD-sudoers-Regel
+  aus `setup.sh` (`/etc/sudoers.d/mkphotobox`). Fehlt sie, melden die Buttons „keine
+  Berechtigung". Der Anzeigemodus-Button braucht zusätzlich die root-eigene Kopie
+  `/usr/local/sbin/mkphotobox-mode`, die `setup.sh` bei jedem Lauf erneuert — nach
+  einem Self-Update, der `scripts/mode.sh` verändert hat, also einmal
+  `sudo ./scripts/setup.sh` nachziehen.
 - **WLAN verbinden schlägt fehl, obwohl Netze gefunden werden**: Der Dienst läuft
   ohne Login-Sitzung, deshalb lehnt polkit alle schreibenden NetworkManager-
   Aktionen ab („Not authorized to control networking"). Scannen braucht keine

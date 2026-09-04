@@ -222,10 +222,23 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now mkphotobox.service
 
+# ── 4b) Modus-Umschalter (Kiosk <-> Desktop) ──────────────────────────────
+# Bewusst eine root-eigene KOPIE unter /usr/local/sbin statt des Skripts im
+# Checkout: die Regel unten erlaubt den Aufruf ohne Passwort, und ein Skript,
+# das $RUN_USER selbst überschreiben kann, wäre damit ein Freifahrtschein zu
+# root. Die Kopie wird bei jedem setup.sh-Lauf erneuert — nach einem
+# Self-Update, der mode.sh ändert, also einmal `sudo ./scripts/setup.sh`
+# nachziehen (der Umschalter funktioniert derweil in der alten Fassung weiter).
+echo ">>> [4b] Modus-Umschalter -> /usr/local/sbin/mkphotobox-mode"
+install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkphotobox-mode
+
 # allow the app user to power off / reboot / restart-itself without a password
-# (admin Herunterfahren + Software-aktualisieren buttons)
-echo ">>> sudoers: Herunterfahren/Neustart/Service-Restart ohne Passwort"
-printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
+# (admin Herunterfahren + Software-aktualisieren buttons) und den Anzeigemodus
+# umzuschalten. Beim Umschalter sind die erlaubten Argumente ausgeschrieben:
+# so bleibt '--now' der Konsole vorbehalten und die Oberfläche kann sich nicht
+# selbst den Bildschirm unter den Füßen wegziehen.
+echo ">>> sudoers: Herunterfahren/Neustart/Service-Restart/Modus ohne Passwort"
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox, /usr/local/sbin/mkphotobox-mode kiosk, /usr/local/sbin/mkphotobox-mode desktop\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
 if visudo -cf /tmp/mkphotobox-sudoers >/dev/null 2>&1; then
   install -m 440 -o root -g root /tmp/mkphotobox-sudoers /etc/sudoers.d/mkphotobox
   echo "  sudoers-Regel installiert"

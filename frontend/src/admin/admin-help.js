@@ -195,11 +195,22 @@ const SECTIONS = [
         Admin-Bereiche. Admin-only-Bereiche bleiben verborgen.</p>`,
     },
     {
-        icon: '⚙️', title: 'System: Aktualisieren & Herunterfahren',
+        icon: '⚙️', title: 'System: Aktualisieren, Anzeigemodus & Herunterfahren',
         html: `<p><strong>Software aktualisieren</strong> holt den neuesten Stand von GitHub und startet die Box
         neu — Schema-Migrationen laufen automatisch. <strong>Herunterfahren</strong> fährt die Box sauber herunter
         (warnt bei offenen Druckaufträgen).</p>
-        <p>Beides braucht eine Berechtigung, die beim Einrichten (<code>setup.sh</code>) angelegt wird. Fehlt sie,
+        <p><strong>Anzeigemodus</strong> schaltet um, womit die Box startet:</p>
+        <ul>
+            <li><strong>Fotobox</strong> — der Betriebsmodus: automatischer Start in den Vollbild-Browser,
+            kein Anmeldebildschirm, keine Fenster.</li>
+            <li><strong>Desktop</strong> — normaler Anmeldebildschirm mit Schreibtisch, zum Einrichten und
+            Warten. Die Box-Software läuft dabei weiter und ist im Browser unter
+            <code>http://localhost:8080</code> erreichbar.</li>
+        </ul>
+        <p>Der Wechsel greift erst beim Neustart — deshalb bietet der Dialog an, gleich neu zu starten.
+        Der Fotobox-Modus muss einmalig über SSH eingerichtet worden sein
+        (<code>sudo ./scripts/kiosk-setup.sh</code>); vorher ist die Schaltfläche ausgegraut und sagt das auch.</p>
+        <p>Alle drei brauchen eine Berechtigung, die beim Einrichten (<code>setup.sh</code>) angelegt wird. Fehlt sie,
         meldet der Button „keine Berechtigung" — dann <code>setup.sh</code> erneut ausführen.</p>`,
     },
 ];

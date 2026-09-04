@@ -203,3 +203,15 @@ fi
 systemctl restart sddm
 echo ">>> Kiosk eingerichtet. Anzeige startet neu."
 echo "    (Browser=$BROWSER, Session=kiosk, User=$KIOSK_USER)"
+
+# Modus-Umschalter mitziehen. setup.sh legt ihn normalerweise an; hier noch
+# einmal, falls der Kiosk nachträglich auf eine ältere Installation aufgesetzt
+# wird. Die sudoers-Regel dafür kommt aus setup.sh.
+install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkphotobox-mode
+
+echo
+echo ">>> Kiosk eingerichtet. Aktiv nach dem nächsten Neustart."
+echo "    Hin und her schalten (Kiosk <-> normaler GDM3-Desktop):"
+echo "      sudo $APP_DIR/scripts/mode.sh status"
+echo "      sudo $APP_DIR/scripts/mode.sh desktop"
+echo "      sudo $APP_DIR/scripts/mode.sh kiosk"

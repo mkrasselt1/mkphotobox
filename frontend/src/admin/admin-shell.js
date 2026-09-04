@@ -89,6 +89,7 @@ export function adminShell(contentHTML) {
             <div style="flex:1;"></div>
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
             ${isAdmin ? '<a href="#" class="nav-item" id="btn-update"><span class="nav-icon">⬆️</span><span>Software aktualisieren</span></a>' : ''}
+            ${isAdmin ? '<a href="#" class="nav-item" id="btn-mode"><span class="nav-icon">🖥️</span><span>Anzeigemodus</span></a>' : ''}
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
             ${isAdmin ? '<a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>' : ''}
         </nav>
@@ -253,6 +254,91 @@ export function setupLogout(container) {
                 go.disabled = false;
             }
         });
+    });
+
+    container.querySelector('#btn-mode')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const h = getHeaders();
+        let info = { mode: 'unknown', kiosk_ready: false, desktop_ready: false, can_switch: false };
+        try { info = await fetch('/api/v1/system/mode', { headers: h }).then(r => r.json()); } catch {}
+
+        const MODES = {
+            kiosk: {
+                label: 'Fotobox', icon: '📸',
+                desc: 'Startet automatisch in den Vollbild-Browser. Kein Anmeldebildschirm, keine Fenster — das ist der Betriebsmodus für die Veranstaltung.',
+                ready: info.kiosk_ready,
+                missing: 'Auf dieser Box noch nicht eingerichtet — einmalig <code>sudo ./scripts/kiosk-setup.sh</code> über SSH ausführen.',
+            },
+            desktop: {
+                label: 'Desktop', icon: '🖥️',
+                desc: 'Normaler Anmeldebildschirm mit Schreibtisch. Zum Einrichten, Warten und Debuggen. Die Box-Software läuft weiter und ist unter localhost:8080 erreichbar.',
+                ready: info.desktop_ready,
+                missing: 'Kein Anmeldebildschirm installiert — <code>sudo apt install gdm3</code>.',
+            },
+        };
+        const current = MODES[info.mode];
+
+        const card = (key) => {
+            const m = MODES[key];
+            const isCurrent = info.mode === key;
+            return `<div style="border:1px solid ${isCurrent ? 'var(--pb-color-primary,#6c8cff)' : 'var(--pb-color-border,#2a3a5e)'};border-radius:12px;padding:0.9rem 1rem;margin-top:0.75rem;">
+                <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <span style="font-size:1.2rem;">${m.icon}</span>
+                    <strong>${m.label}</strong>
+                    ${isCurrent ? '<span style="margin-left:auto;font-size:0.78rem;color:var(--pb-color-success);">● aktiv</span>' : ''}
+                </div>
+                <p style="margin:0.4rem 0 0;font-size:0.86rem;color:var(--pb-color-text-muted);">${m.desc}</p>
+                ${m.ready ? '' : `<p style="margin:0.4rem 0 0;font-size:0.82rem;color:var(--pb-color-error);">⚠️ ${m.missing}</p>`}
+                ${isCurrent || !m.ready || !info.can_switch ? '' :
+                    `<button class="admin-btn admin-btn-primary md-switch" data-mode="${key}" style="margin-top:0.7rem;">Auf „${m.label}" umschalten</button>`}
+            </div>`;
+        };
+
+        const o = document.createElement('div');
+        o.id = 'pb-mode';
+        o.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:1.5rem;';
+        o.innerHTML = `<div style="background:var(--pb-color-surface);border:1px solid var(--pb-color-border,#2a3a5e);border-radius:16px;padding:1.75rem;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 24px 70px rgba(0,0,0,0.6);">
+            <h2 style="margin:0 0 0.25rem;">Anzeigemodus</h2>
+            <p style="margin:0;font-size:0.9rem;color:var(--pb-color-text-muted);">
+                Aktuell: <strong>${current ? current.label : 'unbekannt'}</strong>${info.dm ? ` <code style="font-size:0.8rem;">(${info.dm})</code>` : ''}
+            </p>
+            ${info.can_switch ? '' : `<p style="margin:0.6rem 0 0;font-size:0.85rem;color:var(--pb-color-error);">⚠️ Umschalten ist nicht erlaubt${info.installed ? ' (sudoers-Regel fehlt)' : ' (Umschalter nicht installiert)'} — einmalig <code>sudo ./scripts/setup.sh</code> ausführen.</p>`}
+            ${card('kiosk')}
+            ${card('desktop')}
+            <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;font-size:0.88rem;">
+                <input type="checkbox" id="md-reboot" checked> Direkt neu starten (sonst beim nächsten Einschalten)
+            </label>
+            <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.25rem;">
+                <button id="md-cancel" class="admin-btn admin-btn-outline">Schließen</button>
+            </div>
+            <p id="md-msg" style="margin:0.75rem 0 0;font-size:0.9rem;"></p>
+        </div>`;
+        document.body.appendChild(o);
+        o.querySelector('#md-cancel').addEventListener('click', () => o.remove());
+
+        o.querySelectorAll('.md-switch').forEach(btn => btn.addEventListener('click', async () => {
+            const mode = btn.dataset.mode;
+            const reboot = o.querySelector('#md-reboot').checked;
+            const msg = o.querySelector('#md-msg');
+            o.querySelectorAll('button, input').forEach(b => b.disabled = true);
+            msg.style.color = 'var(--pb-color-text-muted)';
+            msg.textContent = 'Schalte um…';
+            try {
+                const res = await fetch('/api/v1/system/mode', {
+                    method: 'POST', headers: h, body: JSON.stringify({ mode, reboot }),
+                });
+                const r = await res.json();
+                if (!res.ok) throw new Error(r.detail || 'Fehler');
+                msg.style.color = 'var(--pb-color-success)';
+                msg.textContent = r.rebooting
+                    ? `✓ Umgeschaltet auf „${MODES[mode].label}" — Box startet neu…`
+                    : `✓ Umgeschaltet auf „${MODES[mode].label}" — aktiv beim nächsten Neustart.`;
+            } catch (err) {
+                msg.style.color = 'var(--pb-color-error)';
+                msg.textContent = 'Fehler: ' + err.message;
+                o.querySelectorAll('button, input').forEach(b => b.disabled = false);
+            }
+        }));
     });
 
     container.querySelector('#btn-shutdown')?.addEventListener('click', async (e) => {

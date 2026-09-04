@@ -133,6 +133,103 @@ def reboot(body: dict | None = None, _user=Depends(require_role("admin"))):
     return {"status": "rebooting", "pending_jobs": len(jobs), "forced": bool(body.get("force"))}
 
 
+# ── Anzeigemodus (Kiosk <-> Desktop) ─────────────────────────────────────────
+
+# Die root-eigene Kopie, die setup.sh anlegt — nur sie steht in der
+# sudoers-Regel. Das Skript im Checkout ist der Rückfall für den Status
+# (rein lesend, braucht kein root) auf Installationen, die setup.sh noch
+# nicht in dieser Fassung gesehen haben.
+MODE_SCRIPT = "/usr/local/sbin/mkphotobox-mode"
+MODE_SCRIPT_REPO = str(Path(__file__).resolve().parents[2] / "scripts" / "mode.sh")
+MODES = ("kiosk", "desktop")
+
+
+def _mode_status() -> dict:
+    """Read the current display mode via ``mode.sh status --json`` (no sudo)."""
+    import json
+    import subprocess
+
+    for script in (MODE_SCRIPT, MODE_SCRIPT_REPO):
+        if not os.path.isfile(script):
+            continue
+        try:
+            r = subprocess.run([script, "status", "--json"],
+                               capture_output=True, text=True, timeout=15)
+            if r.returncode == 0 and r.stdout.strip():
+                return json.loads(r.stdout)
+        except Exception:
+            continue
+    return {}
+
+
+@router.get("/system/mode")
+def get_display_mode(_user=Depends(require_role("admin"))):
+    """Current display mode + whether the box can switch to the other one."""
+    st = _mode_status()
+    installed = os.path.isfile(MODE_SCRIPT)
+    return {
+        "mode": st.get("mode", "unknown"),
+        "dm": st.get("dm", ""),
+        "kiosk_ready": bool(st.get("kiosk_ready")),
+        "desktop_ready": bool(st.get("desktop_ready")),
+        "autologin_user": st.get("autologin_user", ""),
+        "installed": installed,
+        # Ohne die sudoers-Regel kann die Oberfläche nur anzeigen, nicht schalten.
+        "can_switch": installed and _can_sudo(MODE_SCRIPT, "kiosk"),
+    }
+
+
+@router.post("/system/mode")
+def set_display_mode(body: dict | None = None, _user=Depends(require_role("admin"))):
+    """Switch between kiosk and desktop mode.
+
+    Takes effect on the next boot — deliberately not ``--now``: the admin UI is
+    usually *displayed by* the kiosk browser, so restarting the display manager
+    straight away would kill the page that just sent the request. Pass
+    ``{"reboot": true}`` to reboot right after switching."""
+    import subprocess
+
+    body = body or {}
+    mode = str(body.get("mode", "")).strip()
+    if mode not in MODES:
+        raise HTTPException(status_code=400, detail=f"Modus muss {' oder '.join(MODES)} sein.")
+
+    st = _mode_status()
+    if mode == "kiosk" and not st.get("kiosk_ready"):
+        raise HTTPException(status_code=409,
+                            detail="Kiosk ist auf dieser Box nicht eingerichtet — "
+                                   "einmalig 'sudo ./scripts/kiosk-setup.sh' ausführen.")
+    if mode == "desktop" and not st.get("desktop_ready"):
+        raise HTTPException(status_code=409,
+                            detail="Kein Desktop-Anmeldebildschirm installiert — "
+                                   "'sudo apt install gdm3' ausführen.")
+
+    if not os.path.isfile(MODE_SCRIPT):
+        raise HTTPException(status_code=500,
+                            detail="Umschalter fehlt (/usr/local/sbin/mkphotobox-mode) — "
+                                   "scripts/setup.sh erneut ausführen.")
+    if not _can_sudo(MODE_SCRIPT, mode):
+        raise HTTPException(status_code=500,
+                            detail="Keine Berechtigung zum Umschalten — sudoers-Regel fehlt "
+                                   "(scripts/setup.sh erneut ausführen).")
+
+    r = subprocess.run(["sudo", "-n", MODE_SCRIPT, mode],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise HTTPException(status_code=500,
+                            detail=f"Umschalten fehlgeschlagen: {(r.stderr or r.stdout).strip()[:300]}")
+
+    rebooting = False
+    if body.get("reboot"):
+        res = _power_action("reboot")
+        if res.get("status") == "error":
+            raise HTTPException(status_code=500, detail=res["message"])
+        rebooting = True
+
+    return {"status": "ok", "mode": mode, "rebooting": rebooting,
+            "output": r.stdout.strip()[-500:]}
+
+
 # ── Self-update (git pull + restart) ─────────────────────────────────────────
 
 SERVICE_NAME = "mkphotobox.service"
