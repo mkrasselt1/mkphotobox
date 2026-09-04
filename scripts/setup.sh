@@ -78,7 +78,7 @@ sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" --upgrade pip
 sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" setuptools wheel
 sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" -e "$APP_DIR"
 # CRITICAL: pin compatible fastapi/starlette (newer versions silently break include_router)
-sudo -u "$RUN_USER" "$PIP" install "fastapi==0.135.3" "starlette==1.0.0"
+sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" "fastapi==0.135.3" "starlette==1.0.0"
 # Optional extras. These used to end in "|| true", which silenced every failure:
 # a box could run for months with the OpenCV camera and the evdev triggers simply
 # absent, and the admin page had no way to say so. Failures are now collected and
@@ -108,13 +108,33 @@ if [[ "$WITH_PAYMENT"  == 1 ]]; then pip_extra "Bezahlung (httpx)"   "httpx>=0.2
 if [[ "$WITH_BG_AI"    == 1 ]]; then pip_extra "KI-Hintergrund"      "rembg>=2.0"; fi
 rm -f /tmp/mkphotobox-pip.log
 
+# Prüfen, ob die Anwendung überhaupt lädt, BEVOR ein Dienst eingerichtet wird.
+# Schlägt das fehl, endete der Lauf früher mit einem nackten Python-Traceback
+# mitten in Schritt 2 — ohne Hinweis, dass die restlichen Schritte (Dienst,
+# Gruppen, polkit) gar nicht mehr gelaufen sind. Jetzt mit Klartext.
 echo ">>> verify imports + route registration"
-sudo -u "$RUN_USER" "$PY" - <<PYEOF
+VERIFY_LOG=/tmp/mkphotobox-verify.log
+if sudo -u "$RUN_USER" "$PY" - >"$VERIFY_LOG" 2>&1 <<'PYEOF'
 import app.main as m
-print("routes:", len(m.app.routes))
-assert len(m.app.routes) > 80, "too few routes — check fastapi/starlette versions!"
+
+n = len(m.app.routes)
+print("routes:", n)
+assert n > 80, f"zu wenige Routen ({n}) — fastapi/starlette-Versionen prüfen!"
 print("OK")
 PYEOF
+then
+  sed 's/^/    /' "$VERIFY_LOG"
+  rm -f "$VERIFY_LOG"
+else
+  echo "!! Die Anwendung lässt sich nicht laden. Das Setup bricht hier ab, damit"
+  echo "   kein Dienst eingerichtet wird, der ohnehin nicht startet."
+  echo "   Geändert wurden bis hierhin nur apt-Pakete und die venv — nach der"
+  echo "   Korrektur einfach 'sudo ./scripts/setup.sh' erneut ausführen."
+  echo
+  tail -n 20 "$VERIFY_LOG" | sed 's/^/      /'
+  rm -f "$VERIFY_LOG"
+  exit 1
+fi
 
 # ── 2b) ensure a real JWT secret_key (avoid the public dev fallback) ──────
 echo ">>> [2b] secret_key sicherstellen"

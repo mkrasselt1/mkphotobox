@@ -263,11 +263,12 @@ def create_app() -> FastAPI:
     # Serve frontend static files on a sub-path so it doesn't interfere with API routes
     frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
     if frontend_dir.exists():
-        app.mount("/src", StaticFiles(directory=str(frontend_dir / "src")), name="frontend-src")
-        app.mount("/assets", StaticFiles(directory=str(frontend_dir / "assets")), name="frontend-assets")
-        vendor_dir = frontend_dir / "vendor"
-        if vendor_dir.exists():
-            app.mount("/vendor", StaticFiles(directory=str(vendor_dir)), name="frontend-vendor")
+        # Nur vorhandene Ordner mounten — StaticFiles wirft sonst beim Start.
+        # "assets" gibt es erst, wenn ein Build sie erzeugt.
+        for sub, name in (("src", "frontend-src"), ("assets", "frontend-assets"), ("vendor", "frontend-vendor")):
+            sub_dir = frontend_dir / sub
+            if sub_dir.is_dir():
+                app.mount(f"/{sub}", StaticFiles(directory=str(sub_dir)), name=name)
 
         # Serve index.html for all non-API, non-static routes (SPA fallback)
         from starlette.requests import Request as StarletteRequest
