@@ -185,6 +185,12 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
   `libgphoto2-dev`). Die DSLR ist nur von **einem** Prozess gleichzeitig nutzbar.
 - **Serieller Touchscreen** (z. B. EETI eGalax): `inputattach` als Dienst +
   `libinput`-Kalibriermatrix — richtet `kiosk-setup.sh` ein (`TOUCH_SERIAL=…`).
+  Kalibrieren mit Fadenkreuzen auf dem Bildschirm (geht auch per SSH, braucht
+  `python3-tk`): `sudo ./scripts/kiosk/touch-calibrate.py`. Die Matrix ist nur
+  linear — ältere resistive Panels krümmen die Kantenmitten nach innen
+  („Kissen“), das gleicht sie nicht aus. Dann in den Einstellungen den
+  **sicheren Rand** setzen (z. B. 50 px bei 1024×768), damit alle Knöpfe im
+  erreichbaren Bereich liegen.
 - **Herunterfahren / Self-Update / Anzeigemodus**: brauchen die NOPASSWD-sudoers-Regel
   aus `setup.sh` (`/etc/sudoers.d/mkphotobox`). Fehlt sie, melden die Buttons „keine
   Berechtigung". Der Anzeigemodus-Button braucht zusätzlich die root-eigene Kopie
