@@ -278,7 +278,10 @@ class Calibrator:
 
     def quit(self, code: int) -> None:
         self.exit_code = code
-        self.root.destroy()
+        # Nicht direkt zerstören: "Fertig" ist ein Tag-Binding, danach feuert
+        # für denselben Tipp noch das Canvas-Binding (dot) — auf einem schon
+        # zerstörten Canvas bricht Tcl mit "alloc: invalid block" ab.
+        self.root.after_idle(self.root.destroy)
 
 
 def write_rule(dev_name: str, matrix: str) -> None:
