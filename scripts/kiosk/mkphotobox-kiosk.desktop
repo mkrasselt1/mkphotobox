@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Fotobox-Modus
+Comment=Auf den Fotobox-Kiosk umschalten (startet die Box neu)
+Exec=__APP_DIR__/scripts/kiosk/to-kiosk.sh
+Icon=camera-photo
+Terminal=false
+Categories=Utility;

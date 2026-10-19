@@ -14,6 +14,10 @@
 # Optional env toggles (default 1 = install):
 #   WITH_GPHOTO2 WITH_PRINTER WITH_CDBURN WITH_WIFI WITH_AUDIO WITH_OPENCV
 #   WITH_TRIGGERS WITH_SERIAL WITH_PAYMENT WITH_BLUETOOTH
+#   WITH_SSH     openssh-server (Fernwartung — ohne kommt man an eine Box mit
+#                schwarzem Bildschirm nicht mehr heran)
+#   WITH_KIOSK   ruft am Ende scripts/kiosk-setup.sh auf (Vollbild-Browser,
+#                Autologin). WITH_KIOSK=0 für eine Box, die im Desktop bleibt.
 # Standardmäßig aus (=0): WITH_BG_AI WITH_TAILSCALE WITH_CLOUDFLARE
 #   RUN_USER=<user>   (default: the invoking sudo user)
 #
@@ -36,6 +40,8 @@ WITH_TRIGGERS="${WITH_TRIGGERS:-1}"      # evdev/pynput (host_keyboard, bluetoot
 WITH_SERIAL="${WITH_SERIAL:-1}"          # pyserial (serieller Auslöser) — klein
 WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-1}"    # bluez + bluez-tools (Foto senden/empfangen)
+WITH_SSH="${WITH_SSH:-1}"                # openssh-server
+WITH_KIOSK="${WITH_KIOSK:-1}"            # Kiosk gleich mit einrichten (kiosk-setup.sh)
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
 WITH_CLOUDFLARE="${WITH_CLOUDFLARE:-0}"  # Cloudflare Quick-Tunnel für öffentliche QR-Links (cloudflared)
@@ -60,8 +66,14 @@ if [[ "$WITH_AUDIO"   == 1 ]]; then PKGS+=(libportaudio2); fi
 # bluez-tools liefert bt-obex/bt-agent (senden + empfangen, headless-tauglich);
 # gnome-bluetooth-sendto wäre ein GTK-Dialog und auf einer Kiosk-Box nutzlos.
 if [[ "$WITH_BLUETOOTH" == 1 ]]; then PKGS+=(bluez bluez-obexd bluez-tools obexftp); fi
+if [[ "$WITH_SSH"     == 1 ]]; then PKGS+=(openssh-server); fi
 apt-get update -y
 apt-get install -y "${PKGS[@]}"
+# Ubuntu Desktop bringt keinen SSH-Server mit. Bleibt der Bildschirm schwarz,
+# ist SSH der einzige Weg auf die Box — also gleich aktivieren.
+if [[ "$WITH_SSH" == 1 ]]; then
+  systemctl enable --now ssh.service >/dev/null 2>&1 || true
+fi
 
 # ── 2) python venv + dependencies ─────────────────────────────────────────
 echo ">>> [2/5] Python-venv + Abhängigkeiten"
@@ -380,7 +392,22 @@ systemctl is-active --quiet mkphotobox.service \
   && echo "    Dienst läuft: http://$(hostname -I | awk '{print $1}'):8080" \
   || { echo "!! Dienst nicht aktiv — Log:"; journalctl -u mkphotobox.service -n 20 --no-pager; }
 echo "    Admin-Login: admin / admin  (bitte ändern)"
-echo "    Optional Kiosk: sudo ./scripts/kiosk-setup.sh"
+[[ "$WITH_SSH" == 1 ]] && echo "    SSH: ssh $RUN_USER@$(hostname -I | awk '{print $1}')"
+
+# ── 6) Kiosk ──────────────────────────────────────────────────────────────
+# Früher nur als "Optional" erwähnt — mit dem Ergebnis, dass frisch aufgesetzte
+# Boxen im GDM-Desktop starteten statt in der Fotobox. kiosk-setup.sh schaltet
+# erst beim nächsten Neustart um, die laufende Sitzung bleibt also stehen.
+if [[ "$WITH_KIOSK" == 1 ]]; then
+  echo
+  echo ">>> Kiosk einrichten (WITH_KIOSK=0 überspringt das)"
+  if ! KIOSK_USER="$RUN_USER" "$APP_DIR/scripts/kiosk-setup.sh"; then
+    echo "!! kiosk-setup.sh ist fehlgeschlagen — die App läuft trotzdem."
+    echo "   Erneut versuchen: sudo ./scripts/kiosk-setup.sh"
+  fi
+else
+  echo "    Kiosk übersprungen. Später: sudo ./scripts/kiosk-setup.sh"
+fi
 
 if [[ ${#PIP_FAILED[@]} -gt 0 ]]; then
   echo

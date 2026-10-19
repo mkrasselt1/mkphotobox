@@ -45,6 +45,23 @@ pick_browser() {
   done
   echo ""
 }
+# Chrome ist der Browser, für den alles ausgelegt ist: ~/.xinitrc startet fest
+# google-chrome-stable, die Richtlinien gegen Sprechblasen gelten nur für
+# Chrome/Chromium. Ubuntu bringt aber nur Firefox (als Snap) mit — der wurde
+# bisher stillschweigend genommen, und der tty1-Startweg blieb schwarz.
+# Darum Chrome nachinstallieren, wo es ihn gibt (Google baut nur für amd64).
+if [[ "$BROWSER" == auto ]] && ! command -v google-chrome-stable >/dev/null \
+   && ! command -v chromium >/dev/null && ! command -v chromium-browser >/dev/null \
+   && [[ "$(dpkg --print-architecture)" == amd64 ]]; then
+  echo "    Google Chrome installieren"
+  deb="$(mktemp --suffix=.deb)"
+  if curl -fsSL -o "$deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$deb" || echo "!! Chrome-Installation fehlgeschlagen"
+  else
+    echo "!! Chrome-Download fehlgeschlagen"
+  fi
+  rm -f "$deb"
+fi
 [[ "$BROWSER" == auto ]] && BROWSER="$(pick_browser)"
 [[ -n "$BROWSER" ]] || { echo "!! Kein Browser gefunden. Installiere google-chrome-stable, chromium oder firefox."; exit 1; }
 echo "    Browser: $BROWSER"
@@ -126,6 +143,25 @@ if ! grep -qF 'exec startx' "$PROFILE" 2>/dev/null; then
   chown "$KIOSK_USER:$KIOSK_USER" "$PROFILE"
 fi
 echo "    ~/.xinitrc aktualisiert (Ladebildschirm sofort, kein schwarzes Warten)"
+
+# ── Verknüpfung "Fotobox-Modus" für den Desktop-Modus ─────────────────────
+# Im Kiosk schaltet der Admin-Bereich in den Desktop. Zurück ging es bisher nur
+# per Terminal — jetzt per Klick auf Schreibtisch oder im App-Menü.
+chmod 0755 "$APP_DIR/scripts/kiosk/to-kiosk.sh"
+sed "s|__APP_DIR__|$APP_DIR|g" "$APP_DIR/scripts/kiosk/mkphotobox-kiosk.desktop" \
+  > /usr/share/applications/mkphotobox-kiosk.desktop
+chmod 0644 /usr/share/applications/mkphotobox-kiosk.desktop
+DESKTOP_DIR="$(sudo -u "$KIOSK_USER" xdg-user-dir DESKTOP 2>/dev/null || true)"
+if [[ -n "$DESKTOP_DIR" && "$DESKTOP_DIR" != "$HOME_DIR" ]]; then
+  install -d -o "$KIOSK_USER" -g "$KIOSK_USER" "$DESKTOP_DIR"
+  install -m 0755 -o "$KIOSK_USER" -g "$KIOSK_USER" \
+    /usr/share/applications/mkphotobox-kiosk.desktop "$DESKTOP_DIR/mkphotobox-kiosk.desktop"
+  # GNOME startet Schreibtisch-Starter erst, wenn sie als vertrauenswürdig
+  # markiert sind. Klappt nur mit laufender Sitzung — sonst einmal per
+  # Rechtsklick "Start erlauben".
+  sudo -u "$KIOSK_USER" gio set "$DESKTOP_DIR/mkphotobox-kiosk.desktop" metadata::trusted true 2>/dev/null || true
+  echo "    Verknüpfung: $DESKTOP_DIR/mkphotobox-kiosk.desktop"
+fi
 
 # ── Chrome-Richtlinien: keine Sprechblasen vor Gästen ─────────────────────
 # Startparameter reichen nicht. Google entfernt sie (--disable-infobars ist seit

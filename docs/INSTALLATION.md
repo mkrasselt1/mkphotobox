@@ -58,9 +58,14 @@ Countdown nach einem Neustart daher stumm bleiben.
 ```bash
 git clone https://github.com/mkrasselt1/mkphotobox.git
 cd mkphotobox
-sudo ./scripts/setup.sh            # System-Deps, venv, systemd-Dienst, sudoers-Regel
-sudo ./scripts/kiosk-setup.sh      # optional: Vollbild-Browser-Kiosk + Autologin
+sudo ./scripts/setup.sh            # System-Deps, venv, Dienst, sudoers, SSH, Kiosk
+sudo reboot                        # Kiosk greift erst nach dem Neustart
 ```
+
+`setup.sh` ruft am Ende `kiosk-setup.sh` auf (Vollbild-Browser, Autologin,
+Google Chrome falls kein Browser da ist) und installiert `openssh-server` —
+ohne SSH kommt man an eine Box mit schwarzem Bildschirm nicht mehr heran. Für
+eine Box, die im Desktop bleiben soll: `sudo WITH_KIOSK=0 ./scripts/setup.sh`.
 
 `setup.sh` ist idempotent (mehrfach ausführbar), richtet den Dienst
 `mkphotobox.service` (Autostart, Port **8080**) ein, pinnt fastapi/starlette und
@@ -77,6 +82,10 @@ Standard-Login: **`admin` / `admin`** (nach dem ersten Start in den Einstellunge
 Danach wechselt [`scripts/mode.sh`](../scripts/mode.sh) zwischen den beiden
 Betriebsarten hin und her — praktisch, wenn dieselbe Box mal Fotobox und mal
 Arbeitsrechner ist.
+
+Im Desktop-Modus liegt dafür die Verknüpfung **„Fotobox-Modus“** auf dem
+Schreibtisch und im App-Menü: ein Klick schaltet auf Kiosk und startet neu.
+GNOME fragt beim ersten Mal per Rechtsklick nach „Start erlauben“.
 
 **Im Alltag genügt der Button:** Admin-Bereich → **Anzeigemodus** (unten in der
 Seitenleiste, neben *Software aktualisieren*). Der Dialog zeigt den aktuellen
