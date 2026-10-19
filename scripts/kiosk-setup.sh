@@ -33,7 +33,10 @@ echo ">>> Kiosk für $KIOSK_USER -> $KIOSK_URL"
 
 # ── packages (minimal X + WM) ─────────────────────────────────────────────
 apt-get update -y
-apt-get install -y xserver-xorg xinit openbox unclutter x11-xserver-utils curl sddm
+# Ohne Vorauswahl fragt das sddm-Paket per debconf nach dem Standard-
+# Displaymanager — wer dort gdm3 stehen lässt, bootet weiter in den Desktop.
+echo "sddm shared/default-x-display-manager select sddm" | debconf-set-selections
+DEBIAN_FRONTEND=noninteractive apt-get install -y xserver-xorg xinit openbox unclutter x11-xserver-utils curl sddm
 
 # ── resolve browser ───────────────────────────────────────────────────────
 pick_browser() {
@@ -155,13 +158,13 @@ if [[ "$DISABLE_OTHER_SESSIONS" == 1 ]]; then
 fi
 
 mkdir -p /etc/sddm.conf.d
+rm -f /etc/sddm.conf.d/autologin.conf.off   # alter Desktop-Modus: Benutzer neu setzen
 cat > /etc/sddm.conf.d/autologin.conf <<SD
 [Autologin]
 User=$KIOSK_USER
 Session=kiosk
 Relogin=true
 SD
-rm -f /var/lib/sddm/state.conf   # drop remembered last session
 
 # ── optional: serial touchscreen (inputattach + libinput calibration) ─────
 if [[ -n "${TOUCH_SERIAL:-}" ]]; then
@@ -200,17 +203,16 @@ XC
 fi
 
 # ── apply ─────────────────────────────────────────────────────────────────
-systemctl restart sddm
-echo ">>> Kiosk eingerichtet. Anzeige startet neu."
-echo "    (Browser=$BROWSER, Session=kiosk, User=$KIOSK_USER)"
-
-# Modus-Umschalter mitziehen. setup.sh legt ihn normalerweise an; hier noch
-# einmal, falls der Kiosk nachträglich auf eine ältere Installation aufgesetzt
-# wird. Die sudoers-Regel dafür kommt aus setup.sh.
+# Modus-Umschalter installieren und den Kiosk-Modus damit scharf schalten.
+# Erst das stellt den Displaymanager (display-manager.service +
+# /etc/X11/default-display-manager) von GDM3 auf SDDM um — die Autologin-
+# Konfiguration allein greift nicht, solange beim Booten GDM3 startet.
 install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkphotobox-mode
+KIOSK_USER="$KIOSK_USER" /usr/local/sbin/mkphotobox-mode kiosk
 
 echo
-echo ">>> Kiosk eingerichtet. Aktiv nach dem nächsten Neustart."
+echo ">>> Kiosk eingerichtet (Browser=$BROWSER, Session=kiosk, User=$KIOSK_USER)."
+echo "    Aktiv nach dem nächsten Neustart:  sudo reboot"
 echo "    Hin und her schalten (Kiosk <-> normaler GDM3-Desktop):"
 echo "      sudo $APP_DIR/scripts/mode.sh status"
 echo "      sudo $APP_DIR/scripts/mode.sh desktop"
