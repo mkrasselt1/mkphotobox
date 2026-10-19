@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field, SQLModel
 
 
@@ -13,7 +14,7 @@ class User(SQLModel, table=True):
     username: str = Field(unique=True, index=True)
     password_hash: str
     role: str = Field(default="user")  # admin | organizer | user
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)
 
 
@@ -31,9 +32,9 @@ class Event(SQLModel, table=True):
     slug: str = Field(unique=True, index=True)
     organizer_id: Optional[int] = Field(default=None, foreign_key="user.id")
     config_json: str = Field(default="{}")  # event-specific config overrides
-    starts_at: Optional[datetime] = None
-    ends_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    starts_at: Optional[NaiveDatetime] = None
+    ends_at: Optional[NaiveDatetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=False)
     # Venue — stamped into the EXIF/GPS metadata of every file this event produces
     location_name: Optional[str] = None
@@ -48,8 +49,8 @@ class PhotoSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     event_id: int = Field(foreign_key="event.id", index=True)
     token: str = Field(unique=True, index=True)
-    started_at: datetime = Field(default_factory=datetime.utcnow)
-    ended_at: Optional[datetime] = None
+    started_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    ended_at: Optional[NaiveDatetime] = None
     payment_id: Optional[int] = Field(default=None, foreign_key="payment.id")
 
 
@@ -63,7 +64,7 @@ class Photo(SQLModel, table=True):
     width: Optional[int] = None
     height: Optional[int] = None
     file_size: Optional[int] = None
-    captured_at: datetime = Field(default_factory=datetime.utcnow)
+    captured_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     camera_module: Optional[str] = None
     sequence_index: int = Field(default=0)
     metadata_json: str = Field(default="{}")
@@ -74,7 +75,7 @@ class Collage(SQLModel, table=True):
     session_id: int = Field(foreign_key="photo_session.id", index=True)
     template_id: str
     result_path: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
 
 
 class CollagePhoto(SQLModel, table=True):
@@ -96,8 +97,8 @@ class Payment(SQLModel, table=True):
     currency: str = Field(default="EUR")
     status: str = Field(default="pending")  # pending | completed | failed | refunded
     external_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[NaiveDatetime] = None
     metadata_json: str = Field(default="{}")
 
 
@@ -111,8 +112,8 @@ class OutputJob(SQLModel, table=True):
     status: str = Field(default="queued")  # queued | processing | completed | failed
     target: Optional[str] = None  # email address, printer name, etc.
     error_msg: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[NaiveDatetime] = None
     retry_count: int = Field(default=0)
 
 
@@ -124,14 +125,14 @@ class SyncQueue(SQLModel, table=True):
     entity_id: int
     action: str  # create | update | delete
     payload_json: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    synced_at: Optional[datetime] = None
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
+    synced_at: Optional[NaiveDatetime] = None
 
 
 class Setting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value_json: str
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     updated_by: Optional[int] = Field(default=None, foreign_key="user.id")
 
 
@@ -146,7 +147,7 @@ class Asset(SQLModel, table=True):
     width: Optional[int] = None
     height: Optional[int] = None
     source: Optional[str] = None  # original import path/drive
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
 
 
 class Template(SQLModel, table=True):
@@ -167,7 +168,7 @@ class Template(SQLModel, table=True):
     overlay_asset_id: Optional[int] = Field(default=None, foreign_key="asset.id")
     # definition_json: {"slots": [...], "overlays": [...]}
     definition_json: str = Field(default='{"slots": [], "overlays": []}')
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
 
 
 class OutputPreset(SQLModel, table=True):
@@ -197,4 +198,4 @@ class OutputPreset(SQLModel, table=True):
     margin_mm: float = Field(default=0)
     fit_to_page: bool = Field(default=True)
     builtin: bool = Field(default=False)      # seeded social formats — not deletable
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
