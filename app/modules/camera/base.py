@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from abc import abstractmethod
 from typing import AsyncIterator
 
 from app.modules.base import ModuleBase
+
+logger = logging.getLogger(__name__)
 
 
 class AbstractCamera(ModuleBase):
@@ -23,6 +26,26 @@ class AbstractCamera(ModuleBase):
     #: Set by modules that rotate/flip in their own, cheaper representation —
     #: OpenCV works on numpy frames instead of paying a JPEG round-trip.
     transforms_internally = False
+
+    #: Set by modules that run background removal themselves on raw frames
+    #: (OpenCV, with its own worker). Everyone else gets it in the shared
+    #: preview loop below — once per frame, however many viewers watch.
+    processes_background_internally = False
+
+    _bg_remover = None
+
+    @property
+    def bg_remover(self):
+        """Background removal / chroma key for this camera (lazy).
+
+        Lived only in the OpenCV module, so with a DSLR the effects silently did
+        nothing — neither live nor on the saved photo."""
+        if self._bg_remover is None:
+            from app.config import get_config
+            from app.services.background_removal import BackgroundRemover
+            self._bg_remover = BackgroundRemover()
+            self._bg_remover.configure(get_config())
+        return self._bg_remover
 
     #: JPEG quality used when a transform forces a re-encode.
     capture_quality = 92
@@ -105,6 +128,8 @@ class AbstractCamera(ModuleBase):
                 frame = await self.get_preview_frame()
             except Exception:
                 frame = b""
+            if frame and not self.processes_background_internally:
+                frame = await self._hub_background(frame)
             if frame:
                 async with self._hub_cond:
                     self._hub_frame = frame
@@ -115,3 +140,57 @@ class AbstractCamera(ModuleBase):
             rest = interval - (loop.time() - started)
             if rest > 0:
                 await asyncio.sleep(rest)
+
+    # ── Hintergrund in der gemeinsamen Vorschau ──────────────────────────
+    _ai_mask = None
+    _ai_job: asyncio.Future | None = None
+
+    async def _hub_background(self, frame: bytes) -> bytes:
+        """Chroma key per frame; AI with a mask that is refreshed in the
+        background at its own pace. rembg needs far longer than one preview
+        frame — waiting for it would turn the preview into a slideshow, so each
+        frame is composited with the newest mask available instead."""
+        try:
+            bg = self.bg_remover
+            if not bg.enabled:
+                self._ai_mask = None
+                return frame
+            if bg.mode == "chromakey":
+                return await asyncio.to_thread(self._bg_chromakey, bg, frame)
+            if bg.mode == "ai":
+                if self._ai_job is None or self._ai_job.done():
+                    if (self._ai_job is not None and not self._ai_job.cancelled()
+                            and self._ai_job.exception() is None):
+                        self._ai_mask = self._ai_job.result()
+                    self._ai_job = asyncio.ensure_future(
+                        asyncio.to_thread(self._bg_ai_mask, bg, frame))
+                if self._ai_mask is None:
+                    return frame  # erste Maske noch in Arbeit
+                return await asyncio.to_thread(self._bg_composite, bg, frame, self._ai_mask)
+        except Exception:
+            logger.debug("live background removal failed", exc_info=True)
+        return frame
+
+    @staticmethod
+    def _decode(frame: bytes):
+        import cv2
+        import numpy as np
+        return cv2.imdecode(np.frombuffer(frame, np.uint8), cv2.IMREAD_COLOR)
+
+    def _encode(self, img) -> bytes:
+        import cv2
+        ok, jpeg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.preview_quality])
+        return jpeg.tobytes() if ok else b""
+
+    def _bg_chromakey(self, bg, frame: bytes) -> bytes:
+        img = self._decode(frame)
+        return frame if img is None else (self._encode(bg.apply(img)) or frame)
+
+    def _bg_ai_mask(self, bg, frame: bytes):
+        img = self._decode(frame)
+        return None if img is None else bg.ai_mask(img)
+
+    def _bg_composite(self, bg, frame: bytes, mask) -> bytes:
+        img = self._decode(frame)
+        return frame if img is None else (self._encode(bg.composite(img, mask)) or frame)
+

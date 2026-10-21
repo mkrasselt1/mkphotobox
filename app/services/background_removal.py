@@ -125,6 +125,19 @@ class BackgroundRemover:
 
     def _apply_ai(self, frame: np.ndarray) -> np.ndarray:
         """Remove background using rembg AI model."""
+        alpha = self.ai_mask(frame)
+        return frame if alpha is None else self._composite(frame, alpha)
+
+    def composite(self, frame: np.ndarray, fg_mask: np.ndarray) -> np.ndarray:
+        """Public: blend ``frame`` over the replacement using a mask computed
+        earlier (possibly from a slightly older frame — live AI preview)."""
+        import cv2
+        if fg_mask.shape[:2] != frame.shape[:2]:
+            fg_mask = cv2.resize(fg_mask, (frame.shape[1], frame.shape[0]))
+        return self._composite(frame, fg_mask)
+
+    def ai_mask(self, frame: np.ndarray) -> np.ndarray | None:
+        """Foreground mask (0..255) from rembg, or None if it produced none."""
         import cv2
         from rembg import remove
 
@@ -142,14 +155,9 @@ class BackgroundRemover:
         result_arr = np.frombuffer(result_bytes, np.uint8)
         result = cv2.imdecode(result_arr, cv2.IMREAD_UNCHANGED)
 
-        if result is None or result.shape[2] < 4:
-            return frame
-
-        # Extract alpha channel as mask
-        alpha = result[:, :, 3]
-
-        # Composite over replacement background
-        return self._composite(frame, alpha)
+        if result is None or result.ndim < 3 or result.shape[2] < 4:
+            return None
+        return result[:, :, 3]
 
     def _apply_chromakey(self, frame: np.ndarray) -> np.ndarray:
         """Fast HSV-based chroma key — suitable for real-time preview."""

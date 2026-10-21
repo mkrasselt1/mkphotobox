@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenCVCamera(AbstractCamera):
+    processes_background_internally = True  # eigener KI-Worker auf numpy-Frames
     name = "camera.opencv"
     transforms_internally = True  # rotates/flips numpy frames, see _apply_geometry
 

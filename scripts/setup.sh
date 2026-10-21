@@ -18,6 +18,9 @@
 #                schwarzem Bildschirm nicht mehr heran)
 #   WITH_KIOSK   ruft am Ende scripts/kiosk-setup.sh auf (Vollbild-Browser,
 #                Autologin). WITH_KIOSK=0 für eine Box, die im Desktop bleibt.
+#   FAN_PWM=<chip>:<kanal>:<wert>   fester Lüfterwert beim Booten, z. B.
+#                it8620:2:90 (Chipname aus /sys/class/hwmon/*/name, Wert 0..255).
+#                FAN_MODULE=it87 lädt das Treibermodul dafür beim Booten.
 # Standardmäßig aus (=0): WITH_BG_AI WITH_TAILSCALE WITH_CLOUDFLARE
 #   RUN_USER=<user>   (default: the invoking sudo user)
 #
@@ -42,6 +45,8 @@ WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-1}"    # bluez + bluez-tools (Foto senden/empfangen)
 WITH_SSH="${WITH_SSH:-1}"                # openssh-server
 WITH_KIOSK="${WITH_KIOSK:-1}"            # Kiosk gleich mit einrichten (kiosk-setup.sh)
+FAN_PWM="${FAN_PWM:-}"                   # z. B. it8620:2:90 — leer = Lüfter nicht anfassen
+FAN_MODULE="${FAN_MODULE:-}"             # z. B. it87
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
 WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
 WITH_CLOUDFLARE="${WITH_CLOUDFLARE:-0}"  # Cloudflare Quick-Tunnel für öffentliche QR-Links (cloudflared)
@@ -298,6 +303,77 @@ PKLA
 fi
 
 systemctl restart polkit 2>/dev/null || systemctl restart polkitd 2>/dev/null || true
+
+# ── 4a1) WLAN-Energiesparen aus ───────────────────────────────────────────
+# Mit Energiesparen schlafen viele USB-Sticks zwischen Paketen ein (gemessen
+# am rtw88_8822bu, TP-Link 802.11ac): 10 % Paketverlust, Antwortzeiten bis
+# 1,4 s, SSH brach beim Verbindungsaufbau ab. Ohne: 0 %, 9 ms. Eine Fotobox
+# hängt am Netzteil — Strom sparen bringt hier nichts.
+if [[ "$WITH_WIFI" == 1 ]]; then
+  echo ">>> WLAN-Energiesparen aus"
+  install -d /etc/NetworkManager/conf.d
+  printf '[connection]
+# MKPhotobox: sonst Latenzspitzen und Paketverlust (setup.sh)
+wifi.powersave = 2
+'     > /etc/NetworkManager/conf.d/99-mkphotobox-wifi-powersave.conf
+  # rtw88 (Realtek-USB-Sticks) hat zusätzlich einen tiefen Schlafmodus.
+  printf '# MKPhotobox: tiefen Stromsparmodus der rtw88-WLAN-Sticks aus (setup.sh)
+options rtw88_core disable_lps_deep=y
+'     > /etc/modprobe.d/mkphotobox-rtw88.conf
+  nmcli general reload conf >/dev/null 2>&1 || true
+  for dev in /sys/class/net/*/wireless; do
+    [[ -e "$dev" ]] || continue
+    iw dev "$(basename "$(dirname "$dev")")" set power_save off 2>/dev/null || true
+  done
+fi
+
+# ── 4a1b) optional: fester Lüfterwert ─────────────────────────────────────
+# Die hwmon-Nummer (hwmon0, hwmon3, …) vergibt der Kernel bei jedem Boot neu
+# — ein fest eingetragener Pfad trifft nach dem nächsten Neustart den falschen
+# Sensor. Darum sucht das Skript den Chip über seinen Namen.
+if [[ -n "$FAN_PWM" ]]; then
+  IFS=: read -r FAN_CHIP FAN_CH FAN_VAL <<< "$FAN_PWM"
+  if [[ -z "$FAN_CHIP" || ! "$FAN_CH" =~ ^[0-9]+$ || ! "$FAN_VAL" =~ ^[0-9]+$ || "$FAN_VAL" -gt 255 ]]; then
+    echo "!! FAN_PWM muss <chip>:<kanal>:<0..255> sein, z. B. it8620:2:90 — übersprungen"
+  else
+    echo ">>> Lüfter: $FAN_CHIP pwm$FAN_CH = $FAN_VAL"
+    if [[ -n "$FAN_MODULE" ]]; then
+      echo "$FAN_MODULE" > /etc/modules-load.d/mkphotobox-fan.conf
+      modprobe "$FAN_MODULE" 2>/dev/null || true
+    fi
+    cat > /usr/local/sbin/mkphotobox-fan <<FAN
+#!/bin/sh
+# Erzeugt von scripts/setup.sh (FAN_PWM=$FAN_PWM). Chip per Name suchen —
+# die hwmon-Nummern ändern sich pro Boot. Kurz warten, bis das Modul da ist.
+for try in 1 2 3 4 5 6 7 8 9 10; do
+  for h in /sys/class/hwmon/hwmon*; do
+    if [ "\$(cat "\$h/name" 2>/dev/null)" = "$FAN_CHIP" ]; then
+      echo 1 > "\$h/pwm${FAN_CH}_enable" && echo $FAN_VAL > "\$h/pwm$FAN_CH" && exit 0
+    fi
+  done
+  sleep 1
+done
+echo "$FAN_CHIP nicht gefunden" >&2; exit 1
+FAN
+    chmod 755 /usr/local/sbin/mkphotobox-fan
+    cat > /etc/systemd/system/mkphotobox-fan.service <<'UNIT'
+[Unit]
+Description=MKPhotobox: fester Lüfterwert
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/mkphotobox-fan
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable mkphotobox-fan.service >/dev/null 2>&1
+    systemctl restart mkphotobox-fan.service || echo "!! Lüfter-Dienst fehlgeschlagen: journalctl -u mkphotobox-fan"
+  fi
+fi
 
 # ── 4a2) optional: Bluetooth-Dateiempfang ─────────────────────────────────
 # obexd hängt am D-Bus *Session*-Bus, der Dienst läuft aber als System-Unit

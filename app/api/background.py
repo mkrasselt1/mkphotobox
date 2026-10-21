@@ -15,11 +15,11 @@ router = APIRouter(prefix="/api/v1/background", tags=["background"])
 
 
 def _get_bg_remover(request: Request):
-    """Get the BackgroundRemover from the active OpenCV camera."""
+    """Get the BackgroundRemover of the active camera (every camera has one)."""
     cameras = request.app.state.cameras
     cam = cameras.preview_camera or cameras.capture_camera
     if cam is None or not hasattr(cam, "bg_remover"):
-        raise HTTPException(status_code=400, detail="Background removal needs an OpenCV camera")
+        raise HTTPException(status_code=400, detail="Keine aktive Kamera")
     return cam.bg_remover
 
 

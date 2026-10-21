@@ -36,7 +36,8 @@ apt-get update -y
 # Ohne Vorauswahl fragt das sddm-Paket per debconf nach dem Standard-
 # Displaymanager — wer dort gdm3 stehen lässt, bootet weiter in den Desktop.
 echo "sddm shared/default-x-display-manager select sddm" | debconf-set-selections
-DEBIAN_FRONTEND=noninteractive apt-get install -y xserver-xorg xinit openbox unclutter x11-xserver-utils curl sddm
+# python3-tk: Fadenkreuz-Kalibrierung des Touchscreens (scripts/kiosk/touch-calibrate.py)
+DEBIAN_FRONTEND=noninteractive apt-get install -y xserver-xorg xinit openbox unclutter x11-xserver-utils curl sddm python3-tk
 
 # ── resolve browser ───────────────────────────────────────────────────────
 pick_browser() {
