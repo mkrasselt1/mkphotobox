@@ -1,7 +1,10 @@
 import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
 
-// Cache discovered devices — only rescan when user clicks the button
+// Cache discovered devices — only rescan when user clicks the button.
+// null = noch nie gesucht, [] = gesucht und nichts gefunden. Der Status der
+// letzten Suche überlebt das Neuzeichnen — vorher verschwand er sofort wieder.
 let cachedDevices = null;
+let lastScanStatus = null;   // { text, color }
 
 export async function render(container, state) {
     const headers = getHeaders();
@@ -99,9 +102,13 @@ export async function render(container, state) {
                             ${d.working !== false ? '&#10003;' : '&#10007;'}
                         </span> ${d.name}
                       </p>`).join('')
-                    : '<p style="color:var(--pb-color-text-muted);">Noch nicht gesucht — klicke "Kameras suchen".</p>'}
+                    : cachedDevices === null
+                        ? '<p style="color:var(--pb-color-text-muted);">Noch nicht gesucht — klicke "Kameras suchen".</p>'
+                        : `<p style="color:var(--pb-color-text-muted);">Keine USB-Webcam gefunden.${gphotoActive
+                            ? ' Die Spiegelreflex läuft über gPhoto2 und ist aktiv — die Suche hier findet nur Webcams.'
+                            : ' Eine Spiegelreflex taucht hier nicht auf: unten „DSLR via gPhoto2“ wählen.'}</p>`}
                 <button id="btn-rescan" class="admin-btn admin-btn-outline" style="margin-top:0.5rem;font-size:0.85rem;">Kameras suchen</button>
-                <span id="scan-status" style="margin-left:0.5rem;font-size:0.85rem;color:var(--pb-color-text-muted);"></span>
+                <span id="scan-status" style="margin-left:0.5rem;font-size:0.85rem;color:${lastScanStatus?.color || 'var(--pb-color-text-muted)'};">${lastScanStatus?.text || ''}</span>
             </div>
 
             <div class="admin-card">
@@ -315,12 +322,11 @@ export async function render(container, state) {
         status.textContent = '';
         try {
             const res = await fetch('/api/v1/camera/devices');
+            if (!res.ok) throw new Error(res.status);
             cachedDevices = await res.json();
-            status.textContent = `${cachedDevices.length} Gerät(e) gefunden`;
-            status.style.color = 'var(--pb-color-success)';
+            lastScanStatus = { text: `${cachedDevices.length} Webcam(s) gefunden`, color: 'var(--pb-color-success)' };
         } catch {
-            status.textContent = 'Fehler beim Scannen';
-            status.style.color = 'var(--pb-color-error)';
+            lastScanStatus = { text: 'Fehler beim Scannen', color: 'var(--pb-color-error)' };
         }
         render(container, state);
     });

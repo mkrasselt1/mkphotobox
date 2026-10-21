@@ -59,8 +59,59 @@ class AbstractCamera(ModuleBase):
             apply_to_jpeg, data, tf, preview=preview, quality=quality
         )
 
+    #: Upper bound for the shared preview loop. A DSLR is usually slower.
+    preview_max_fps = 15
+
     async def stream_preview(self) -> AsyncIterator[bytes]:
-        """Async generator yielding JPEG preview frames."""
-        while True:
-            yield await self.get_preview_frame()
-            await asyncio.sleep(1 / 15)  # 15 fps cap for RPi3
+        """Async generator yielding JPEG preview frames — for any number of viewers.
+
+        One producer per camera, not one per viewer: the camera serialises
+        preview requests behind a lock, so every extra viewer (booth screen,
+        admin page on a phone, a stale <img> left over from the last screen)
+        used to divide the frame rate instead of sharing it. Now the first
+        viewer starts a single loop, every viewer gets each new frame, and the
+        loop stops when the last one leaves.
+        """
+        if getattr(self, "_hub_cond", None) is None:
+            self._hub_cond = asyncio.Condition()
+            self._hub_frame, self._hub_seq = b"", 0
+            self._hub_viewers, self._hub_task = 0, None
+        cond = self._hub_cond
+        self._hub_viewers += 1
+        seen = -1
+        try:
+            while True:
+                if self._hub_task is None or self._hub_task.done():
+                    self._hub_task = asyncio.create_task(self._hub_produce())
+                async with cond:
+                    try:
+                        # Timeout only to re-check the producer: it may have been
+                        # winding down just as this viewer arrived.
+                        await asyncio.wait_for(
+                            cond.wait_for(lambda: self._hub_seq != seen), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        continue
+                    seen, frame = self._hub_seq, self._hub_frame
+                yield frame
+        finally:
+            self._hub_viewers -= 1
+
+    async def _hub_produce(self) -> None:
+        loop = asyncio.get_running_loop()
+        interval = 1 / self.preview_max_fps
+        while self._hub_viewers > 0:
+            started = loop.time()
+            try:
+                frame = await self.get_preview_frame()
+            except Exception:
+                frame = b""
+            if frame:
+                async with self._hub_cond:
+                    self._hub_frame = frame
+                    self._hub_seq += 1
+                    self._hub_cond.notify_all()
+            else:
+                await asyncio.sleep(0.2)  # camera busy (capturing) or gone
+            rest = interval - (loop.time() - started)
+            if rest > 0:
+                await asyncio.sleep(rest)
