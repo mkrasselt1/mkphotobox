@@ -342,10 +342,15 @@ systemctl restart polkit 2>/dev/null || systemctl restart polkitd 2>/dev/null ||
 if [[ "$WITH_WIFI" == 1 ]]; then
   echo ">>> WLAN-Energiesparen aus"
   install -d /etc/NetworkManager/conf.d
+  # Dateiname mit "zz-": NetworkManager liest conf.d alphabetisch, die letzte
+  # gewinnt — Ubuntus default-wifi-powersave-on.conf überschrieb sonst ein
+  # "99-…" (Ziffern sortieren vor Buchstaben), und nach dem Neustart war das
+  # Energiesparen wieder an.
+  rm -f /etc/NetworkManager/conf.d/99-mkphotobox-wifi-powersave.conf
   printf '[connection]
 # MKPhotobox: sonst Latenzspitzen und Paketverlust (setup.sh)
 wifi.powersave = 2
-'     > /etc/NetworkManager/conf.d/99-mkphotobox-wifi-powersave.conf
+'     > /etc/NetworkManager/conf.d/zz-mkphotobox-wifi-powersave.conf
   # rtw88 (Realtek-USB-Sticks) hat zusätzlich einen tiefen Schlafmodus.
   printf '# MKPhotobox: tiefen Stromsparmodus der rtw88-WLAN-Sticks aus (setup.sh)
 options rtw88_core disable_lps_deep=y
