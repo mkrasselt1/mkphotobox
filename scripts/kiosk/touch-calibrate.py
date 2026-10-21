@@ -276,32 +276,8 @@ class Calibrator:
                 self.xs.append(self.cur_x)
                 self.ys.append(self.cur_y)
 
-    def implausible(self, sample: tuple[float, float]) -> bool:
-        """Liegt der Tipp grob woanders, als die bisherigen Kreuze erwarten lassen?
-
-        Eine Gerade durch die schon erfassten Punkte sagt voraus, wohin dieses
-        Kreuz ungefähr fällt. Die Kissen-Verzerrung selbst macht höchstens ein
-        paar Prozent aus — über 12 % ist der Finger gerutscht oder das Panel
-        hat beim Loslassen einen Ausreißer gemeldet."""
-        if len(self.samples) < 5:
-            return False
-        pts = [p for i, p in enumerate(self.samples) if i != self.retake_idx]
-        tgs = [t for i, t in enumerate(self.targets[:len(self.samples)]) if i != self.retake_idx]
-        try:
-            a, b, c = fit_row(pts, [t[0] for t in tgs])
-            d, e, f = fit_row(pts, [t[1] for t in tgs])
-        except ValueError:
-            return False
-        u, v = sample
-        tx, ty = self.targets[self.step]
-        return max(abs(a * u + b * v + c - tx), abs(d * u + e * v + f - ty)) > 0.12
-
     def accept(self, x: float, y: float) -> None:
         sample = self.norm(x, y)
-        if self.implausible(sample):
-            self.notice = "Nicht erkannt — bitte dieses Kreuz noch einmal antippen."
-            self.draw_target()
-            return
         self.notice = ""
         if self.retake_idx is not None:
             self.samples[self.retake_idx] = sample
