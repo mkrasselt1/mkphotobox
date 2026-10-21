@@ -188,9 +188,13 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
   Kalibrieren mit Fadenkreuzen auf dem Bildschirm (geht auch per SSH, braucht
   `python3-tk`): `sudo ./scripts/kiosk/touch-calibrate.py`. Die Matrix ist nur
   linear — ältere resistive Panels krümmen die Kantenmitten nach innen
-  („Kissen“), das gleicht sie nicht aus. Dann in den Einstellungen den
-  **sicheren Rand** setzen (z. B. 50 px bei 1024×768), damit alle Knöpfe im
-  erreichbaren Bereich liegen.
+  („Kissen“: an den Seiten halbrunde Streifen, die man nicht trifft). Dafür
+  `sudo ./scripts/kiosk/touch-calibrate.py --grid 5`: 25 Kreuze bis dicht an
+  den Rand, daraus ein Polynom 3. Grades; der Dienst `mkphotobox-touch`
+  (`touch-correct.py`) entzerrt damit jeden Punkt und reicht ihn als
+  virtuelles Gerät an X weiter. Ein späterer Lauf ohne `--grid` schaltet die
+  Entzerrung wieder ab. Notlösung ohne Neukalibrierung: in den Einstellungen
+  den **sicheren Rand** setzen (z. B. 50 px bei 1024×768).
 - **Herunterfahren / Self-Update / Anzeigemodus**: brauchen die NOPASSWD-sudoers-Regel
   aus `setup.sh` (`/etc/sudoers.d/mkphotobox`). Fehlt sie, melden die Buttons „keine
   Berechtigung". Der Anzeigemodus-Button braucht zusätzlich die root-eigene Kopie
