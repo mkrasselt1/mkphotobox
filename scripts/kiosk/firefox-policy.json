@@ -1,0 +1,56 @@
+{
+  "policies": {
+    "DisableFirefoxAccounts": true,
+    "DisableFirefoxStudies": true,
+    "DisableTelemetry": true,
+    "DisablePocket": true,
+    "DisableFeedbackCommands": true,
+    "DisableProfileImport": true,
+    "DisableSetDesktopBackground": true,
+    "DisableDeveloperTools": true,
+    "DontCheckDefaultBrowser": true,
+    "NoDefaultBookmarks": true,
+    "OfferToSaveLogins": false,
+    "PasswordManagerEnabled": false,
+    "AutofillAddressEnabled": false,
+    "AutofillCreditCardEnabled": false,
+    "TranslateEnabled": false,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "AppAutoUpdate": false,
+    "BackgroundAppUpdate": false,
+    "ExtensionUpdate": false,
+    "PromptForDownloadLocation": false,
+    "Permissions": {
+      "Camera": { "Allow": ["http://localhost:8080"] },
+      "Microphone": { "Allow": ["http://localhost:8080"] },
+      "Autoplay": { "Allow": ["http://localhost:8080"], "Default": "allow-audio-video" },
+      "Notifications": { "BlockNewRequests": true }
+    },
+    "UserMessaging": {
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "SkipOnboarding": true,
+      "MoreFromMozilla": false,
+      "FirefoxLabs": false,
+      "Locked": true
+    },
+    "FirefoxHome": {
+      "Search": false, "TopSites": false, "SponsoredTopSites": false,
+      "Highlights": false, "Pocket": false, "SponsoredPocket": false,
+      "Snippets": false, "Locked": true
+    },
+    "Preferences": {
+      "browser.sessionstore.resume_from_crash": { "Value": false, "Status": "locked" },
+      "browser.tabs.warnOnClose": { "Value": false, "Status": "locked" },
+      "browser.shell.checkDefaultBrowser": { "Value": false, "Status": "locked" },
+      "browser.aboutwelcome.enabled": { "Value": false, "Status": "locked" },
+      "browser.gesture.swipe.left": { "Value": "", "Status": "locked" },
+      "browser.gesture.swipe.right": { "Value": "", "Status": "locked" },
+      "apz.overscroll.enabled": { "Value": false, "Status": "locked" },
+      "identity.fxaccounts.enabled": { "Value": false, "Status": "locked" },
+      "datareporting.policy.dataSubmissionPolicyBypassNotification": { "Value": true, "Status": "locked" }
+    }
+  }
+}

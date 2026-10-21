@@ -7,9 +7,11 @@ Windows dev machine) so the admin page can render without crashing.
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import shutil
 import subprocess
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -23,9 +25,13 @@ def nmcli_available() -> bool:
 
 
 def _run(args: list[str], timeout: int = _TIMEOUT) -> subprocess.CompletedProcess:
+    # Englische Ausgabe erzwingen: auf einer deutschen Box sagt nmcli sonst
+    # "aktiviert" statt "enabled" und "Fehler: …" statt "Error: …" — beides
+    # werten wir hier aus.
     return subprocess.run(
         ["nmcli", *args],
         capture_output=True, text=True, timeout=timeout,
+        env={**os.environ, "LC_ALL": "C"},
     )
 
 
@@ -63,6 +69,9 @@ def _friendly_error(raw: str) -> str:
     to control networking"). Scanning needs no auth, which is why the network
     list looks fine right up until Verbinden.
     """
+    raw = raw.strip()
+    if raw.lower().startswith("error:"):  # die Oberfläche schreibt selbst "Fehler:" davor
+        raw = raw[6:].strip()
     low = raw.lower()
     if "not authorized" in low or "insufficient privileges" in low:
         return ("Keine Berechtigung für die Netzwerksteuerung (polkit). "
@@ -70,20 +79,72 @@ def _friendly_error(raw: str) -> str:
                 "die polkit-Regel für WLAN an.")
     if "secrets were required" in low or "no secrets provided" in low:
         return "Falsches WLAN-Passwort."
+    if "no network with ssid" in low:
+        return ("Das Netz ist gerade nicht in Reichweite des WLAN-Adapters. "
+                "Näher an den Router, oder 'Neu suchen' und noch einmal verbinden.")
     return raw
 
 
-def _wifi_device() -> str | None:
-    """Return the name of the first WiFi device, or None."""
+def _wifi_devices() -> list[tuple[str, str]]:
+    """(device, state) of every WiFi adapter, connected ones first.
+
+    Boxes end up with more than one adapter (onboard plus a USB stick bought
+    for better range). Taking simply the first one showed "Nicht verbunden"
+    while the other adapter was online.
+    """
     try:
-        res = _run(["-t", "-f", "DEVICE,TYPE", "device", "status"], timeout=10)
+        res = _run(["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"], timeout=10)
     except Exception:
-        return None
+        return []
+    devs = []
     for line in res.stdout.splitlines():
         parts = _split_terse(line)
-        if len(parts) >= 2 and parts[1] == "wifi":
-            return parts[0]
-    return None
+        if len(parts) >= 3 and parts[1] == "wifi":
+            devs.append((parts[0], parts[2]))
+    return sorted(devs, key=lambda d: d[1] != "connected")
+
+
+def _wifi_device() -> str | None:
+    """The WiFi adapter to report on: a connected one, else the first."""
+    devs = _wifi_devices()
+    return devs[0][0] if devs else None
+
+
+def _devices_seeing(ssid: str) -> list[str]:
+    """WiFi adapters whose last scan contains ``ssid``, strongest first."""
+    try:
+        res = _run(["-t", "-f", "DEVICE,SSID,SIGNAL", "device", "wifi", "list",
+                    "--rescan", "no"], timeout=10)
+    except Exception:
+        return []
+    best: dict[str, int] = {}
+    for line in res.stdout.splitlines():
+        parts = _split_terse(line)
+        if len(parts) >= 3 and parts[1] == ssid:
+            sig = int(parts[2]) if parts[2].isdigit() else 0
+            best[parts[0]] = max(sig, best.get(parts[0], -1))
+    return sorted(best, key=best.get, reverse=True)
+
+
+def _rescan_for(ssid: str, wait: float = 8.0) -> list[str]:
+    """Targeted rescan for one SSID on every adapter; wait until one sees it.
+
+    Some USB drivers age scan results out within seconds — the list on screen
+    still shows the network, but by the time Verbinden is pressed NetworkManager
+    has forgotten it and answers "No network with SSID … found".
+    """
+    for dev, _state in _wifi_devices():
+        try:
+            _run(["device", "wifi", "rescan", "ifname", dev, "ssid", ssid], timeout=15)
+        except Exception:
+            pass
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        seen = _devices_seeing(ssid)
+        if seen:
+            return seen
+        time.sleep(1)
+    return []
 
 
 def radio_enabled() -> bool:
@@ -194,14 +255,26 @@ def connect(ssid: str, password: str | None = None, hidden: bool = False) -> dic
     if not ssid:
         return {"status": "error", "message": "Kein SSID angegeben"}
 
-    args = ["device", "wifi", "connect", ssid]
-    if password:
-        args += ["password", password]
-    if hidden:
-        args += ["hidden", "yes"]
+    def attempt(ifname: str | None) -> subprocess.CompletedProcess:
+        args = ["device", "wifi", "connect", ssid]
+        if password:
+            args += ["password", password]
+        if hidden:
+            args += ["hidden", "yes"]
+        # Ohne ifname nimmt nmcli irgendeinen Adapter — bei zwei Adaptern
+        # auch den, der das Netz gar nicht sieht.
+        if ifname:
+            args += ["ifname", ifname]
+        return _run(args, timeout=45)
 
     try:
-        res = _run(args, timeout=45)
+        seen = [] if hidden else _devices_seeing(ssid)
+        res = attempt(seen[0] if seen else None)
+        if (res.returncode != 0 and not hidden
+                and "no network with ssid" in (res.stderr + res.stdout).lower()):
+            seen = _rescan_for(ssid)
+            if seen:
+                res = attempt(seen[0])
     except subprocess.TimeoutExpired:
         return {"status": "error", "message": "Zeitüberschreitung beim Verbinden"}
 
