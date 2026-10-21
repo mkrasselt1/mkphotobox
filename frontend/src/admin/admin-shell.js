@@ -2,8 +2,31 @@
  * Admin Shell — Sidebar + content area. Used by all admin sub-pages.
  */
 
+// Sicherer Rand (display.safe_margin) auch im Admin-Bereich — aber nur auf dem
+// Kiosk-Bildschirm selbst (der Browser dort öffnet localhost). Am Handy oder
+// Laptop gibt es keinen Rahmen, der etwas verdeckt, also keinen Rand.
+let kioskMargin = 0;      // zuletzt bekannter Wert — sofort angewendet, dann aufgefrischt
+function isKioskScreen() {
+    return ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+}
+function marginStyle(m) {
+    return m ? `margin:${m}px;width:calc(100% - ${2 * m}px);height:calc(100% - ${2 * m}px);`
+             : 'height:100%;';
+}
+function loadKioskMargin() {
+    if (!isKioskScreen()) return;
+    // Bei jedem Seitenaufbau neu holen: wer den Rand unter Einstellungen
+    // ändert, sieht ihn auf der nächsten Seite, nicht erst nach Neuladen.
+    fetch('/api/v1/display/config').then(r => r.json()).then(d => {
+        kioskMargin = Math.max(0, Math.min(200, Number(d.safe_margin) | 0));
+        const root = document.getElementById('admin-root');
+        if (root) root.style.cssText += marginStyle(kioskMargin);
+    }).catch(() => {});
+}
+
 export function adminShell(contentHTML) {
     const { i18n } = window.pb;
+    loadKioskMargin();
     const hash = location.hash.replace('#/', '');
     const auth = window.pb.state.auth || {};
     const isAdmin = auth.role === 'admin';
@@ -82,7 +105,7 @@ export function adminShell(contentHTML) {
     }
 
     return `
-    <div style="display:flex;height:100%;">
+    <div id="admin-root" style="display:flex;box-sizing:border-box;${marginStyle(kioskMargin || 0)}">
         <nav class="admin-nav">
             <div class="admin-brand"><span class="admin-brand-dot"></span> Photobox Admin</div>
             ${navHtml}
