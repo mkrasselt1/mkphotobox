@@ -79,6 +79,16 @@
     <link rel="stylesheet" href="/api/v1/theme/fonts.css">
     <script src="/vendor/glightbox.min.js"></script>
     <script src="/vendor/qrcode.min.js"></script>
+    <script>
+        // Kein Ziehen von Bildern, Links oder Knöpfen: Firefox kennt
+        // -webkit-user-drag nicht und zieht beim Gedrückthalten mit Wischen ein
+        // Nachbild des Elements hinter dem Finger her. dragstart feuert nur für
+        // Ziehen, das auf der Seite beginnt — Dateien von außen fallen lassen
+        // (Uploads) geht weiter. Wer ziehen will: data-allow-drag.
+        document.addEventListener('dragstart', (e) => {
+            if (!e.target.closest || !e.target.closest('[data-allow-drag]')) e.preventDefault();
+        }, true);
+    </script>
 </head>
 <body>
     <div class="loading" id="loading">
