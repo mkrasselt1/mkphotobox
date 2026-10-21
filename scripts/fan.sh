@@ -75,6 +75,10 @@ case "${1:-}" in
     mkdir -p "${CONF%/*}"; touch "$CONF"
     orig="$(awk -v c="$2" -v k="$3" '$1==c && $2==k {print $4}' "$CONF")"
     [ -n "$orig" ] || orig="$(cat "$h/pwm$3_enable")"
+    # War der Kanal beim ersten Anfassen schon manuell (1) oder auf Vollgas (0),
+    # gibt es keinen Regelmodus zum Zurückkehren. Laut hwmon-ABI heißt 2 und
+    # mehr "automatisch"; 2 versteht jeder Treiber.
+    case "$orig" in 0|1) orig=2 ;; esac
     write_pwm "$2" "$3" "$4" "$orig"
     tmp="$(mktemp)"
     awk -v c="$2" -v k="$3" '!($1==c && $2==k)' "$CONF" > "$tmp"
