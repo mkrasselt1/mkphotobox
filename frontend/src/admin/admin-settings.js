@@ -120,6 +120,17 @@ export async function render(container, state) {
                 </div>
             </div>
 
+            <div class="admin-card" id="touch-card" style="margin-bottom:1.5rem;display:none;">
+                <h3>Touchscreen</h3>
+                <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.25rem;">
+                    25 Fadenkreuze erscheinen nacheinander auf dem Bildschirm der Box — jeweils genau in
+                    die Mitte tippen. Entzerrt auch gewölbte Ränder, die eine einfache Kalibrierung nicht trifft.
+                </p>
+                <div id="touch-status" style="margin:0.75rem 0;font-size:0.9rem;"></div>
+                <button id="btn-touch-calibrate" class="admin-btn admin-btn-primary">Kalibrieren (25 Kreuze)</button>
+                <span id="touch-msg" style="margin-left:0.75rem;font-size:0.85rem;"></span>
+            </div>
+
             <div class="admin-card" style="margin-bottom:1.5rem;">
                 <h3>Lüfter</h3>
                 <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.25rem;">
@@ -145,6 +156,7 @@ export async function render(container, state) {
 
     setupLogout(container);
     loadFans(container, headers);
+    loadTouch(container, headers);
 
     // Admin-Zugriff (local-only) speichern
     container.querySelector('#btn-save-admin-access')?.addEventListener('click', async () => {
@@ -207,6 +219,49 @@ export async function render(container, state) {
             status.style.display = 'inline';
             status.textContent = `Fehler (${err.message || 'Netzwerk'})`;
             status.style.color = 'var(--pb-color-error)';
+        }
+    });
+}
+
+// ── Touchscreen ──────────────────────────────────────────────────────────
+// Die Karte bleibt unsichtbar, solange kein Touchscreen erkannt wird.
+async function loadTouch(container, headers) {
+    const card = container.querySelector('#touch-card');
+    if (!card) return;
+    let t;
+    try {
+        const res = await fetch('/api/v1/system/touch', { headers });
+        if (!res.ok) return;
+        t = await res.json();
+    } catch { return; }
+    if (!(t.devices || []).length) return;
+    card.style.display = '';
+    const status = card.querySelector('#touch-status');
+    const btn = card.querySelector('#btn-touch-calibrate');
+    const msg = card.querySelector('#touch-msg');
+    status.innerHTML = `${t.devices.join(', ')} — Entzerrung ${t.correction_active
+        ? '<span style="color:var(--pb-color-success);">aktiv</span>'
+        : '<span style="color:var(--pb-color-text-muted);">nicht eingerichtet</span>'}`;
+    if (!t.can_calibrate) {
+        btn.disabled = true;
+        msg.textContent = "Erst 'sudo ./scripts/setup.sh' ausführen (Werkzeug + Berechtigung).";
+        return;
+    }
+    if (t.running) { btn.disabled = true; msg.textContent = 'Läuft gerade auf dem Bildschirm der Box.'; }
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        msg.style.color = 'var(--pb-color-text-muted)';
+        msg.textContent = 'Startet…';
+        try {
+            const res = await fetch('/api/v1/system/touch/calibrate', { method: 'POST', headers });
+            const out = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(out.detail || res.status);
+            msg.style.color = 'var(--pb-color-success)';
+            msg.textContent = 'Die Kreuze erscheinen jetzt auf dem Bildschirm der Box.';
+        } catch (err) {
+            btn.disabled = false;
+            msg.style.color = 'var(--pb-color-error)';
+            msg.textContent = 'Fehler: ' + err.message;
         }
     });
 }

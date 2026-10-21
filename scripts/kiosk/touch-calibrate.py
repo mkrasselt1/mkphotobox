@@ -439,7 +439,9 @@ def enable_correction(dev_name: str, cx: list[float], cy: list[float]) -> None:
         os.rename(RULE_PATH, RULE_PATH + ".disabled")
         print(f"lineare Regel beiseitegelegt: {RULE_PATH}.disabled")
         subprocess.run(["udevadm", "control", "--reload-rules"], check=False)
-    here = os.path.dirname(os.path.abspath(__file__))
+    # realpath: aufgerufen über den Symlink /usr/local/sbin/mkphotobox-touch-
+    # calibrate liegt touch-correct.py neben dem Ziel in /usr/local/lib/mkphotobox.
+    here = os.path.dirname(os.path.realpath(__file__))
     unit = f"""[Unit]
 Description=MKPhotobox: Touchscreen nichtlinear entzerren
 After=systemd-udev-settle.service egalax-inputattach.service egalax-touch.service

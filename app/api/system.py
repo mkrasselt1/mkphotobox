@@ -230,6 +230,68 @@ def set_display_mode(body: dict | None = None, _user=Depends(require_role("admin
             "output": r.stdout.strip()[-500:]}
 
 
+# ── Touchscreen-Kalibrierung ───────────────────────────────────────────────
+# Startet das Fadenkreuz-Werkzeug auf dem Bildschirm der Box. Optional: ohne
+# Touchscreen meldet GET keine Geräte, und die Oberfläche blendet die Karte aus.
+
+TOUCH_SCRIPT = "/usr/local/sbin/mkphotobox-touch-calibrate"
+TOUCH_CONF = "/etc/mkphotobox/touch-correction.json"
+
+
+def _touch_devices() -> list[str]:
+    """Namen der Touchscreens (nicht das virtuelle Gerät der Entzerrung)."""
+    names, name, is_abs = [], None, False
+    for line in (_read("/proc/bus/input/devices") or "").splitlines() + [""]:
+        if line.startswith("N: Name="):
+            name, is_abs = line.split("=", 1)[1].strip().strip('"'), False
+        elif line.startswith("B: ABS="):
+            is_abs = line.split("=", 1)[1].strip() not in ("", "0")
+        elif not line.strip():
+            if name and is_abs and "touch" in name.lower() and not name.startswith("MKPhotobox"):
+                names.append(name)
+            name, is_abs = None, False
+    return names
+
+
+def _calibration_running() -> bool:
+    import subprocess
+    r = subprocess.run(["pgrep", "-f", "touch-calibrate.py"], capture_output=True)
+    return r.returncode == 0
+
+
+@router.get("/system/touch")
+def get_touch(_user=Depends(require_role("admin"))):
+    import subprocess
+    active = subprocess.run(["systemctl", "is-active", "--quiet", "mkphotobox-touch.service"]
+                            ).returncode == 0
+    installed = os.path.exists(TOUCH_SCRIPT)
+    return {
+        "devices": _touch_devices(),
+        "correction_active": active and os.path.isfile(TOUCH_CONF),
+        "running": _calibration_running(),
+        "can_calibrate": installed and _can_sudo(TOUCH_SCRIPT, "--grid", "5"),
+    }
+
+
+@router.post("/system/touch/calibrate")
+def start_touch_calibration(_user=Depends(require_role("admin"))):
+    """Fadenkreuze erscheinen auf dem Bildschirm der Box — nicht auf dem Gerät,
+    von dem aus geklickt wurde. Läuft losgelöst; der Aufruf kehrt sofort zurück."""
+    import subprocess
+
+    if not _touch_devices():
+        raise HTTPException(status_code=409, detail="Kein Touchscreen erkannt.")
+    if _calibration_running():
+        raise HTTPException(status_code=409, detail="Die Kalibrierung läuft bereits.")
+    if not os.path.exists(TOUCH_SCRIPT) or not _can_sudo(TOUCH_SCRIPT, "--grid", "5"):
+        raise HTTPException(status_code=500,
+                            detail="Kalibrier-Werkzeug fehlt — 'sudo ./scripts/setup.sh' erneut ausführen.")
+    subprocess.Popen(["sudo", "-n", TOUCH_SCRIPT, "--grid", "5"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    return {"status": "started"}
+
+
 # ── Lüfter ──────────────────────────────────────────────────────────────────
 # Jeder PWM-Kanal jedes Sensorchips unter /sys/class/hwmon — kein Modell fest
 # verdrahtet. Lesen geht ohne root, Schreiben über den root-eigenen Helfer

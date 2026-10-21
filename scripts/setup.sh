@@ -277,6 +277,22 @@ systemctl enable --now mkphotobox.service
 echo ">>> [4b] Modus-Umschalter -> /usr/local/sbin/mkphotobox-mode"
 install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkphotobox-mode
 
+# Touch-Kalibrierung (Admin → Einstellungen → Touchscreen) aus demselben Grund
+# als root-eigene Kopie. Auch der Korrekturdienst läuft als root — aus dem
+# Checkout gestartet, könnte $RUN_USER ihm Code unterschieben.
+echo ">>> [4b] Touch-Kalibrierung -> /usr/local/sbin/mkphotobox-touch-calibrate"
+install -d -m 0755 -o root -g root /usr/local/lib/mkphotobox
+install -m 0755 -o root -g root "$APP_DIR/scripts/kiosk/touch-calibrate.py" \
+  "$APP_DIR/scripts/kiosk/touch-correct.py" /usr/local/lib/mkphotobox/
+ln -sf /usr/local/lib/mkphotobox/touch-calibrate.py /usr/local/sbin/mkphotobox-touch-calibrate
+TOUCH_UNIT=/etc/systemd/system/mkphotobox-touch.service
+if [[ -f "$TOUCH_UNIT" ]] && ! grep -q "/usr/local/lib/mkphotobox/touch-correct.py" "$TOUCH_UNIT"; then
+  sed -i 's|^ExecStart=.*|ExecStart=/usr/bin/python3 /usr/local/lib/mkphotobox/touch-correct.py|' "$TOUCH_UNIT"
+  systemctl daemon-reload
+  systemctl try-restart mkphotobox-touch.service || true
+  echo "    Korrekturdienst läuft jetzt aus der root-eigenen Kopie"
+fi
+
 # allow the app user to power off / reboot / restart-itself without a password
 # (admin Herunterfahren + Software-aktualisieren buttons) und den Anzeigemodus
 # umzuschalten. Beim Umschalter sind die erlaubten Argumente ausgeschrieben:
@@ -285,7 +301,7 @@ install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkpho
 # Lüfter: 'set *' ist bewusst offen — mkphotobox-fan prüft jedes Argument
 # streng (Chipname, Kanalnummer, 0..255|auto), bevor es in /sys schreibt.
 echo ">>> sudoers: Herunterfahren/Neustart/Service-Restart/Modus/Lüfter ohne Passwort"
-printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox, /usr/local/sbin/mkphotobox-mode kiosk, /usr/local/sbin/mkphotobox-mode desktop, /usr/local/sbin/mkphotobox-fan set *\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox, /usr/local/sbin/mkphotobox-mode kiosk, /usr/local/sbin/mkphotobox-mode desktop, /usr/local/sbin/mkphotobox-fan set *, /usr/local/sbin/mkphotobox-touch-calibrate --grid 5\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
 if visudo -cf /tmp/mkphotobox-sudoers >/dev/null 2>&1; then
   install -m 440 -o root -g root /tmp/mkphotobox-sudoers /etc/sudoers.d/mkphotobox
   echo "  sudoers-Regel installiert"
