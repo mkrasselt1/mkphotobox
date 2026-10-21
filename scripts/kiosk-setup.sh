@@ -176,6 +176,13 @@ if [[ "$BROWSER" == google-chrome-stable || "$BROWSER" == chromium* ]]; then
   install -m 0644 "$APP_DIR/scripts/kiosk/chrome-policy.json" "$POLICY_DIR/mkphotobox.json"
   echo "    Browser-Richtlinien: $POLICY_DIR/mkphotobox.json"
 fi
+# Firefox (auch der Snap) liest /etc/firefox/policies/policies.json. Ohne sie
+# blendet er im Kiosk oben "Bei Firefox anmelden" und Hinweisblasen ein.
+if [[ "$BROWSER" == firefox ]]; then
+  install -d /etc/firefox/policies
+  install -m 0644 "$APP_DIR/scripts/kiosk/firefox-policy.json" /etc/firefox/policies/policies.json
+  echo "    Browser-Richtlinien: /etc/firefox/policies/policies.json"
+fi
 
 # ── kiosk X session + SDDM autologin ──────────────────────────────────────
 cat > /usr/share/xsessions/kiosk.desktop <<'XS'

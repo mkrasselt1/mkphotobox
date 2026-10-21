@@ -56,22 +56,30 @@ class GifService:
         logger.info("GIF buffer started (%.1fs @ %dfps)", self._buffer_seconds, self._fps)
 
     async def _buffer_loop(self, camera_manager) -> None:
-        interval = 1.0 / self._fps
+        # Hängt am gemeinsamen Vorschau-Strom der Kamera, statt selbst abzufragen.
+        # Vorher lief hier eine zweite Abfrage-Schleife — ständig, auch ohne
+        # GIF — und nahm der Live-Vorschau die Hälfte der Bilder weg.
         while self._running:
+            cam = camera_manager.preview_camera
+            if cam is None:
+                await asyncio.sleep(1)
+                continue
             try:
-                cam = camera_manager.preview_camera
-                if cam is not None:
-                    frame = await cam.get_preview_frame()
-                    if frame:
-                        now = time.time()
-                        self._buffer.append(BufferedFrame(jpeg_bytes=frame, timestamp=now))
-                        # Trim old frames
-                        cutoff = now - self._buffer_seconds
-                        while self._buffer and self._buffer[0].timestamp < cutoff:
-                            self._buffer.popleft()
+                async for frame in cam.stream_preview():
+                    if not self._running or camera_manager.preview_camera is not cam:
+                        break  # Kamera gewechselt: neu anhängen
+                    if not frame:
+                        continue
+                    now = time.time()
+                    self._buffer.append(BufferedFrame(jpeg_bytes=frame, timestamp=now))
+                    cutoff = now - self._buffer_seconds
+                    while self._buffer and self._buffer[0].timestamp < cutoff:
+                        self._buffer.popleft()
+            except asyncio.CancelledError:
+                raise
             except Exception:
-                pass  # Camera might be switching, just skip this frame
-            await asyncio.sleep(interval)
+                logger.debug("GIF buffer: preview stream interrupted", exc_info=True)
+                await asyncio.sleep(1)
 
     async def stop_buffering(self) -> None:
         self._running = False
@@ -135,7 +143,15 @@ class GifService:
                 sequence = pil_frames + pil_frames[-2:0:-1]
 
             gif_path = output_dir / f"{filename_base}.gif"
-            frame_duration = int(1000 / self._fps)  # ms per frame
+            # Abspieltempo aus den echten Zeitstempeln: die Kamera liefert so
+            # viele Bilder, wie sie schafft, nicht die konfigurierten fps — mit
+            # fester Dauer liefe das GIF sonst im Zeitraffer.
+            if len(frames) > 1 and frames[-1].timestamp > frames[0].timestamp:
+                frame_duration = int(1000 * (frames[-1].timestamp - frames[0].timestamp)
+                                     / (len(frames) - 1))
+            else:
+                frame_duration = int(1000 / self._fps)
+            frame_duration = max(20, min(frame_duration, 500))
 
             sequence[0].save(
                 gif_path,
