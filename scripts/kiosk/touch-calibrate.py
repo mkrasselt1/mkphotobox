@@ -192,6 +192,9 @@ class Calibrator:
         self.dev_name, self.dev_path, self.dry_run = dev_name, dev_path, dry_run
         self.grid = grid
         self.targets, self.names = grid_targets(grid) if grid else (TARGETS, TARGET_NAMES)
+        self.notice = ""          # Hinweis über dem Kreuz ("nicht erkannt …")
+        self.retake_idx = None    # Index des Kreuzes, das gerade wiederholt wird
+        self.retakes = 0
         self.fd = os.open(dev_path, os.O_RDONLY | os.O_NONBLOCK)
         self.xr, self.yr = abs_range(self.fd, ABS_X), abs_range(self.fd, ABS_Y)
         # Solange kalibriert wird, soll X die Tipps nicht sehen — sonst klickt
@@ -236,9 +239,12 @@ class Calibrator:
         c.create_line(x, y - 30, x, y + 30, fill="red", width=3)
         c.create_oval(x - 6, y - 6, x + 6, y + 6, outline="red", width=2)
         # Hinweis nicht über das Kreuz legen
+        ty_text = 0.35 if abs(ty - 0.5) < 0.15 else 0.5
+        if self.notice:
+            self.text(self.notice, y=ty_text - 0.1, size=18, color="orange")
         self.text(f"Kreuz ({self.names[self.step]}) genau in der Mitte antippen\n"
                   f"und kurz halten  ({self.step + 1}/{len(self.targets)})   ·   Esc = Abbruch",
-                  y=0.35 if abs(ty - 0.5) < 0.15 else 0.5, size=18)
+                  y=ty_text, size=18)
 
     def poll(self) -> None:
         try:
@@ -270,19 +276,55 @@ class Calibrator:
                 self.xs.append(self.cur_x)
                 self.ys.append(self.cur_y)
 
+    def implausible(self, sample: tuple[float, float]) -> bool:
+        """Liegt der Tipp grob woanders, als die bisherigen Kreuze erwarten lassen?
+
+        Eine Gerade durch die schon erfassten Punkte sagt voraus, wohin dieses
+        Kreuz ungefähr fällt. Die Kissen-Verzerrung selbst macht höchstens ein
+        paar Prozent aus — über 12 % ist der Finger gerutscht oder das Panel
+        hat beim Loslassen einen Ausreißer gemeldet."""
+        if len(self.samples) < 5:
+            return False
+        pts = [p for i, p in enumerate(self.samples) if i != self.retake_idx]
+        tgs = [t for i, t in enumerate(self.targets[:len(self.samples)]) if i != self.retake_idx]
+        try:
+            a, b, c = fit_row(pts, [t[0] for t in tgs])
+            d, e, f = fit_row(pts, [t[1] for t in tgs])
+        except ValueError:
+            return False
+        u, v = sample
+        tx, ty = self.targets[self.step]
+        return max(abs(a * u + b * v + c - tx), abs(d * u + e * v + f - ty)) > 0.12
+
     def accept(self, x: float, y: float) -> None:
-        self.samples.append(self.norm(x, y))
-        self.step += 1
+        sample = self.norm(x, y)
+        if self.implausible(sample):
+            self.notice = "Nicht erkannt — bitte dieses Kreuz noch einmal antippen."
+            self.draw_target()
+            return
+        self.notice = ""
+        if self.retake_idx is not None:
+            self.samples[self.retake_idx] = sample
+            self.retake_idx = None
+            self.step = len(self.targets)
+        else:
+            self.samples.append(sample)
+            self.step += 1
         if self.step < len(self.targets):
             self.draw_target()
         else:
             self.root.after(50, self.finish)
 
+    def release_device(self) -> None:
+        if self.fd is not None:
+            fcntl.ioctl(self.fd, EVIOCGRAB, 0)
+            os.close(self.fd)
+            self.fd = None
+
     def finish(self) -> None:
-        fcntl.ioctl(self.fd, EVIOCGRAB, 0)
-        os.close(self.fd)
         if self.grid:
             return self.finish_grid()
+        self.release_device()
         try:
             a, b, c = fit_row(self.samples, [t[0] for t in TARGETS])
             d, e, f = fit_row(self.samples, [t[1] for t in TARGETS])
@@ -324,11 +366,19 @@ class Calibrator:
         print(f"Abweichung nach Entzerrung: Mittel {statistics.mean(errs) * 100:.1f} %, "
               f"schlechtestes Kreuz {worst * 100:.1f} % (Nr. {errs.index(worst) + 1})")
         # Mit vielen Punkten mittelt die Kurve Tippfehler aus; erst ein
-        # deutlicher Ausreißer heißt "danebengetippt".
+        # deutlicher Ausreißer heißt "danebengetippt". Dann nur dieses eine
+        # Kreuz wiederholen, nicht den ganzen Lauf verwerfen.
+        if worst > 0.04 and self.retakes < 3:
+            self.retakes += 1
+            self.retake_idx = self.step = errs.index(worst)
+            self.notice = f"Kreuz Nr. {self.step + 1} bitte noch einmal — es lag {worst * 100:.0f} % daneben."
+            self.draw_target()
+            self.root.after(10, self.poll)
+            return
+        self.release_device()
         if worst > 0.04:
-            return self.fail(f"Kreuz Nr. {errs.index(worst) + 1} weicht {worst * 100:.0f} % ab — "
-                             "vermutlich daneben getippt.\nBitte noch einmal starten. "
-                             "Es wurde nichts geändert.")
+            return self.fail(f"Kreuz Nr. {errs.index(worst) + 1} weicht weiter {worst * 100:.0f} % ab.\n"
+                             "Bitte noch einmal starten. Es wurde nichts geändert.")
         if self.dry_run:
             print("--dry-run: nichts geschrieben")
         else:
@@ -367,6 +417,10 @@ class Calibrator:
 
     def quit(self, code: int) -> None:
         self.exit_code = code
+        try:
+            self.release_device()
+        except OSError:
+            pass
         # Nicht direkt zerstören: "Fertig" ist ein Tag-Binding, danach feuert
         # für denselben Tipp noch das Canvas-Binding (dot) — auf einem schon
         # zerstörten Canvas bricht Tcl mit "alloc: invalid block" ab.
