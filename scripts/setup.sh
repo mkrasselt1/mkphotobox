@@ -18,9 +18,9 @@
 #                schwarzem Bildschirm nicht mehr heran)
 #   WITH_KIOSK   ruft am Ende scripts/kiosk-setup.sh auf (Vollbild-Browser,
 #                Autologin). WITH_KIOSK=0 für eine Box, die im Desktop bleibt.
-#   FAN_PWM=<chip>:<kanal>:<wert>   fester Lüfterwert beim Booten, z. B.
-#                it8620:2:90 (Chipname aus /sys/class/hwmon/*/name, Wert 0..255).
-#                FAN_MODULE=it87 lädt das Treibermodul dafür beim Booten.
+#   FAN_PWM=<chip>:<kanal>:<wert>   Lüfterwert gleich beim Setup festlegen,
+#                z. B. it8620:2:90 (sonst später im Admin-Bereich unter Lüfter).
+#                FAN_MODULE=it87 lädt den Sensortreiber künftig beim Booten.
 # Standardmäßig aus (=0): WITH_BG_AI WITH_TAILSCALE WITH_CLOUDFLARE
 #   RUN_USER=<user>   (default: the invoking sudo user)
 #
@@ -88,6 +88,34 @@ echo ">>> [2/5] Python-venv + Abhängigkeiten"
 # `pip install` fails with a resume loop. Long timeout + many retries survives it.
 PIP_OPTS=(--timeout 120 --retries 15)
 
+# Erst prüfen, ob PyPI überhaupt erreichbar ist. Ein DNS-Filter im Netz (Pi-hole,
+# AdGuard, Router-Kinderschutz) beantwortet files.pythonhosted.org mit 0.0.0.0 —
+# dann wartete jedes einzelne Paket 15 Wiederholungen ab, der Lauf hing gefühlt
+# ewig in Schritt 2, ohne zu sagen, warum. SKIP_PIP=1 überspringt bewusst.
+pypi_reachable() {
+  local host code
+  for host in pypi.org files.pythonhosted.org; do
+    code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "https://$host/" 2>/dev/null || true)"
+    [[ -n "$code" && "$code" != 000 ]] || { echo "$host"; return 1; }
+  done
+}
+SKIP_PIP="${SKIP_PIP:-0}"
+if [[ "$SKIP_PIP" != 1 ]] && ! blocked="$(pypi_reachable)"; then
+  if sudo -u "$RUN_USER" "$PY" -c "import fastapi, uvicorn, sqlmodel" 2>/dev/null; then
+    echo "!! $blocked nicht erreichbar (DNS-Filter? 'getent hosts $blocked' zeigt 0.0.0.0)."
+    echo "   Die Python-Pakete sind schon installiert — pip wird übersprungen."
+    SKIP_PIP=1
+  else
+    echo "!! $blocked nicht erreichbar, und die Python-Pakete fehlen noch."
+    echo "   Meist sperrt ein DNS-Filter im Netz die Adresse ('getent hosts $blocked'"
+    echo "   zeigt dann 0.0.0.0). pypi.org und files.pythonhosted.org freigeben und"
+    echo "   setup.sh erneut starten."
+    exit 1
+  fi
+fi
+PIP_FAILED=()
+if [[ "$SKIP_PIP" != 1 ]]; then
+
 sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" --upgrade pip
 # Since Python 3.12 `venv` no longer seeds setuptools/wheel, so every package
 # built from source (evdev, pyserial) fails in pip's isolated build env with
@@ -100,7 +128,6 @@ sudo -u "$RUN_USER" "$PIP" install "${PIP_OPTS[@]}" "fastapi==0.135.3" "starlett
 # a box could run for months with the OpenCV camera and the evdev triggers simply
 # absent, and the admin page had no way to say so. Failures are now collected and
 # reported at the end instead of aborting the run (set -e) or vanishing.
-PIP_FAILED=()
 
 pip_extra() {   # pip_extra <Beschriftung> <paket…>
   local label="$1"; shift
@@ -124,6 +151,7 @@ if [[ "$WITH_SERIAL"   == 1 ]]; then pip_extra "Serieller Auslöser"  "pyserial>
 if [[ "$WITH_PAYMENT"  == 1 ]]; then pip_extra "Bezahlung (httpx)"   "httpx>=0.27"; fi
 if [[ "$WITH_BG_AI"    == 1 ]]; then pip_extra "KI-Hintergrund"      "rembg>=2.0"; fi
 rm -f /tmp/mkphotobox-pip.log
+fi  # SKIP_PIP
 
 # Prüfen, ob die Anwendung überhaupt lädt, BEVOR ein Dienst eingerichtet wird.
 # Schlägt das fehl, endete der Lauf früher mit einem nackten Python-Traceback
@@ -254,8 +282,10 @@ install -m 0755 -o root -g root "$APP_DIR/scripts/mode.sh" /usr/local/sbin/mkpho
 # umzuschalten. Beim Umschalter sind die erlaubten Argumente ausgeschrieben:
 # so bleibt '--now' der Konsole vorbehalten und die Oberfläche kann sich nicht
 # selbst den Bildschirm unter den Füßen wegziehen.
-echo ">>> sudoers: Herunterfahren/Neustart/Service-Restart/Modus ohne Passwort"
-printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox, /usr/local/sbin/mkphotobox-mode kiosk, /usr/local/sbin/mkphotobox-mode desktop\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
+# Lüfter: 'set *' ist bewusst offen — mkphotobox-fan prüft jedes Argument
+# streng (Chipname, Kanalnummer, 0..255|auto), bevor es in /sys schreibt.
+echo ">>> sudoers: Herunterfahren/Neustart/Service-Restart/Modus/Lüfter ohne Passwort"
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart mkphotobox.service, /usr/bin/systemctl restart mkphotobox, /usr/local/sbin/mkphotobox-mode kiosk, /usr/local/sbin/mkphotobox-mode desktop, /usr/local/sbin/mkphotobox-fan set *\n' "$RUN_USER" > /tmp/mkphotobox-sudoers
 if visudo -cf /tmp/mkphotobox-sudoers >/dev/null 2>&1; then
   install -m 440 -o root -g root /tmp/mkphotobox-sudoers /etc/sudoers.d/mkphotobox
   echo "  sudoers-Regel installiert"
@@ -327,53 +357,49 @@ options rtw88_core disable_lps_deep=y
   done
 fi
 
-# ── 4a1b) optional: fester Lüfterwert ─────────────────────────────────────
-# Die hwmon-Nummer (hwmon0, hwmon3, …) vergibt der Kernel bei jedem Boot neu
-# — ein fest eingetragener Pfad trifft nach dem nächsten Neustart den falschen
-# Sensor. Darum sucht das Skript den Chip über seinen Namen.
-if [[ -n "$FAN_PWM" ]]; then
-  IFS=: read -r FAN_CHIP FAN_CH FAN_VAL <<< "$FAN_PWM"
-  if [[ -z "$FAN_CHIP" || ! "$FAN_CH" =~ ^[0-9]+$ || ! "$FAN_VAL" =~ ^[0-9]+$ || "$FAN_VAL" -gt 255 ]]; then
-    echo "!! FAN_PWM muss <chip>:<kanal>:<0..255> sein, z. B. it8620:2:90 — übersprungen"
-  else
-    echo ">>> Lüfter: $FAN_CHIP pwm$FAN_CH = $FAN_VAL"
-    if [[ -n "$FAN_MODULE" ]]; then
-      echo "$FAN_MODULE" > /etc/modules-load.d/mkphotobox-fan.conf
-      modprobe "$FAN_MODULE" 2>/dev/null || true
-    fi
-    cat > /usr/local/sbin/mkphotobox-fan <<FAN
-#!/bin/sh
-# Erzeugt von scripts/setup.sh (FAN_PWM=$FAN_PWM). Chip per Name suchen —
-# die hwmon-Nummern ändern sich pro Boot. Kurz warten, bis das Modul da ist.
-for try in 1 2 3 4 5 6 7 8 9 10; do
-  for h in /sys/class/hwmon/hwmon*; do
-    if [ "\$(cat "\$h/name" 2>/dev/null)" = "$FAN_CHIP" ]; then
-      echo 1 > "\$h/pwm${FAN_CH}_enable" && echo $FAN_VAL > "\$h/pwm$FAN_CH" && exit 0
-    fi
-  done
-  sleep 1
-done
-echo "$FAN_CHIP nicht gefunden" >&2; exit 1
-FAN
-    chmod 755 /usr/local/sbin/mkphotobox-fan
-    cat > /etc/systemd/system/mkphotobox-fan.service <<'UNIT'
+# ── 4a1b) Lüftersteuerung ─────────────────────────────────────────────────
+# Admin → Einstellungen → Lüfter zeigt jeden PWM-Kanal jedes Chips unter
+# /sys/class/hwmon und setzt einen festen Wert oder die Chip-Regelung.
+# Schreiben braucht root: root-eigene Kopie von scripts/fan.sh plus
+# sudoers-Regel (oben). Der Dienst stellt die Werte beim Booten wieder her.
+# FAN_PWM=<chip>:<kanal>:<wert> legt beim Setup gleich einen Wert fest,
+# FAN_MODULE=<modul> lädt den Sensortreiber (z. B. it87) künftig beim Booten.
+echo ">>> Lüftersteuerung -> /usr/local/sbin/mkphotobox-fan"
+install -m 0755 -o root -g root "$APP_DIR/scripts/fan.sh" /usr/local/sbin/mkphotobox-fan
+if [[ -n "$FAN_MODULE" ]]; then
+  echo "$FAN_MODULE" > /etc/modules-load.d/mkphotobox-fan.conf
+  modprobe "$FAN_MODULE" 2>/dev/null || echo "!! Modul $FAN_MODULE ließ sich nicht laden"
+fi
+cat > /etc/systemd/system/mkphotobox-fan.service <<'UNIT'
 [Unit]
-Description=MKPhotobox: fester Lüfterwert
+Description=MKPhotobox: gespeicherte Lüfterwerte setzen
 After=systemd-modules-load.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/sbin/mkphotobox-fan
+ExecStart=/usr/local/sbin/mkphotobox-fan apply
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-    systemctl daemon-reload
-    systemctl enable mkphotobox-fan.service >/dev/null 2>&1
-    systemctl restart mkphotobox-fan.service || echo "!! Lüfter-Dienst fehlgeschlagen: journalctl -u mkphotobox-fan"
-  fi
+systemctl daemon-reload
+systemctl enable mkphotobox-fan.service >/dev/null 2>&1
+if [[ -n "$FAN_PWM" ]]; then
+  IFS=: read -r FAN_CHIP FAN_CH FAN_VAL <<< "$FAN_PWM"
+  /usr/local/sbin/mkphotobox-fan set "$FAN_CHIP" "$FAN_CH" "$FAN_VAL" \
+    && echo "    $FAN_CHIP pwm$FAN_CH = $FAN_VAL" \
+    || echo "!! FAN_PWM=$FAN_PWM übersprungen (Format <chip>:<kanal>:<0..255|auto>)"
 fi
+systemctl restart mkphotobox-fan.service || echo "!! Lüfter-Dienst: journalctl -u mkphotobox-fan"
+# Alte Einzel-Lösungen ersetzen, sonst setzen zwei Dienste denselben Kanal.
+for old in fan-speed.service; do
+  if [[ -f "/etc/systemd/system/$old" ]]; then
+    systemctl disable --now "$old" >/dev/null 2>&1 || true
+    mv "/etc/systemd/system/$old" "/etc/systemd/system/$old.ersetzt-durch-mkphotobox-fan"
+    echo "    alte $old abgeschaltet"
+  fi
+done
 
 # ── 4a2) optional: Bluetooth-Dateiempfang ─────────────────────────────────
 # obexd hängt am D-Bus *Session*-Bus, der Dienst läuft aber als System-Unit

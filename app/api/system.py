@@ -230,6 +230,97 @@ def set_display_mode(body: dict | None = None, _user=Depends(require_role("admin
             "output": r.stdout.strip()[-500:]}
 
 
+# ── Lüfter ──────────────────────────────────────────────────────────────────
+# Jeder PWM-Kanal jedes Sensorchips unter /sys/class/hwmon — kein Modell fest
+# verdrahtet. Lesen geht ohne root, Schreiben über den root-eigenen Helfer
+# (scripts/fan.sh, von setup.sh nach /usr/local/sbin kopiert + sudoers).
+
+FAN_SCRIPT = "/usr/local/sbin/mkphotobox-fan"
+FAN_CONF = "/etc/mkphotobox/fans.conf"
+HWMON_ROOT = "/sys/class/hwmon"
+
+
+def _read(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def _fan_channels() -> list[dict]:
+    saved: dict[tuple[str, int], str] = {}
+    for line in (_read(FAN_CONF) or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1].isdigit():
+            saved[(parts[0], int(parts[1]))] = parts[2]
+    out = []
+    if not os.path.isdir(HWMON_ROOT):
+        return out
+    for hw in sorted(os.listdir(HWMON_ROOT)):
+        base = os.path.join(HWMON_ROOT, hw)
+        chip = _read(os.path.join(base, "name"))
+        if not chip:
+            continue
+        for fn in sorted(os.listdir(base)):
+            if not (fn.startswith("pwm") and fn[3:].isdigit()):
+                continue
+            n = int(fn[3:])
+            pwm = _read(os.path.join(base, fn))
+            enable = _read(os.path.join(base, f"pwm{n}_enable"))
+            rpm = _read(os.path.join(base, f"fan{n}_input"))
+            out.append({
+                "chip": chip,
+                "channel": n,
+                "pwm": int(pwm) if pwm and pwm.isdigit() else None,
+                # 1 = manuell bei allen gängigen Treibern; alles andere regelt der Chip.
+                "manual": enable == "1",
+                "controllable": enable is not None,
+                # Viele Lüfter haben kein Tacho-Signal — dann meldet der Chip 0.
+                "rpm": int(rpm) if rpm and rpm.isdigit() else None,
+                "saved": saved.get((chip, n)),
+            })
+    return out
+
+
+@router.get("/system/fans")
+def get_fans(_user=Depends(require_role("admin"))):
+    """Alle Lüfterkanäle mit aktuellem Wert, Modus und Drehzahl."""
+    installed = os.path.isfile(FAN_SCRIPT)
+    return {
+        "channels": _fan_channels(),
+        "installed": installed,
+        "can_set": installed and _can_sudo(FAN_SCRIPT, "set", "x", "1", "auto"),
+    }
+
+
+@router.post("/system/fans")
+def set_fan(body: dict, _user=Depends(require_role("admin"))):
+    """{chip, channel, value: 0..255 | "auto"} — gilt sofort und nach Neustart."""
+    import re
+    import subprocess
+
+    chip = str(body.get("chip", ""))
+    channel = body.get("channel")
+    value = body.get("value")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", chip) or not isinstance(channel, int) or channel < 0:
+        raise HTTPException(status_code=400, detail="Chip oder Kanal ungültig.")
+    if value != "auto" and not (isinstance(value, int) and 0 <= value <= 255):
+        raise HTTPException(status_code=400, detail="Wert muss 0..255 oder 'auto' sein.")
+    if not os.path.isfile(FAN_SCRIPT):
+        raise HTTPException(status_code=500,
+                            detail="Lüfter-Helfer fehlt — 'sudo ./scripts/setup.sh' erneut ausführen.")
+    r = subprocess.run(["sudo", "-n", FAN_SCRIPT, "set", chip, str(channel), str(value)],
+                       capture_output=True, text=True, timeout=20)
+    if r.returncode != 0:
+        msg = (r.stderr or r.stdout).strip()
+        if "password" in msg.lower() or "sudo" in msg.lower():
+            msg = "Keine Berechtigung — sudoers-Regel fehlt ('sudo ./scripts/setup.sh' erneut ausführen)."
+        raise HTTPException(status_code=500, detail=msg[:300] or "Setzen fehlgeschlagen.")
+    ch = next((c for c in _fan_channels() if c["chip"] == chip and c["channel"] == channel), None)
+    return {"status": "ok", "channel": ch}
+
+
 # ── Self-update (git pull + restart) ─────────────────────────────────────────
 
 SERVICE_NAME = "mkphotobox.service"
