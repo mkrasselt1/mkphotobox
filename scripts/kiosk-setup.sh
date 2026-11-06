@@ -247,6 +247,39 @@ XC
   systemctl enable --now egalax-touch.service
 fi
 
+# ── kein Schlüsselbund-Fenster vor Gästen ──────────────────────────────────
+# Mit Autologin wird der GNOME-Schlüsselbund nie entsperrt. Greift irgendein
+# Programm darauf zu, erscheint „Unlock Login Keyring“ mitten auf dem
+# Kiosk-Bildschirm — mit Passwortfeld, in dem unsere Bildschirmtastatur (die
+# lebt im Browser) nicht aufgeht. Gebraucht wird er hier nicht: Chrome läuft
+# mit --password-store=basic, WLAN-Passwörter liegen systemweit bei
+# NetworkManager. Also alle drei Startwege zu:
+#   1. systemd-Benutzerdienst + Socket maskieren
+#   2. Autostart-Einträge (/etc/xdg/autostart) für diesen Benutzer ausblenden
+#   3. die Passwortfenster selbst (per D-Bus gestartet) auf /bin/false
+# Selbst wenn PAM den Dienst doch startet, kann so kein Fenster mehr aufgehen;
+# das fragende Programm bekommt nur einen Fehler.
+KR_UID="$(id -u "$KIOSK_USER")"; KR_GID="$(id -g "$KIOSK_USER")"
+install -d -o "$KR_UID" -g "$KR_GID" "$HOME_DIR/.config" "$HOME_DIR/.config/systemd" \
+  "$HOME_DIR/.config/systemd/user" "$HOME_DIR/.config/autostart" \
+  "$HOME_DIR/.local" "$HOME_DIR/.local/share" "$HOME_DIR/.local/share/dbus-1" \
+  "$HOME_DIR/.local/share/dbus-1/services"
+for u in gnome-keyring-daemon.service gnome-keyring-daemon.socket; do
+  ln -sfn /dev/null "$HOME_DIR/.config/systemd/user/$u"
+done
+for a in gnome-keyring-secrets gnome-keyring-pkcs11 gnome-keyring-ssh; do
+  printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "$a" \
+    > "$HOME_DIR/.config/autostart/$a.desktop"
+done
+for svc in org.gnome.keyring.SystemPrompter org.gnome.keyring.PrivatePrompter; do
+  printf '[D-BUS Service]\nName=%s\nExec=/bin/false\n' "$svc" \
+    > "$HOME_DIR/.local/share/dbus-1/services/$svc.service"
+done
+chown -h "$KR_UID:$KR_GID" "$HOME_DIR"/.config/systemd/user/gnome-keyring-daemon.* \
+  "$HOME_DIR"/.config/autostart/gnome-keyring-*.desktop \
+  "$HOME_DIR"/.local/share/dbus-1/services/org.gnome.keyring.*.service
+echo ">>> Schlüsselbund-Abfragen für $KIOSK_USER abgeschaltet"
+
 # ── apply ─────────────────────────────────────────────────────────────────
 # Modus-Umschalter installieren und den Kiosk-Modus damit scharf schalten.
 # Erst das stellt den Displaymanager (display-manager.service +
