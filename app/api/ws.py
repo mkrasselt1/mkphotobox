@@ -14,6 +14,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
+_code_version: str | None = None
+
+
+def code_version() -> str:
+    """Stand des ausgelieferten Codes (Git-Commit, sonst Startzeit).
+
+    Der Kiosk-Browser lädt die Seite nach dem Einschalten nie neu. Einmal
+    geladene JS-Module behält er für die Lebensdauer der Seite — nach einem
+    Update zeigte er also weiter die alte Oberfläche, obwohl der Server längst
+    die neuen Dateien auslieferte. Mit diesem Stand erkennt der Browser beim
+    Wiederverbinden, dass sich etwas geändert hat, und lädt sich neu."""
+    global _code_version
+    if _code_version is None:
+        import subprocess
+        import time
+        from pathlib import Path
+        try:
+            r = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                               timeout=5, cwd=Path(__file__).resolve().parents[2])
+            _code_version = r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else ""
+        except Exception:
+            _code_version = ""
+        _code_version = _code_version or f"start-{int(time.time())}"
+    return _code_version
+
 
 @router.websocket("/api/v1/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
@@ -31,6 +56,8 @@ async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
 
     await ws_manager.connect(ws, role)
     try:
+        await ws.send_text(json.dumps({"type": "server.hello",
+                                       "data": {"version": code_version()}}))
         while True:
             data = await ws.receive_text()
             try:

@@ -9,6 +9,25 @@ export class WSClient {
         this._handlers = {};
         this._reconnectDelay = 1000;
         this._maxDelay = 30000;
+        this._serverVersion = null;
+        // Nach einem Update neu laden: einmal geladene JS-Module behält der
+        // Browser für die ganze Lebensdauer der Seite — der Kiosk zeigte nach
+        // einem Update also weiter die alte Oberfläche.
+        this.on('server.hello', (d) => this._checkVersion(d?.version));
+    }
+
+    _checkVersion(version) {
+        if (!version) return;
+        if (this._serverVersion === null) { this._serverVersion = version; return; }
+        if (version === this._serverVersion) return;
+        const reloadWhenIdle = () => {
+            // Nicht mitten im Tippen (Gästebuch, Formular) neu laden.
+            const el = document.activeElement;
+            const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+            if (typing) { setTimeout(reloadWhenIdle, 15000); return; }
+            location.reload();
+        };
+        reloadWhenIdle();
     }
 
     connect() {
