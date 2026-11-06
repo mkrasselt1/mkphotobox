@@ -317,4 +317,9 @@ if __name__ == "__main__":
         port=cfg["server"]["port"],
         workers=cfg["server"]["workers"],
         reload=False,
+        # Offene Endlos-Antworten (Live-Vorschau-Stream, WebSockets) enden nie
+        # von selbst. Ohne Grenze wartet uvicorn beim Stoppen auf sie, bis
+        # systemd nach 90 s hart abbricht — so lange zeigt der Kiosk
+        # „Failed to fetch“. Ein Neustart soll Sekunden dauern, nicht Minuten.
+        timeout_graceful_shutdown=3,
     )
