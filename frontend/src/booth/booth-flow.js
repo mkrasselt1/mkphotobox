@@ -205,15 +205,12 @@ export function render(container, state) {
         } catch {
             photoFilters = [];
         }
-        // Default crop aspect for idle / single-photo framing = the actual print
-        // output (e.g. 10x15 = 3:2) so a single photo shows no false crop. Fall
-        // back to the first template's canvas only when no print size is known.
-        const t0 = templates[0];
-        if (outputAspect) {
-            cropAspect = outputAspect;
-        } else if (t0 && t0.canvas_width && t0.canvas_height) {
-            cropAspect = { w: t0.canvas_width, h: t0.canvas_height };
-        }
+        // Rahmen ohne gewählte Vorlage = das, was mit dem Foto wirklich
+        // passiert: mit Drucker das Papier (10x15 = 3:2), ohne Drucker gar
+        // keiner — das volle Kamerabild. Früher sprang hier die erste Vorlage
+        // ein, die der Gast nie gewählt hatte. Mit Vorlage gilt deren Slot
+        // (currentCropAspect), auch für Online-Formate wie Instagram 1:1.
+        cropAspect = outputAspect || null;
         try {
             const sb = await fetch('/api/v1/system/share-base').then(r => r.json());
             shareBase = sb.base_url || '';

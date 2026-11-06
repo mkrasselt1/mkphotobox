@@ -917,6 +917,11 @@ def _output_aspect(cfg: dict) -> dict | None:
     from app.services.paper_sizes import paper_size_mm
 
     pr = get_nested(cfg, "outputs.printer", {}) or {}
+    # Ohne eingeschalteten Drucker wird nichts gedruckt — dann gibt es auch
+    # keinen Druckausschnitt. Vorher kam hier der Vorgabewert 4x6 hochkant an,
+    # und die Vorschau zeigte einen Rahmen für Papier, das es nicht gibt.
+    if not pr.get("enabled"):
+        return None
     mm = paper_size_mm(pr.get("paper_size") or "")
     if not mm:
         return None
