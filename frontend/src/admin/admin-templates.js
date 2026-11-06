@@ -1,10 +1,12 @@
 import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
+import { openEmojiPicker, emojiElement, emojiStatus } from '../core/emoji-picker.js';
 
 const DISPLAY_W = 520;  // canvas preview width in px
 let headers;
 let assetsByType = { background: [], frame: [], logo: [], sticker: [] };
 let availableFonts = ['Sans', 'Serif', 'Mono'];
 let presets = [];  // output presets (print paper / social formats)
+let emojiInfo = { high_res: false, svg_count: 0 };  // Emoji-Grafiken auf der Box
 
 async function loadPresets() {
     try {
@@ -54,6 +56,7 @@ export async function render(container, state) {
     await loadAssets();
     await loadFonts();
     await loadPresets();
+    emojiInfo = await emojiStatus();
     renderList(container, state);
 }
 
@@ -92,7 +95,7 @@ async function renderList(container, state) {
             id: null, name: 'Neue Vorlage', mode: 'grid',
             canvas_width: 1200, canvas_height: 1800, preset_id: null,
             background_asset_id: null, overlay_asset_id: null,
-            slots: [], overlays: [], texts: [],
+            slots: [], overlays: [], texts: [], emojis: [],
         });
     });
     container.querySelectorAll('.edit-tpl').forEach(b => b.addEventListener('click', async () => {
@@ -102,7 +105,7 @@ async function renderList(container, state) {
             canvas_width: t.canvas_width, canvas_height: t.canvas_height, preset_id: t.preset_id ?? null,
             background_asset_id: t.background_asset_id, overlay_asset_id: t.overlay_asset_id,
             slots: t.definition.slots || [], overlays: t.definition.overlays || [],
-            texts: t.definition.texts || [],
+            texts: t.definition.texts || [], emojis: t.definition.emojis || [],
         });
     }));
     container.querySelectorAll('.del-tpl').forEach(b => b.addEventListener('click', async () => {
@@ -114,7 +117,8 @@ async function renderList(container, state) {
 
 // ── Editor view ────────────────────────────────────────────────────────────
 function renderEditor(container, state, ed) {
-    let selected = null;  // {kind:'slot'|'overlay'|'text', index}
+    let selected = null;  // {kind:'slot'|'overlay'|'text'|'emoji', index}
+    ed.emojis = ed.emojis || [];
     const boundPreset = ed.preset_id != null ? presets.find(p => p.id === ed.preset_id) : null;
     const scale = DISPLAY_W / ed.canvas_width;
     let editMode = 'move';  // 'move' | 'resize' | 'rotate' — touch-friendly: drag anywhere
@@ -223,6 +227,17 @@ function renderEditor(container, state, ed) {
                     </p>
                 </div>
 
+                <div class="admin-card">
+                    <h3>Emoji</h3>
+                    <button id="btn-add-emoji" class="admin-btn admin-btn-outline" style="width:100%;min-height:2.75rem;font-size:1rem;">😀 Emoji hinzufügen</button>
+                    <p style="font-size:0.78rem;color:var(--pb-color-text-muted);margin-top:0.4rem;">
+                        ${emojiInfo.high_res
+                            ? 'Wird aus Vektorgrafiken gerendert — scharf in jeder Größe, auch im Druck.'
+                            : '<span style="color:var(--pb-color-error);">Emoji-Grafiken fehlen</span> — auf der Box <code>scripts/install-emoji.sh</code> ausführen (und <code>resvg-py</code> installieren), sonst wird nur grob gedruckt.'}
+                    </p>
+                    <p style="font-size:0.7rem;color:var(--pb-color-text-muted);margin:0.3rem 0 0;">Emoji-Grafiken: Twemoji © Twitter, Inc. und Mitwirkende, CC-BY 4.0</p>
+                </div>
+
                 <button id="btn-save" class="admin-btn admin-btn-primary" style="width:100%;">Vorlage speichern</button>
                 <p id="msg" style="margin-top:0.5rem;font-size:0.9rem;"></p>
             </div>
@@ -270,6 +285,13 @@ function renderEditor(container, state, ed) {
             canvas.appendChild(fr);
         }
 
+        // Layer 4: emojis (über dem Rahmen, unter dem Text — wie im Server-Render)
+        ed.emojis.forEach((em, i) => {
+            const b = makeBox(em, i, 'emoji', '');
+            b.style.zIndex = '4';
+            canvas.appendChild(b);
+        });
+
         // Layer 4: text elements (on top of everything, draggable)
         ed.texts.forEach((t, i) => {
             const b = makeBox(t, i, 'text', '');
@@ -310,6 +332,7 @@ function renderEditor(container, state, ed) {
             ...ed.slots.map((it, i) => ({ it, kind: 'slot', i })),
             ...ed.overlays.map((it, i) => ({ it, kind: 'overlay', i })),
             ...ed.texts.map((it, i) => ({ it, kind: 'text', i })),
+            ...ed.emojis.map((it, i) => ({ it, kind: 'emoji', i })),
         ];
         all.forEach(({ it, kind, i }) => {
             if (kind === exKind && i === exIndex) return;
@@ -378,10 +401,10 @@ function renderEditor(container, state, ed) {
     function makeBox(item, index, kind, label, assetId) {
         const box = document.createElement('div');
         const isSel = selected && selected.kind === kind && selected.index === index;
-        const border = kind === 'slot' ? '#5b9bd5' : kind === 'text' ? '#70ad47' : '#ed7d31';
+        const border = kind === 'slot' ? '#5b9bd5' : kind === 'text' ? '#70ad47' : kind === 'emoji' ? '#a55bd5' : '#ed7d31';
         box.style.cssText = `position:absolute;left:${item.x * scale}px;top:${item.y * scale}px;width:${item.w * scale}px;height:${item.h * scale}px;
-            border:2px ${kind === 'text' ? 'dashed' : 'solid'} ${border};box-sizing:border-box;cursor:move;
-            background:${assetId ? `url(${assetThumb(assetId)}) center/contain no-repeat` : kind === 'text' ? 'transparent' : 'rgba(91,155,213,0.25)'};
+            border:2px ${kind === 'text' || kind === 'emoji' ? 'dashed' : 'solid'} ${border};box-sizing:border-box;cursor:move;
+            background:${assetId ? `url(${assetThumb(assetId)}) center/contain no-repeat` : kind === 'text' || kind === 'emoji' ? 'transparent' : 'rgba(91,155,213,0.25)'};
             transform:rotate(${item.rotation || 0}deg);transform-origin:center center;
             display:flex;align-items:center;justify-content:center;color:#1b3a5b;font-weight:bold;${isSel ? 'outline:2px dashed #fff;outline-offset:1px;' : ''}`;
         if (kind === 'text') {
@@ -398,6 +421,9 @@ function renderEditor(container, state, ed) {
             box.style.lineHeight = '1.1';
             box.style.padding = '0';
             box.textContent = item.text || 'Text';
+        } else if (kind === 'emoji') {
+            // Der Server füllt das Quadrat der kürzeren Seite — hier genauso.
+            box.appendChild(emojiElement(item.emoji, emojiInfo.svg_count > 0));
         } else if (label) {
             box.textContent = label;
         }
@@ -423,7 +449,13 @@ function renderEditor(container, state, ed) {
         const onMove = (ev) => {
             const dx = (ev.clientX - startX) / scale;
             const dy = (ev.clientY - startY) / scale;
-            if (editMode === 'resize') {
+            if (editMode === 'resize' && selected.kind === 'emoji') {
+                // Emojis bleiben quadratisch: die größere Zugrichtung bestimmt die Kante.
+                const edge = Math.max(40, Math.round(orig.w + (Math.abs(dx) > Math.abs(dy) ? dx : dy)));
+                item.w = item.h = edge;
+                box.style.width = item.w * scale + 'px';
+                box.style.height = item.h * scale + 'px';
+            } else if (editMode === 'resize') {
                 item.w = Math.max(40, Math.round(orig.w + dx));
                 item.h = Math.max(40, Math.round(orig.h + dy));
                 drawGuides(applySnapResize(item, selected.kind, selected.index));
@@ -446,7 +478,10 @@ function renderEditor(container, state, ed) {
             box.removeEventListener('pointerup', onUp);
             try { box.releasePointerCapture(ev.pointerId); } catch {}
             clearGuides();
-            drawSlotProps();
+            // Emoji-Box neu zeichnen, damit die System-Emoji-Ersatzschrift mitwächst
+            // (drawCanvas zeichnet auch die Eigenschaften neu).
+            if (selected?.kind === 'emoji' && editMode === 'resize') drawCanvas();
+            else drawSlotProps();
         };
         box.addEventListener('pointermove', onMove);
         box.addEventListener('pointerup', onUp);
@@ -455,9 +490,45 @@ function renderEditor(container, state, ed) {
     function drawSlotProps() {
         const el = container.querySelector('#slot-props');
         if (!selected) { el.innerHTML = '<p style="font-size:0.8rem;color:var(--pb-color-text-muted);">Klicke einen Slot/Overlay zum Auswählen.</p>'; return; }
-        const list = selected.kind === 'slot' ? ed.slots : selected.kind === 'text' ? ed.texts : ed.overlays;
+        const list = selected.kind === 'slot' ? ed.slots : selected.kind === 'text' ? ed.texts
+            : selected.kind === 'emoji' ? ed.emojis : ed.overlays;
         const item = list[selected.index];
         if (!item) { selected = null; return drawSlotProps(); }
+
+        if (selected.kind === 'emoji') {
+            el.innerHTML = `
+            <div style="font-size:0.8rem;background:#0e1a30;padding:0.5rem;border-radius:6px;display:flex;flex-direction:column;gap:0.45rem;">
+                <strong>Emoji <span style="font-size:1.4rem;vertical-align:middle;">${item.emoji}</span></strong>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;">
+                    <label>Größe (px)<input id="e-size" type="number" min="40" class="admin-input" style="width:100%;" value="${Math.min(item.w, item.h)}"></label>
+                    <label>Drehung°<input id="e-rot" type="number" class="admin-input" style="width:100%;" value="${item.rotation || 0}"></label>
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button id="e-change" class="admin-btn admin-btn-outline" style="flex:1;font-size:0.75rem;">Anderes Emoji</button>
+                    <button id="e-dup" class="admin-btn admin-btn-outline" style="flex:1;font-size:0.75rem;">Duplizieren</button>
+                </div>
+                <button id="p-del" class="admin-btn admin-btn-outline" style="font-size:0.75rem;color:var(--pb-color-error);">Entfernen</button>
+            </div>`;
+            el.querySelector('#e-size').addEventListener('change', e => {
+                // Größe um den Mittelpunkt ändern, damit das Emoji nicht wegspringt.
+                const edge = Math.max(40, parseInt(e.target.value) || 40);
+                const cx = item.x + item.w / 2, cy = item.y + item.h / 2;
+                item.w = item.h = edge;
+                item.x = Math.round(cx - edge / 2); item.y = Math.round(cy - edge / 2);
+                drawCanvas();
+            });
+            el.querySelector('#e-rot').addEventListener('change', e => { item.rotation = parseInt(e.target.value) || 0; drawCanvas(); });
+            el.querySelector('#e-change').addEventListener('click', () =>
+                openEmojiPicker({ onPick: emoji => { item.emoji = emoji; drawCanvas(); } }));
+            el.querySelector('#e-dup').addEventListener('click', () => {
+                const off = Math.round(item.w * 0.15);
+                ed.emojis.push({ ...item, x: item.x + off, y: item.y + off });
+                selected = { kind: 'emoji', index: ed.emojis.length - 1 };
+                drawCanvas();
+            });
+            el.querySelector('#p-del').addEventListener('click', () => { ed.emojis.splice(selected.index, 1); selected = null; drawCanvas(); });
+            return;
+        }
 
         if (selected.kind === 'text') {
             const fontOpts = availableFonts.map(f => `<option value="${f}" ${item.font === f ? 'selected' : ''}>${f}</option>`).join('');
@@ -570,6 +641,7 @@ function renderEditor(container, state, ed) {
         };
         ed.slots.forEach(transpose);
         ed.overlays.forEach(transpose);
+        ed.emojis.forEach(transpose);
         renderEditor(container, state, ed);  // rescale + redraw
     });
     container.querySelector('#f-name')?.addEventListener('input', (e) => ed.name = e.target.value);
@@ -613,6 +685,19 @@ function renderEditor(container, state, ed) {
     });
     container.querySelector('#f-bg')?.addEventListener('change', (e) => { ed.background_asset_id = e.target.value ? parseInt(e.target.value) : null; drawCanvas(); });
     container.querySelector('#f-frame')?.addEventListener('change', (e) => { ed.overlay_asset_id = e.target.value ? parseInt(e.target.value) : null; drawCanvas(); });
+    container.querySelector('#btn-add-emoji')?.addEventListener('click', () => {
+        openEmojiPicker({
+            onPick: (emoji) => {
+                const edge = Math.round(Math.min(ed.canvas_width, ed.canvas_height) * 0.2);
+                ed.emojis.push({
+                    emoji, w: edge, h: edge, rotation: 0,
+                    x: Math.round((ed.canvas_width - edge) / 2), y: Math.round((ed.canvas_height - edge) / 2),
+                });
+                selected = { kind: 'emoji', index: ed.emojis.length - 1 };
+                drawCanvas();
+            },
+        });
+    });
     container.querySelector('#btn-add-overlay')?.addEventListener('click', () => {
         const sel = container.querySelector('#f-logo');
         const id = sel.value ? parseInt(sel.value) : null;
@@ -627,7 +712,7 @@ function renderEditor(container, state, ed) {
             canvas_width: ed.canvas_width, canvas_height: ed.canvas_height,
             preset_id: ed.preset_id ?? null,
             background_asset_id: ed.background_asset_id, overlay_asset_id: ed.overlay_asset_id,
-            definition: { slots: ed.slots, overlays: ed.overlays, texts: ed.texts },
+            definition: { slots: ed.slots, overlays: ed.overlays, texts: ed.texts, emojis: ed.emojis },
         };
     }
 

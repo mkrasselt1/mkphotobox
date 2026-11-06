@@ -8,6 +8,7 @@
  */
 
 import { sounds } from '../core/sounds.js';
+import { openEmojiPicker, emojiElement, emojiStatus } from '../core/emoji-picker.js';
 
 const STATES = {
     idle:         { timeout: null,   timeoutTarget: null },
@@ -227,6 +228,7 @@ export function render(container, state) {
         if (countdownTimer) clearInterval(countdownTimer);
         if (captureLeadTimer) { clearTimeout(captureLeadTimer); captureLeadTimer = null; }
         document.getElementById('pb-overlay')?.remove(); // clear any open modal
+        document.querySelectorAll('.pb-emoji-picker').forEach(p => p.remove());
 
         const stateConfig = STATES[newState];
         if (stateConfig?.timeout) {
@@ -882,7 +884,7 @@ export function render(container, state) {
             <img id="review-photo" src="${photoUrl}" style="max-width:100%;max-height:60vh;border-radius:var(--pb-radius);object-fit:contain;box-shadow:0 4px 30px rgba(0,0,0,0.5);" alt="Photo">
             <div style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;">
                 <button id="btn-retake" class="pb-btn pb-btn-outline">${i18n.t('booth.retake')}</button>
-                ${guestbookEnabled && lastPhoto ? '<button id="btn-guestbook" class="pb-btn pb-btn-outline">✍️ Grußwort</button>' : ''}
+                ${guestbookEnabled && lastPhoto ? '<button id="btn-guestbook" class="pb-btn pb-btn-outline">✍️ Grußwort &amp; 😀 Emojis</button>' : ''}
                 <button id="btn-continue" class="pb-btn pb-btn-primary">${i18n.t('booth.continue')}</button>
             </div>
         </div>
@@ -899,8 +901,9 @@ export function render(container, state) {
 
     // ── Guest book: draw / write on the photo ────────────────────────
 
-    /** Full-screen editor over the photo. Saves a transparent PNG plus an
-     *  optional greeting; the server composites both into the photo itself. */
+    /** Full-screen editor over the photo. Saves a transparent PNG, emoji
+     *  stickers and an optional greeting; the server composites all of it into
+     *  the photo itself (stickers from vector graphics at full resolution). */
     function openGuestbook(photoUrl) {
         const COLORS = ['#ffffff', '#ff4d6d', '#ffd166', '#4cc9f0', '#7bdc8b', '#1b1b1b'];
         closeOverlay();
@@ -922,6 +925,9 @@ export function render(container, state) {
                 <div id="gb-frame" style="position:relative;display:inline-block;line-height:0;max-width:100%;">
                     <img id="gb-photo" src="${photoUrl}" style="display:block;max-width:100%;max-height:58vh;border-radius:var(--pb-radius);" alt="">
                     <canvas id="gb-canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none;border-radius:var(--pb-radius);cursor:crosshair;"></canvas>
+                    <!-- Emoji-Sticker liegen über der Zeichnung (so rendert sie auch der Server).
+                         overflow:hidden schneidet überstehende Sticker ab, wie im Foto. -->
+                    <div id="gb-stickers" style="position:absolute;inset:0;overflow:hidden;pointer-events:none;border-radius:var(--pb-radius);"></div>
                 </div>
             </div>
             <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
@@ -931,8 +937,17 @@ export function render(container, state) {
                 <span style="width:1rem;"></span>
                 <button class="gb-size" data-size="4" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid var(--pb-color-primary);background:rgba(127,127,127,0.2);color:inherit;">dünn</button>
                 <button class="gb-size" data-size="10" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid transparent;background:rgba(127,127,127,0.2);color:inherit;">dick</button>
+                <button id="gb-emoji" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">😀 Emoji</button>
                 <button id="gb-undo" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">↶ Zurück</button>
                 <button id="gb-clear" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">Alles löschen</button>
+            </div>
+            <div id="gb-sticker-tools" style="display:none;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
+                <span style="opacity:0.75;font-size:0.9rem;">Emoji: ziehen zum Verschieben, mit zwei Fingern drehen/zoomen</span>
+                <button class="gb-st" data-act="smaller" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">－</button>
+                <button class="gb-st" data-act="bigger" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">＋</button>
+                <button class="gb-st" data-act="left" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">⟲</button>
+                <button class="gb-st" data-act="right" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">⟳</button>
+                <button class="gb-st" data-act="delete" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;">🗑 Entfernen</button>
             </div>
             <input id="gb-message" type="text" maxlength="${guestbookMaxLen}" placeholder="Grußwort (optional)" style="
                 width:100%;box-sizing:border-box;padding:0.75rem 0.9rem;border-radius:var(--pb-radius);
@@ -949,6 +964,9 @@ export function render(container, state) {
         const photo = o.querySelector('#gb-photo');
         const ctx = canvas.getContext('2d');
         const strokes = [];          // for undo — each entry is one finished stroke
+        const stickers = [];         // {emoji, x, y, size, rotation, el} — x/y Mitte, size rel. zur Fotobreite
+        const history = [];          // 'stroke' | Sticker-Objekt — Reihenfolge fürs Zurück
+        let selectedSticker = null;
         let current = null;
         let color = COLORS[0];
         let width = 4;
@@ -989,8 +1007,10 @@ export function render(container, state) {
 
         canvas.addEventListener('pointerdown', ev => {
             canvas.setPointerCapture(ev.pointerId);
+            selectSticker(null);
             current = { color, width, points: [pos(ev)] };
             strokes.push(current);
+            history.push('stroke');
         });
         canvas.addEventListener('pointermove', ev => {
             if (!current) return;
@@ -1012,17 +1032,146 @@ export function render(container, state) {
             o.querySelectorAll('.gb-size').forEach(b =>
                 b.style.borderColor = b === btn ? 'var(--pb-color-primary)' : 'transparent');
         }));
-        o.querySelector('#gb-undo').addEventListener('click', () => { strokes.pop(); redraw(); });
-        o.querySelector('#gb-clear').addEventListener('click', () => { strokes.length = 0; redraw(); });
+        // ── Emoji-Sticker ─────────────────────────────────────────────
+        const stickerLayer = o.querySelector('#gb-stickers');
+        const stickerTools = o.querySelector('#gb-sticker-tools');
+        let useSvg = false;
+        emojiStatus().then(st => { useSvg = !!(st && st.svg_count); });
 
-        const close = () => { window.removeEventListener('resize', onResize); o.remove(); };
+        function placeSticker(st) {
+            const el = st.el;
+            el.style.left = (st.x * 100) + '%';
+            el.style.top = (st.y * 100) + '%';
+            el.style.width = (st.size * 100) + '%';
+            el.style.transform = `translate(-50%,-50%) rotate(${st.rotation}deg)`;
+            el.style.outline = st === selectedSticker ? '2px dashed var(--pb-color-primary)' : 'none';
+        }
+        function selectSticker(st) {
+            selectedSticker = st;
+            stickers.forEach(placeSticker);
+            stickerTools.style.display = st ? 'flex' : 'none';
+        }
+        function removeSticker(st) {
+            st.el.remove();
+            stickers.splice(stickers.indexOf(st), 1);
+            const h = history.lastIndexOf(st);
+            if (h >= 0) history.splice(h, 1);
+            if (selectedSticker === st) selectSticker(null);
+        }
+        function addSticker(emoji) {
+            const st = { emoji, x: 0.5, y: 0.5, size: 0.22, rotation: 0 };
+            const el = document.createElement('div');
+            el.style.cssText = 'position:absolute;aspect-ratio:1;pointer-events:auto;touch-action:none;cursor:move;border-radius:8px;outline-offset:2px;';
+            el.appendChild(emojiElement(emoji, useSvg));
+            st.el = el;
+            stickerLayer.appendChild(el);
+            stickers.push(st);
+            history.push(st);
+            wireSticker(st);
+            selectSticker(st);
+        }
+
+        // Ein Finger verschiebt, zwei Finger zoomen und drehen.
+        function wireSticker(st) {
+            const pts = new Map();
+            let start = null;
+            const rebase = () => {
+                const p = [...pts.values()];
+                start = { x: st.x, y: st.y, size: st.size, rotation: st.rotation, p0: p[0], p1: p[1] };
+            };
+            st.el.addEventListener('pointerdown', ev => {
+                ev.stopPropagation();
+                try { st.el.setPointerCapture(ev.pointerId); } catch {}
+                pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+                // Antippen holt den Sticker nach vorn.
+                stickerLayer.appendChild(st.el);
+                stickers.splice(stickers.indexOf(st), 1); stickers.push(st);
+                selectSticker(st);
+                rebase();
+            });
+            st.el.addEventListener('pointermove', ev => {
+                if (!pts.has(ev.pointerId) || !start) return;
+                pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+                const r = stickerLayer.getBoundingClientRect();
+                if (!r.width || !r.height) return;
+                const p = [...pts.values()];
+                if (p.length >= 2 && start.p1) {
+                    const d0 = Math.hypot(start.p1.x - start.p0.x, start.p1.y - start.p0.y) || 1;
+                    const d1 = Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y);
+                    const a0 = Math.atan2(start.p1.y - start.p0.y, start.p1.x - start.p0.x);
+                    const a1 = Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x);
+                    st.size = Math.min(1.2, Math.max(0.04, start.size * d1 / d0));
+                    st.rotation = Math.round(start.rotation + (a1 - a0) * 180 / Math.PI);
+                    const m0 = { x: (start.p0.x + start.p1.x) / 2, y: (start.p0.y + start.p1.y) / 2 };
+                    const m1 = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+                    st.x = start.x + (m1.x - m0.x) / r.width;
+                    st.y = start.y + (m1.y - m0.y) / r.height;
+                } else {
+                    st.x = start.x + (p[0].x - start.p0.x) / r.width;
+                    st.y = start.y + (p[0].y - start.p0.y) / r.height;
+                }
+                st.x = Math.min(1.1, Math.max(-0.1, st.x));
+                st.y = Math.min(1.1, Math.max(-0.1, st.y));
+                placeSticker(st);
+            });
+            const up = ev => {
+                pts.delete(ev.pointerId);
+                if (pts.size) rebase(); else start = null;
+            };
+            st.el.addEventListener('pointerup', up);
+            st.el.addEventListener('pointercancel', up);
+        }
+
+        o.querySelector('#gb-emoji').addEventListener('click', () => {
+            if (stickers.length >= 40) return;   // Grenze wie auf dem Server
+            openEmojiPicker({ title: 'Emoji aufs Foto', onPick: addSticker });
+        });
+        o.querySelectorAll('.gb-st').forEach(btn => btn.addEventListener('click', () => {
+            const st = selectedSticker;
+            if (!st) return;
+            switch (btn.dataset.act) {
+                case 'smaller': st.size = Math.max(0.04, st.size / 1.2); break;
+                case 'bigger': st.size = Math.min(1.2, st.size * 1.2); break;
+                case 'left': st.rotation -= 15; break;
+                case 'right': st.rotation += 15; break;
+                case 'delete': removeSticker(st); return;
+            }
+            placeSticker(st);
+        }));
+
+        o.querySelector('#gb-undo').addEventListener('click', () => {
+            const last = history.pop();
+            if (last === 'stroke') { strokes.pop(); redraw(); }
+            else if (last) removeSticker(last);
+        });
+        o.querySelector('#gb-clear').addEventListener('click', () => {
+            strokes.length = 0; redraw();
+            [...stickers].forEach(removeSticker);
+            history.length = 0;
+        });
+
+        // Wer malt oder Emojis sucht, ist noch da: jede Berührung verlängert die
+        // Zeit, bis der Review-Bildschirm von selbst weiterschaltet.
+        const keepAlive = () => {
+            if (!document.body.contains(o)) { document.removeEventListener('pointerdown', keepAlive, true); return; }
+            if (currentState !== 'review') return;
+            if (stateTimer) clearTimeout(stateTimer);
+            stateTimer = setTimeout(() => transition(STATES.review.timeoutTarget), STATES.review.timeout);
+        };
+        document.addEventListener('pointerdown', keepAlive, true);
+
+        const close = () => {
+            window.removeEventListener('resize', onResize);
+            document.removeEventListener('pointerdown', keepAlive, true);
+            o.remove();
+        };
         o.querySelector('#gb-cancel').addEventListener('click', close);
 
         o.querySelector('#gb-save').addEventListener('click', async () => {
             const message = o.querySelector('#gb-message').value.trim();
             const msgEl = o.querySelector('#gb-msg');
-            if (!strokes.length && !message) {
-                msgEl.textContent = 'Erst malen oder etwas schreiben.';
+            if (!strokes.length && !message && !stickers.length) {
+                msgEl.textContent = 'Erst malen, ein Emoji setzen oder etwas schreiben.';
                 msgEl.style.color = 'var(--pb-color-error)';
                 return;
             }
@@ -1035,6 +1184,11 @@ export function render(container, state) {
                     fd.append('overlay', blob, 'guestbook.png');
                 }
                 fd.append('message', message);
+                if (stickers.length) {
+                    fd.append('stickers', JSON.stringify(stickers.map(st => ({
+                        emoji: st.emoji, x: st.x, y: st.y, size: st.size, rotation: st.rotation,
+                    }))));
+                }
                 const res = await fetch(`/api/v1/photos/${lastPhoto.photo_id}/guestbook`,
                     { method: 'POST', body: fd });
                 if (!res.ok) {

@@ -4,7 +4,7 @@ One renderer for both editor modes — a template always carries explicit photo
 *slots* (canvas pixels). Render order:
 
     background image  ->  photos into slots  ->  full-canvas frame overlay
-    ->  positioned overlays (logos/stickers)  ->  flatten to JPEG
+    ->  positioned overlays (logos/stickers)  ->  emojis  ->  text  ->  flatten to JPEG
 """
 
 from __future__ import annotations
@@ -299,6 +299,7 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
     slots = definition.get("slots", [])
     overlays = definition.get("overlays", [])
     texts = definition.get("texts", [])
+    emojis = definition.get("emojis", [])
 
     canvas = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
 
@@ -365,6 +366,20 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         if rot:
             placed = placed.rotate(-rot, expand=True, resample=Image.BICUBIC)
         canvas.alpha_composite(placed.convert("RGBA"), (cx - placed.width // 2, cy - placed.height // 2))
+
+    # 4b) Emojis — aus Vektorgrafiken in der Zielgröße gerendert (scharf im Druck).
+    # Box wie bei Overlays (x/y/w/h), das Emoji füllt das Quadrat der kürzeren Seite.
+    if emojis:
+        from app.services import emoji_service
+
+        for em in emojis:
+            try:
+                w, h = int(em.get("w", 200)), int(em.get("h", 200))
+                emoji_service.place(canvas, str(em.get("emoji", "")),
+                                    int(em.get("x", 0)) + w / 2, int(em.get("y", 0)) + h / 2,
+                                    min(w, h), em.get("rotation", 0) or 0)
+            except Exception:
+                logger.exception("Failed to render emoji element")
 
     # 5) Text elements (rendered on top of everything)
     for txt in texts:

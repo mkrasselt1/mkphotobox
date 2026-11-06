@@ -55,13 +55,58 @@ def preserve_original(storage: Path, filename: str, original_path: Optional[str]
     return f"{ORIGINALS_DIR}/{filename}"
 
 
+#: Mehr Sticker braucht kein Foto — und jeder kostet beim Rendern Zeit.
+MAX_STICKERS = 40
+
+
+def parse_stickers(raw: str | None) -> list[dict[str, Any]]:
+    """Emoji-Sticker aus dem Formularfeld (JSON-Liste) prüfen und normieren.
+
+    Je Sticker: ``emoji``, Mittelpunkt ``x``/``y`` und Kantenlänge ``size``
+    jeweils relativ (0..1; size bezogen auf die Fotobreite), ``rotation`` in
+    Grad. Unbrauchbares wird still verworfen — ein Sticker darf das Speichern
+    der Zeichnung nicht verhindern."""
+    import json
+
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    out: list[dict[str, Any]] = []
+    for s in data if isinstance(data, list) else []:
+        if not isinstance(s, dict):
+            continue
+        emoji = str(s.get("emoji", "")).strip()
+        if not emoji or len(emoji) > 16:
+            continue
+        try:
+            x, y = float(s.get("x", 0.5)), float(s.get("y", 0.5))
+            size = float(s.get("size", 0.2))
+            rot = float(s.get("rotation", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        out.append({"emoji": emoji,
+                    "x": min(1.5, max(-0.5, x)), "y": min(1.5, max(-0.5, y)),
+                    "size": min(2.0, max(0.01, size)), "rotation": rot % 360})
+        if len(out) >= MAX_STICKERS:
+            break
+    return out
+
+
 def apply(photo_file: Path, overlay_png: Optional[bytes], message: str = "",
-          *, jpeg_quality: int = 92, font: str = "Sans") -> dict[str, Any]:
-    """Composite *overlay_png* (and an optional *message*) onto *photo_file*.
+          *, jpeg_quality: int = 92, font: str = "Sans",
+          stickers: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+    """Composite *overlay_png*, emoji *stickers* and an optional *message*
+    onto *photo_file*.
 
     The overlay arrives at whatever resolution the guest's screen had; it is
     scaled to the photo, so a tablet doodle lands correctly on a 24-megapixel
-    DSLR frame. Returns a small summary for the API response.
+    DSLR frame. Stickers are rendered from vector graphics at the photo's own
+    resolution (see :mod:`app.services.emoji_service`), on top of the drawing —
+    the same order the guest saw on screen. Returns a small summary for the
+    API response.
     """
     from PIL import Image
 
@@ -81,6 +126,19 @@ def apply(photo_file: Path, overlay_png: Optional[bytes], message: str = "",
         except Exception:
             logger.exception("Guest book overlay could not be applied")
 
+    placed = 0
+    if stickers:
+        from app.services import emoji_service
+
+        for st in stickers:
+            try:
+                if emoji_service.place(base, st["emoji"], st["x"] * base.width,
+                                       st["y"] * base.height, st["size"] * base.width,
+                                       st.get("rotation", 0)):
+                    placed += 1
+            except Exception:
+                logger.exception("Guest book sticker could not be applied")
+
     message = (message or "").strip()
     if message:
         base.alpha_composite(_message_band(base.size, message, font))
@@ -89,7 +147,7 @@ def apply(photo_file: Path, overlay_png: Optional[bytes], message: str = "",
     flat.paste(base, mask=base.split()[-1])
     flat.save(photo_file, "JPEG", quality=jpeg_quality, **({"exif": exif} if exif else {}))
     return {"width": base.width, "height": base.height,
-            "drawing": drew, "message": bool(message)}
+            "drawing": drew, "stickers": placed, "message": bool(message)}
 
 
 def _message_band(size: tuple[int, int], message: str, font_label: str):

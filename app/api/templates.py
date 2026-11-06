@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlmodel import Session, select
 
 from app.auth import require_role
@@ -70,6 +70,32 @@ def list_templates(session: Session = Depends(get_session),
 def list_fonts(_user=Depends(require_role("admin", "organizer"))):
     """Font labels available for text elements on this system."""
     return {"fonts": collage_service.available_fonts()}
+
+
+@router.get("/emoji/status")
+def emoji_status():
+    """Sind die Emoji-Vektorgrafiken und der Renderer da? (öffentlich — der
+    Gästebuch-Editor der Booth entscheidet daran, ob er SVGs oder System-Emojis zeigt)."""
+    from app.services import emoji_service
+
+    return emoji_service.status()
+
+
+@router.get("/emoji/{name}.svg")
+def emoji_svg(name: str):
+    """Twemoji-Grafik für die Browser-Vorschau (öffentlich, für die Booth).
+
+    Dieselbe Datei, aus der der Server druckt — die Vorschau zeigt also genau
+    das Emoji, das aufs Foto kommt, nicht das (anders aussehende) System-Emoji."""
+    from app.services import emoji_service
+
+    p = emoji_service.svg_file(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Emoji nicht gefunden")
+    # Die Grafiken einer Version ändern sich nie — lange cachen spart dem Picker
+    # hunderte Anfragen beim nächsten Öffnen.
+    return FileResponse(p, media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 @router.post("/grid-slots")

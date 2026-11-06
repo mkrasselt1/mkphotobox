@@ -234,13 +234,18 @@ async def photo_guestbook(
     request: Request,
     overlay: UploadFile | None = File(default=None),
     message: str = Form(default=""),
+    stickers: str = Form(default=""),
     session: Session = Depends(get_session),
 ):
-    """Composite the guests' drawing and/or greeting into their photo (public).
+    """Composite the guests' drawing, emoji stickers and/or greeting into their
+    photo (public).
 
     ``overlay`` is a transparent PNG from the booth canvas at whatever size the
-    screen had — the server scales it to the photo. The untouched original is
-    preserved once so a second attempt starts clean instead of stacking."""
+    screen had — the server scales it to the photo. ``stickers`` is a JSON list
+    of emojis with relative position/size (see ``guestbook.parse_stickers``),
+    rendered from vector graphics at full photo resolution. The untouched
+    original is preserved once so a second attempt starts clean instead of
+    stacking."""
     from app.services import guestbook
 
     cfg = request.app.state.config
@@ -258,8 +263,9 @@ async def photo_guestbook(
 
     overlay_bytes = await overlay.read() if overlay is not None else None
     message = (message or "").strip()[:guestbook.max_message_length(cfg)]
-    if not overlay_bytes and not message:
-        raise HTTPException(status_code=400, detail="Weder Zeichnung noch Text übergeben")
+    sticker_list = guestbook.parse_stickers(stickers)
+    if not overlay_bytes and not message and not sticker_list:
+        raise HTTPException(status_code=400, detail="Weder Zeichnung, Sticker noch Text übergeben")
 
     try:
         original_rel = await asyncio.to_thread(
@@ -267,7 +273,8 @@ async def photo_guestbook(
         result = await asyncio.to_thread(
             guestbook.apply, photo_file, overlay_bytes, message,
             jpeg_quality=cfg.get("photos", {}).get("jpeg_quality", 92),
-            font=cfg.get("guestbook", {}).get("font", "Sans"))
+            font=cfg.get("guestbook", {}).get("font", "Sans"),
+            stickers=sticker_list)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Konnte nicht aufs Foto zeichnen: {e}")
 
@@ -278,7 +285,8 @@ async def photo_guestbook(
     photo.original_path = original_rel
     photo.file_size = photo_file.stat().st_size
     meta = json.loads(photo.metadata_json or "{}")
-    meta["guestbook"] = {"drawing": result["drawing"], "message": message}
+    meta["guestbook"] = {"drawing": result["drawing"], "message": message,
+                         "stickers": [s["emoji"] for s in sticker_list]}
     photo.metadata_json = json.dumps(meta)
     session.add(photo)
     session.commit()
