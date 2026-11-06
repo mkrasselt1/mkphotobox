@@ -8,12 +8,18 @@
 # Grundsatz: alles, was ein Modul zum Laufen braucht, wird mitinstalliert — ein
 # Modul soll sich im Admin-Bereich einschalten lassen, ohne dass jemand erst ein
 # Terminal öffnet. Auf 0 stehen nur Dinge, die das nicht rechtfertigen: sehr
-# große Downloads (WITH_BG_AI zieht onnxruntime) und Netzdienste, die eine
-# Anmeldung oder ein Konto brauchen (Tailscale, Cloudflare).
+# große Downloads (WITH_BG_AI zieht onnxruntime) und Cloudflare.
+# Tailscale braucht zwar ein Konto, wird aber trotzdem nur installiert und
+# NICHT angemeldet — das passiert im Admin-Bereich (Netzwerk → Verbinden,
+# Anmeldelink/QR-Code oder Auth-Key). Fernzugriff ohne Terminal ist genau der
+# Fall, in dem man keins hat.
 #
 # Optional env toggles (default 1 = install):
 #   WITH_GPHOTO2 WITH_PRINTER WITH_CDBURN WITH_WIFI WITH_AUDIO WITH_OPENCV
 #   WITH_TRIGGERS WITH_SERIAL WITH_PAYMENT WITH_BLUETOOTH
+#   WITH_TAILSCALE  Paket + tailscaled, $RUN_USER wird Tailscale-Operator
+#                (darf ohne sudo verbinden/trennen). Kein 'tailscale up' —
+#                TS_AUTHKEY=tskey-… meldet die Box beim Setup doch gleich an.
 #   WITH_SSH     openssh-server (Fernwartung — ohne kommt man an eine Box mit
 #                schwarzem Bildschirm nicht mehr heran)
 #   WITH_KIOSK   ruft am Ende scripts/kiosk-setup.sh auf (Vollbild-Browser,
@@ -21,7 +27,7 @@
 #   FAN_PWM=<chip>:<kanal>:<wert>   Lüfterwert gleich beim Setup festlegen,
 #                z. B. it8620:2:90 (sonst später im Admin-Bereich unter Lüfter).
 #                FAN_MODULE=it87 lädt den Sensortreiber künftig beim Booten.
-# Standardmäßig aus (=0): WITH_BG_AI WITH_TAILSCALE WITH_CLOUDFLARE
+# Standardmäßig aus (=0): WITH_BG_AI WITH_CLOUDFLARE
 #   RUN_USER=<user>   (default: the invoking sudo user)
 #
 set -euo pipefail
@@ -45,10 +51,10 @@ WITH_PAYMENT="${WITH_PAYMENT:-1}"        # httpx (SumUp payment) — small
 WITH_BLUETOOTH="${WITH_BLUETOOTH:-1}"    # bluez + bluez-tools (Foto senden/empfangen)
 WITH_SSH="${WITH_SSH:-1}"                # openssh-server
 WITH_KIOSK="${WITH_KIOSK:-1}"            # Kiosk gleich mit einrichten (kiosk-setup.sh)
+WITH_TAILSCALE="${WITH_TAILSCALE:-1}"    # Tailscale installieren (Anmeldung im Admin-Bereich; TS_AUTHKEY meldet gleich an)
 FAN_PWM="${FAN_PWM:-}"                   # z. B. it8620:2:90 — leer = Lüfter nicht anfassen
 FAN_MODULE="${FAN_MODULE:-}"             # z. B. it87
 WITH_BG_AI="${WITH_BG_AI:-0}"            # rembg AI background removal — HEAVY (onnxruntime)
-WITH_TAILSCALE="${WITH_TAILSCALE:-0}"    # Tailscale Remote-Zugang (TS_AUTHKEY für nicht-interaktiv)
 WITH_CLOUDFLARE="${WITH_CLOUDFLARE:-0}"  # Cloudflare Quick-Tunnel für öffentliche QR-Links (cloudflared)
 DISABLE_IPV6="${DISABLE_IPV6:-0}"        # IPv6 systemweit abschalten (hilft bei kaputtem IPv6-Routing)
 
@@ -505,10 +511,20 @@ if [[ "$WITH_PRINTER" == 1 ]]; then
     || echo "    !! automatische Druckereinrichtung fehlgeschlagen"
 fi
 
-# ── 4b) optional: Tailscale remote access ─────────────────────────────────
+# ── 4b) Tailscale (Fernzugriff) ───────────────────────────────────────────
+# Nur installieren, nicht anmelden: 'tailscale up' bräuchte jemanden, der den
+# Anmeldelink bestätigt — und würde das Setup bis dahin blockieren. Angemeldet
+# wird im Admin-Bereich unter Netzwerk. Mit TS_AUTHKEY geht es ohne Rückfrage,
+# also melden wir dann gleich an.
+# $RUN_USER wird Operator: dann darf die App 'tailscale up/down/logout' ohne
+# sudo aufrufen — keine sudoers-Regel nötig. Ohne Internet schlägt die
+# Installation fehl; das ist kein Grund, das restliche Setup abzubrechen.
 if [[ "$WITH_TAILSCALE" == 1 ]]; then
-  echo ">>> [4b] Tailscale (Remote-Zugang)"
-  bash "$APP_DIR/scripts/tailscale-setup.sh" || echo "  (Tailscale-Setup übersprungen/fehlgeschlagen)"
+  echo ">>> [4b] Tailscale (Fernzugriff)"
+  TS_UP=0; [[ -n "${TS_AUTHKEY:-}" ]] && TS_UP=1
+  UP="$TS_UP" OPERATOR="$RUN_USER" TS_HOSTNAME="${TS_HOSTNAME:-$(hostname)}" \
+    bash "$APP_DIR/scripts/tailscale-setup.sh" \
+    || echo "  (Tailscale-Setup übersprungen/fehlgeschlagen — späterer Setup-Lauf holt es nach)"
 fi
 
 # ── 4c) optional: Cloudflare quick tunnel (public QR links) ────────────────

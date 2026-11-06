@@ -575,6 +575,8 @@ def get_network(_user=Depends(require_role("admin"))):
             "online": bool(self_.get("Online", False)),
             "peers_total": len(list(peers)),
             "peers_online": sum(1 for p in (ts.get("Peer") or {}).values() if p.get("Online")),
+            # Anmeldelink, solange BackendState "NeedsLogin" ist (nach "Verbinden")
+            "auth_url": ts.get("AuthURL", "") or "",
         }
     except FileNotFoundError:
         info["tailscale"] = {"available": False, "reason": "Tailscale nicht installiert"}
@@ -582,6 +584,49 @@ def get_network(_user=Depends(require_role("admin"))):
         info["tailscale"] = {"available": False, "reason": str(e)}
 
     return info
+
+
+# ── Tailscale steuern ─────────────────────────────────────────────────────
+# Setzt voraus, dass setup.sh den Dienst-User zum Tailscale-Operator gemacht
+# hat (kein sudo nötig). Logik in app/services/tailscale_service.py.
+
+@router.post("/system/tailscale/up")
+def tailscale_up(body: dict | None = None, _user=Depends(require_role("admin"))):
+    """Tailscale verbinden. Body (optional): ``{"auth_key": "tskey-…",
+    "hostname": "…"}``. Ohne Auth-Key kommt ``auth_url`` zurück — diesen Link
+    im Browser (oder per QR-Code am Handy) bestätigen; danach wechselt der
+    Status in ``Running``."""
+    from app.services import tailscale_service as ts
+
+    body = body or {}
+    try:
+        return ts.up(hostname=body.get("hostname"), auth_key=body.get("auth_key"))
+    except ts.TailscaleError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/system/tailscale/down")
+def tailscale_down(_user=Depends(require_role("admin"))):
+    """Tailscale trennen (Anmeldung bleibt erhalten, 'Verbinden' geht ohne Link)."""
+    from app.services import tailscale_service as ts
+
+    try:
+        ts.down()
+    except ts.TailscaleError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@router.post("/system/tailscale/logout")
+def tailscale_logout(_user=Depends(require_role("admin"))):
+    """Vom Tailnet abmelden — danach ist eine neue Anmeldung nötig."""
+    from app.services import tailscale_service as ts
+
+    try:
+        ts.logout()
+    except ts.TailscaleError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
 
 
 @router.get("/system/share-base")
