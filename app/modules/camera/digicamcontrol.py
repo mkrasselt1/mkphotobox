@@ -7,7 +7,6 @@ Default API endpoint: http://localhost:5513
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import platform
 from typing import Any
@@ -34,7 +33,7 @@ class DigiCamCamera(AbstractCamera):
         self._base_url = f"http://{self._host}:{self._port}"
 
     async def shutdown(self) -> None:
-        pass
+        await self._stop_worker()
 
     @classmethod
     def system_requirement(cls) -> str | None:
@@ -51,11 +50,8 @@ class DigiCamCamera(AbstractCamera):
         except (URLError, OSError):
             return False
 
-    async def capture_raw(self) -> bytes:
-        """Trigger capture via digiCamControl and retrieve the photo."""
-        return await asyncio.to_thread(self._capture_sync)
-
     def _capture_sync(self) -> bytes:
+        """Trigger capture via digiCamControl and retrieve the photo."""
         # Trigger capture
         resp = urlopen(f"{self._base_url}/?CMD=Capture", timeout=15)
         if resp.status != 200:
@@ -93,11 +89,8 @@ class DigiCamCamera(AbstractCamera):
         img.close()
         return buf.getvalue()
 
-    async def preview_frame_raw(self) -> bytes:
-        """Get a live preview frame from digiCamControl."""
-        return await asyncio.to_thread(self._preview_sync)
-
     def _preview_sync(self) -> bytes:
+        """Get a live preview frame from digiCamControl."""
         try:
             resp = urlopen(f"{self._base_url}/?CMD=LiveViewImage", timeout=3)
             if resp.status == 200:

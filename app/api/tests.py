@@ -1449,19 +1449,25 @@ def test_transform_all_cameras(request: Request, session: Session):
         pass  # gphoto2 nicht installiert (z. B. unter Windows)
 
     for cls in modules:
-        assert not getattr(cls.capture_raw, "__isabstractmethod__", False), \
-            f"{cls.__name__} implementiert capture_raw nicht"
-        assert not getattr(cls.preview_frame_raw, "__isabstractmethod__", False), \
-            f"{cls.__name__} implementiert preview_frame_raw nicht"
-        # Wer capture() selbst überschreibt, umgeht den Transform.
+        # Module liefern nur die Hooks für ihren Kamera-Thread; Foto und
+        # Vorschau laufen über die Basis (Transform, gemeinsamer Strom).
+        assert not getattr(cls._capture_sync, "__isabstractmethod__", False), \
+            f"{cls.__name__} implementiert _capture_sync nicht"
+        assert not getattr(cls._preview_sync, "__isabstractmethod__", False), \
+            f"{cls.__name__} implementiert _preview_sync nicht"
+        # Wer die öffentlichen Wege selbst überschreibt, umgeht den
+        # Transform oder den Kamera-Thread.
+        for meth in ("capture_raw", "preview_frame_raw", "get_preview_frame", "stream_preview"):
+            assert getattr(cls, meth) is getattr(AbstractCamera, meth), \
+                f"{cls.__name__}.{meth}() umgeht den Kamera-Thread"
         if cls.capture is not AbstractCamera.capture:
             src = inspect.getsource(cls.capture)
             assert "_transformed" in src, \
                 f"{cls.__name__}.capture() umgeht die Bild-Transformation"
-        if cls.get_preview_frame is not AbstractCamera.get_preview_frame:
-            src = inspect.getsource(cls.get_preview_frame)
+        if cls._transform_preview is not AbstractCamera._transform_preview:
+            src = inspect.getsource(cls._transform_preview)
             assert "_transformed" in src, \
-                f"{cls.__name__}.get_preview_frame() umgeht die Bild-Transformation"
+                f"{cls.__name__}._transform_preview() umgeht die Bild-Transformation"
         assert cls.transforms_internally or True  # nur dokumentierend
 
     internal = [c.__name__ for c in modules if c.transforms_internally]

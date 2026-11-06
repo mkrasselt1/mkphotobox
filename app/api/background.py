@@ -74,8 +74,9 @@ async def capture_reference(
 
     import cv2
 
-    # Get raw frame directly from camera (bypasses all transforms including BG removal)
-    raw_frame = await asyncio.to_thread(cam.get_raw_frame)
+    # Raw frame (no transforms, no BG removal) — as a job for the camera
+    # thread; a direct read here raced the live stream on the same device.
+    raw_frame = await cam.call(cam.get_raw_frame)
     if raw_frame is None:
         raise HTTPException(status_code=500, detail="Failed to capture frame")
 
@@ -150,7 +151,7 @@ async def pick_chromakey_color(
         import numpy as np
 
         if hasattr(cam, "get_raw_frame"):
-            frame = await asyncio.to_thread(cam.get_raw_frame)
+            frame = await cam.call(cam.get_raw_frame)
         else:
             import cv2
             frame_bytes = await cam.get_preview_frame()

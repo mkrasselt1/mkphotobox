@@ -7,10 +7,9 @@ Supports: Canon, Nikon, Sony, and most PTP-compatible DSLRs.
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import platform
-import threading
+import time
 from typing import Any
 
 from app.modules.camera.base import AbstractCamera
@@ -31,49 +30,45 @@ class GPhoto2Camera(AbstractCamera):
         self._capture_target = 1  # 1 = card, 0 = RAM
         self._focus_mode = ""     # "" = leave the camera's current setting
         self._autofocus = False   # drive autofocus right before each capture
-        # Focus modes don't change at runtime — query once (ideally at connect,
-        # before the preview stream owns the lock) and cache, so the admin UI
-        # never blocks on a get_config() that contends with live preview.
+        # Focus modes don't change at runtime — query once at connect and
+        # cache, so the admin UI doesn't need a camera round-trip every time.
         self._focus_modes_cache: dict[str, Any] | None = None
-        # gphoto2 is NOT thread-safe — serialise all camera access so the
-        # live-preview stream and a still capture never run concurrently
-        # (that triggers "[-110] I/O in progress").
-        self._lock = threading.RLock()
+        # Modell aus get_summary(), beim Verbinden gemerkt: get_status() lief
+        # früher aus dem Request-Thread direkt auf die Kamera — an der
+        # Live-View vorbei, und gphoto2 ist nicht threadsicher.
+        self._model = ""
+        # Vor dem Foto Live-View aus: Canon fokussiert dann mit dem schnellen
+        # Phasen-AF über den Spiegel statt mit dem langsamen Kontrast-AF der
+        # Live-View. Abschaltbar, falls eine Kamera das schlecht verträgt.
+        self._liveview_off_for_capture = True
+        # Kein Lock mehr: die Kamera fasst nur noch ihr eigener Thread an
+        # (worker.py) — das schließt "[-110] I/O in progress" durch
+        # gleichzeitige Vorschau und Aufnahme grundsätzlich aus.
 
     async def initialize(self, config: dict[str, Any]) -> None:
         self._capture_target = config.get("capture_target", 1)
         self._focus_mode = (config.get("focus_mode") or "").strip()
         self._autofocus = bool(config.get("autofocus", False))
+        self._liveview_off_for_capture = bool(config.get("liveview_off_for_capture", True))
         if self.is_available():
-            # Connect in the BACKGROUND so a wedged camera (PTP timeout + USB
-            # reset recovery can take ~15s) never blocks app startup. The module
-            # is registered immediately and self-heals on first capture/preview.
-            try:
-                self._connect_task = asyncio.create_task(self._async_connect())
-            except RuntimeError:
-                # no running loop (e.g. tests) — fall back to a guarded sync attempt
-                try:
-                    self._connect()
-                except Exception as e:
-                    logger.warning("gphoto2 initial connect failed (%s)", e)
-                    self._camera = None
+            # Start the camera thread now: it connects in the BACKGROUND, so a
+            # wedged camera (PTP timeout + USB reset recovery can take ~15s)
+            # never blocks app startup. Preview/capture self-heal on first use.
+            self._get_worker()
 
-    async def _async_connect(self):
-        # Hold the camera lock so the background connect can't race with a preview
-        # or capture request that arrives while we're (re)connecting.
-        def _locked_connect():
-            with self._lock:
-                if self._camera is None:
-                    self._connect()
-                # Warm the focus-mode cache now, while we own the lock and the
-                # preview stream isn't hammering it yet.
-                if self._focus_modes_cache is None:
-                    self._focus_modes_cache = self._read_focus_modes_locked()
+    def _open_sync(self) -> None:
+        """Kamera-Thread: erste Verbindung + Fokus-Modi einmal abfragen."""
         try:
-            await asyncio.to_thread(_locked_connect)
+            if self._camera is None:
+                self._connect()
         except Exception as e:
             logger.warning("gphoto2 connect failed (%s); will retry on next use", e)
             self._camera = None
+            return
+        if self._focus_modes_cache is None:
+            result = self._read_focus_modes_sync()
+            if result.get("available"):
+                self._focus_modes_cache = result
 
     # Known camera USB vendor IDs (for USB-reset recovery of a wedged PTP session):
     # Canon, Nikon, Sony, Fujifilm, Panasonic, Olympus
@@ -162,8 +157,9 @@ class GPhoto2Camera(AbstractCamera):
         # Apply configured focus mode (best-effort; brand-dependent)
         self._apply_focus_mode()
 
-        summary = self._camera.get_summary()
-        logger.info("gPhoto2 connected: %s", str(summary)[:100])
+        summary = str(self._camera.get_summary())
+        self._model = summary.split("\n")[0] if summary else "Connected"
+        logger.info("gPhoto2 connected: %s", summary[:100])
 
     def _apply_focus_mode(self) -> None:
         """Set the camera's focus-mode widget to the configured value.
@@ -204,29 +200,28 @@ class GPhoto2Camera(AbstractCamera):
                 logger.debug("Could not set %s=%s: %s", wname, target, e)
         logger.warning("No settable focus-mode widget found for %r", self._focus_mode)
 
-    def list_focus_modes(self) -> dict[str, Any]:
+    async def list_focus_modes(self) -> dict[str, Any]:
         """Return the camera's available focus-mode choices (for the admin UI).
 
-        Never blocks the UI: returns the cached result instantly when available,
-        otherwise tries to grab the camera lock briefly — if the live preview is
-        holding it, we report "busy" rather than hanging on get_config()."""
+        Cached after the first good answer; otherwise a job for the camera
+        thread, which slots it in before the next preview frame. Only a
+        running photo or (re)connect can delay it — then "busy" rather than
+        hanging the admin page."""
         if self._focus_modes_cache is not None:
             return self._focus_modes_cache
-
-        # Non-blocking-ish: don't wait forever behind the preview stream.
-        if not self._lock.acquire(timeout=2.0):
-            return {"available": False, "reason": "Kamera beschäftigt (Vorschau aktiv) — bitte kurz erneut versuchen",
-                    "choices": [], "current": "", "busy": True}
         try:
-            result = self._read_focus_modes_locked()
-        finally:
-            self._lock.release()
+            result = await self.call(self._read_focus_modes_sync, timeout=5.0)
+        except asyncio.TimeoutError:
+            return {"available": False, "reason": "Kamera beschäftigt — bitte kurz erneut versuchen",
+                    "choices": [], "current": "", "busy": True}
+        except Exception as e:
+            return {"available": False, "reason": str(e), "choices": [], "current": ""}
         if result.get("available"):
             self._focus_modes_cache = result   # cache only a good result; retry on failure
         return result
 
-    def _read_focus_modes_locked(self) -> dict[str, Any]:
-        """Query the focus-mode widget. Caller MUST hold self._lock."""
+    def _read_focus_modes_sync(self) -> dict[str, Any]:
+        """Query the focus-mode widget. Camera thread only."""
         try:
             if self._camera is None:
                 self._connect()
@@ -265,24 +260,17 @@ class GPhoto2Camera(AbstractCamera):
     async def shutdown(self) -> None:
         """Release the camera cleanly (gphoto2 exit) so the next process can open
         it — otherwise a restart leaves a wedged PTP session (black stream).
-        Grabs the lock so we don't exit() mid-preview, and is time-bounded so a
-        stuck camera can't hang the whole app shutdown."""
-        def _release() -> None:
-            got = self._lock.acquire(timeout=5.0)
+        The camera thread does the exit() itself, after its current call, so
+        it never runs mid-preview; time-bounded so a stuck camera can't hang
+        the whole app shutdown."""
+        await self._stop_worker()
+
+    def _release_sync(self) -> None:
+        if self._camera is not None:
             try:
-                if self._camera is not None:
-                    try:
-                        self._camera.exit()
-                    except Exception:
-                        pass
-                    self._camera = None
-                    self._context = None
-            finally:
-                if got:
-                    self._lock.release()
-        try:
-            await asyncio.wait_for(asyncio.to_thread(_release), timeout=8.0)
-        except Exception:
+                self._camera.exit()
+            except Exception:
+                pass
             self._camera = None
             self._context = None
 
@@ -300,32 +288,48 @@ class GPhoto2Camera(AbstractCamera):
         except ImportError:
             return False
 
-    async def capture_raw(self) -> bytes:
-        """Capture a full-resolution photo from the DSLR."""
-        return await asyncio.to_thread(self._capture_sync)
-
     def _capture_sync(self) -> bytes:
+        """Kamera-Thread: Foto. Live-View ist schon aus (Worker hat
+        ``_stream_stop_sync`` gerufen); der nächste capture_preview startet sie
+        von selbst wieder."""
         import gphoto2 as gp
 
-        with self._lock:
-            for attempt in (1, 2):
-                try:
-                    if self._camera is None:
-                        self._connect()
-                    if self._autofocus:
-                        self._drive_autofocus()
-                    file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
-                    logger.info("Captured: %s/%s", file_path.folder, file_path.name)
-                    camera_file = self._camera.file_get(
-                        file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL
-                    )
-                    return bytes(camera_file.get_data_and_size())
-                except gp.GPhoto2Error as e:
-                    logger.warning("Capture attempt %d failed (%s); re-init camera", attempt, e)
-                    self._reset()
-                    if attempt == 2:
-                        raise
-            return b""
+        for attempt in (1, 2):
+            try:
+                if self._camera is None:
+                    self._connect()
+                if self._autofocus:
+                    self._drive_autofocus()
+                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+                logger.info("Captured: %s/%s", file_path.folder, file_path.name)
+                camera_file = self._camera.file_get(
+                    file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL
+                )
+                data = bytes(camera_file.get_data_and_size())
+                self._drain_events()
+                return data
+            except gp.GPhoto2Error as e:
+                logger.warning("Capture attempt %d failed (%s); re-init camera", attempt, e)
+                self._reset()
+                if attempt == 2:
+                    raise
+        return b""
+
+    def _drain_events(self, budget: float = 0.5) -> None:
+        """Canon meldet nach dem Foto noch Ereignisse (Datei hinzugefügt,
+        Einstellungen geändert). Bleiben sie liegen, scheitert der erste
+        capture_preview danach gern mit "I/O in progress" — also abholen, bis
+        die Kamera ruhig ist, höchstens ``budget`` Sekunden."""
+        import gphoto2 as gp
+
+        end = time.monotonic() + budget
+        try:
+            while time.monotonic() < end:
+                ev, _data = self._camera.wait_for_event(50)
+                if ev == gp.GP_EVENT_TIMEOUT:
+                    return
+        except Exception:
+            logger.debug("wait_for_event nach Aufnahme fehlgeschlagen", exc_info=True)
 
     def _reset(self):
         """Drop and re-acquire the camera handle (recovers from I/O errors)."""
@@ -336,25 +340,51 @@ class GPhoto2Camera(AbstractCamera):
             pass
         self._camera = None
 
-    async def preview_frame_raw(self) -> bytes:
-        """Get a live preview frame from the DSLR viewfinder."""
-        return await asyncio.to_thread(self._preview_sync)
-
     def _preview_sync(self) -> bytes:
-        with self._lock:
-            for attempt in (1, 2):
-                try:
-                    if self._camera is None:
-                        self._connect()
-                    camera_file = self._camera.capture_preview()
-                    data = bytes(camera_file.get_data_and_size())
-                    if data:
-                        return data
-                    logger.debug("Empty preview frame; re-init camera (attempt %d)", attempt)
-                except Exception as e:
-                    logger.debug("Preview error: %s; re-init camera (attempt %d)", e, attempt)
-                self._reset()  # drop the bad handle so the next try reconnects
-            return b""
+        """Kamera-Thread: ein Live-View-Bild. In enger Schleife gerufen ist das
+        der Videostrom einer DSLR über USB — PTP kennt nichts anderes; der
+        erste Aufruf schaltet die Live-View ein (Spiegel hoch)."""
+        for attempt in (1, 2):
+            try:
+                if self._camera is None:
+                    self._connect()
+                camera_file = self._camera.capture_preview()
+                data = bytes(camera_file.get_data_and_size())
+                if data:
+                    return data
+                logger.debug("Empty preview frame; re-init camera (attempt %d)", attempt)
+            except Exception as e:
+                logger.debug("Preview error: %s; re-init camera (attempt %d)", e, attempt)
+            self._reset()  # drop the bad handle so the next try reconnects
+        return b""
+
+    def _stream_stop_sync(self, for_capture: bool = False) -> None:
+        """Kamera-Thread: Live-View aus (Canon: Widget "viewfinder" = 0, der
+        Spiegel klappt runter). Vor dem Foto nur, wenn so eingestellt — beim
+        Pausieren ohne Zuschauer immer, das schont Sensor und Akku."""
+        if self._camera is None:
+            return
+        if for_capture and not self._liveview_off_for_capture:
+            return
+        self._set_viewfinder(0)
+
+    def _set_viewfinder(self, value: int) -> None:
+        # get_single_config holt nur das eine Widget — der ganze Konfigbaum
+        # einer EOS braucht eine knappe Sekunde, und die stünde vor jedem Foto.
+        try:
+            try:
+                widget = self._camera.get_single_config("viewfinder")
+                widget.set_value(value)
+                self._camera.set_single_config("viewfinder", widget)
+                return
+            except AttributeError:
+                pass  # alte python-gphoto2/libgphoto2 ohne single_config
+            config = self._camera.get_config()
+            widget = config.get_child_by_name("viewfinder")
+            widget.set_value(value)
+            self._camera.set_config(config)
+        except Exception as e:
+            logger.debug("viewfinder=%s nicht setzbar: %s", value, e)
 
     def get_config_schema(self) -> dict:
         return {
@@ -377,15 +407,17 @@ class GPhoto2Camera(AbstractCamera):
                     "default": False,
                     "description": "Vor jeder Aufnahme autofokussieren.",
                 },
+                "liveview_off_for_capture": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Live-View vor dem Foto ausschalten (Spiegel-AF, "
+                                   "schneller). Aus = direkt aus der Live-View auslösen.",
+                },
             },
         }
 
     def get_status(self) -> dict[str, Any]:
         status = super().get_status()
         if self._camera is not None:
-            try:
-                summary = str(self._camera.get_summary())
-                status["model"] = summary.split("\n")[0] if summary else "Connected"
-            except Exception:
-                status["model"] = "Connected (status unavailable)"
+            status["model"] = self._model or "Connected"
         return status

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 from abc import abstractmethod
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 from app.modules.base import ModuleBase
 
@@ -15,10 +17,12 @@ logger = logging.getLogger(__name__)
 class AbstractCamera(ModuleBase):
     """Base for every camera module.
 
-    Modules implement ``capture_raw`` / ``preview_frame_raw`` and get the
-    configured geometry (rotation, flip, mirrored preview) applied for free —
+    Modules implement the synchronous hooks ``_capture_sync`` /
+    ``_preview_sync`` (plus optionally open/pause/resume/release). They run
+    only in the camera's one thread (:mod:`app.modules.camera.worker`); the
+    configured geometry (rotation, flip, mirrored preview) is applied on top —
     see :mod:`app.services.image_transform`. Callers always use the public
-    ``capture`` / ``get_preview_frame``.
+    ``capture`` / ``get_preview_frame`` / ``stream_preview`` / ``call``.
     """
 
     category = "camera"
@@ -51,23 +55,66 @@ class AbstractCamera(ModuleBase):
     capture_quality = 92
     preview_quality = 75
 
+    #: Woher die Vorschau kommt — fürs Admin-UI (get_status()["preview_source"]):
+    #: "stream" = echter Videostrom (Webcam, HDMI-Grabber an der DSLR),
+    #: "liveview" = Live-View-Einzelbilder in enger Schleife (DSLR über USB/PTP
+    #: kann technisch nichts anderes; ``gphoto2 --capture-movie`` macht intern
+    #: dasselbe), "browser" = die Vorschau läuft im Browser.
+    preview_source = "liveview"
+
+    # ── Hooks für den Kamera-Thread ──────────────────────────────────────
+    # Laufen AUSSCHLIESSLICH im Kamera-Thread (siehe worker.py). Wer die Kamera
+    # sonst noch anfassen will, gibt einen Auftrag über ``call()`` ab.
+
     @abstractmethod
-    async def capture_raw(self) -> bytes:
-        """Capture a full-resolution photo. Returns JPEG bytes."""
+    def _capture_sync(self) -> bytes:
+        """Full-resolution photo, JPEG bytes, untransformed."""
         ...
 
     @abstractmethod
-    async def preview_frame_raw(self) -> bytes:
-        """Return a single JPEG preview frame (low resolution)."""
+    def _preview_sync(self) -> bytes:
+        """Next preview frame (JPEG, low resolution, untransformed); b"" if none."""
         ...
+
+    def _open_sync(self) -> None:
+        """Connect when the thread starts (failure is retried on first use)."""
+
+    def _stream_start_sync(self) -> None:
+        """Live-View resumes (before the first frame after a pause/photo)."""
+
+    def _stream_stop_sync(self, for_capture: bool = False) -> None:
+        """Live-View pauses: before a photo (``for_capture``) and when nobody
+        watches."""
+
+    def _release_sync(self) -> None:
+        """Release the device; last thing the thread does."""
+
+    # ── Öffentliche API ──────────────────────────────────────────────────
+
+    async def capture_raw(self) -> bytes:
+        """Full-resolution photo — as a job for the camera thread, which stops
+        the Live-View for it and restarts it afterwards."""
+        return await self.call(self._capture_sync, pauses_stream=True)
+
+    async def preview_frame_raw(self) -> bytes:
+        """Newest untransformed preview frame from the shared stream."""
+        return await self._latest("_hub_raw")
 
     async def capture(self) -> bytes:
         """Full-resolution photo with the configured geometry applied."""
         return await self._transformed(await self.capture_raw(), preview=False)
 
     async def get_preview_frame(self) -> bytes:
-        """Preview frame with the configured geometry applied."""
-        return await self._transformed(await self.preview_frame_raw(), preview=True)
+        """Newest preview frame with the configured geometry applied (no
+        background effects — the colour picker needs the real colours).
+
+        Comes from the shared stream, never from the camera directly: a
+        snapshot used to fire its own capture_preview past the stream."""
+        return await self._latest("_hub_plain")
+
+    async def _transform_preview(self, data: bytes) -> bytes:
+        """Geometry for preview frames (mirrored preview included)."""
+        return await self._transformed(data, preview=True)
 
     async def _transformed(self, data: bytes, *, preview: bool) -> bytes:
         if self.transforms_internally or not data:
@@ -82,64 +129,198 @@ class AbstractCamera(ModuleBase):
             apply_to_jpeg, data, tf, preview=preview, quality=quality
         )
 
-    #: Upper bound for the shared preview loop. A DSLR is usually slower.
+    async def call(self, fn: Callable[..., Any], *args, pauses_stream: bool = False,
+                   timeout: float | None = None) -> Any:
+        """Run ``fn(*args)`` in the camera thread and return its result.
+
+        The only way to reach the device from outside — config queries
+        included. Jobs go ahead of the next preview frame."""
+        fut = self._get_worker().submit(fn, *args, pauses_stream=pauses_stream)
+        wrapped = asyncio.wrap_future(fut)
+        if timeout is None:
+            return await wrapped
+        return await asyncio.wait_for(wrapped, timeout)
+
+    def get_status(self) -> dict[str, Any]:
+        status = super().get_status()
+        status["preview_source"] = self.preview_source
+        status["stream_state"] = self._stream_state
+        return status
+
+    # ── Kamera-Thread und Verteiler ──────────────────────────────────────
+
+    #: Upper bound for the preview stream. A DSLR is usually slower.
     preview_max_fps = 15
 
-    async def stream_preview(self) -> AsyncIterator[bytes]:
+    _worker = None
+    _closed = False
+    _hub_cond: asyncio.Condition | None = None
+    #: "off" (Thread nie gestartet) | "idle" | "live" | "capturing"
+    _stream_state = "off"
+
+    def _get_worker(self):
+        if self._closed:
+            raise RuntimeError(f"{self.name}: Kamera wurde beendet")
+        self._ensure_hub()
+        if self._worker is None:
+            from app.modules.camera.worker import CameraWorker
+            self._worker = CameraWorker(
+                self, on_frame=self._frame_from_thread, on_state=self._state_from_thread,
+                max_fps=self.preview_max_fps)
+            self._stream_state = "idle"
+        return self._worker
+
+    def _ensure_hub(self) -> None:
+        if self._hub_cond is not None:
+            return
+        self._loop = asyncio.get_running_loop()
+        self._hub_cond = asyncio.Condition()
+        self._hub_raw = self._hub_plain = self._hub_frame = b""
+        self._hub_seq, self._hub_time = 0, 0.0
+        self._hub_viewers = 0
+        self._hub_pending: bytes | None = None
+        self._hub_ready = asyncio.Event()
+        self._hub_task = self._loop.create_task(self._hub_process())
+
+    # Diese beiden laufen im Kamera-Thread: nur übergeben, nichts rechnen.
+    def _frame_from_thread(self, frame: bytes) -> None:
+        try:
+            self._loop.call_soon_threadsafe(self._hub_in, frame)
+        except RuntimeError:
+            pass  # Loop schon zu (Dienst fährt herunter)
+
+    def _state_from_thread(self, state: str) -> None:
+        try:
+            self._loop.call_soon_threadsafe(setattr, self, "_stream_state", state)
+        except RuntimeError:
+            pass
+
+    def _hub_in(self, frame: bytes) -> None:
+        # Nur das neueste Rohbild merken: ist die Aufbereitung langsamer als
+        # die Kamera, fallen Zwischenbilder weg statt sich zu stauen.
+        self._hub_pending = frame
+        self._hub_ready.set()
+
+    async def _hub_process(self) -> None:
+        """Geometry and background effects — once per frame, however many
+        viewers watch."""
+        while not self._closed:
+            await self._hub_ready.wait()
+            self._hub_ready.clear()
+            raw, self._hub_pending = self._hub_pending, None
+            if not raw:
+                continue
+            try:
+                plain = await self._transform_preview(raw)
+            except Exception:
+                logger.debug("preview transform failed", exc_info=True)
+                plain = raw
+            final = plain
+            if plain and not self.processes_background_internally:
+                final = await self._hub_background(plain)
+            if not plain:
+                continue
+            async with self._hub_cond:
+                self._hub_raw, self._hub_plain, self._hub_frame = raw, plain, final
+                self._hub_seq += 1
+                self._hub_time = time.monotonic()
+                self._hub_cond.notify_all()
+
+    async def stream_preview(self, *, passive: bool = False) -> AsyncIterator[bytes]:
         """Async generator yielding JPEG preview frames — for any number of viewers.
 
-        One producer per camera, not one per viewer: the camera serialises
-        preview requests behind a lock, so every extra viewer (booth screen,
-        admin page on a phone, a stale <img> left over from the last screen)
-        used to divide the frame rate instead of sharing it. Now the first
-        viewer starts a single loop, every viewer gets each new frame, and the
-        loop stops when the last one leaves.
+        One camera thread per camera, not one reader per viewer: every viewer
+        (booth screen, admin page on a phone, a stale <img> left over from the
+        last screen) gets each new frame; a slow one simply gets the newest
+        frame next time instead of a backlog. The first viewer starts the
+        Live-View, a few seconds after the last one leaves it pauses.
+
+        ``passive`` subscribers take frames while the stream runs anyway but
+        don't keep it running — for the GIF buffer, which otherwise would hold
+        the DSLR in Live-View day and night.
         """
-        if getattr(self, "_hub_cond", None) is None:
-            self._hub_cond = asyncio.Condition()
-            self._hub_frame, self._hub_seq = b"", 0
-            self._hub_viewers, self._hub_task = 0, None
+        async for frame in self._subscribe("_hub_frame", passive=passive):
+            yield frame
+
+    async def _subscribe(self, attr: str, *, passive: bool = False) -> AsyncIterator[bytes]:
+        if self._closed:
+            return
+        self._ensure_hub()
         cond = self._hub_cond
-        self._hub_viewers += 1
-        seen = -1
+        # Ein frisches Bild sofort zeigen; ein altes (Live-View war pausiert)
+        # nicht — sonst bekäme der Schnappschuss ein Bild von vor Minuten.
+        fresh = self._hub_seq and time.monotonic() - self._hub_time < 1.0
+        seen = self._hub_seq - 1 if fresh else self._hub_seq
+        if not passive:
+            self._hub_viewers += 1
+            self._get_worker().set_streaming(True)
         try:
-            while True:
-                if self._hub_task is None or self._hub_task.done():
-                    self._hub_task = asyncio.create_task(self._hub_produce())
+            while not self._closed:
                 async with cond:
                     try:
-                        # Timeout only to re-check the producer: it may have been
-                        # winding down just as this viewer arrived.
-                        await asyncio.wait_for(
-                            cond.wait_for(lambda: self._hub_seq != seen), timeout=2.0)
+                        # Timeout nur, damit ein beendeter Kamera-Thread den
+                        # Zuschauer nicht ewig hängen lässt. Während eines Fotos
+                        # kommen keine Bilder: die Verbindung bleibt offen, der
+                        # Browser zeigt das letzte Bild weiter.
+                        await asyncio.wait_for(cond.wait_for(
+                            lambda: self._hub_seq != seen or self._closed), timeout=2.0)
                     except asyncio.TimeoutError:
                         continue
-                    seen, frame = self._hub_seq, self._hub_frame
+                    if self._closed:
+                        return
+                    seen, frame = self._hub_seq, getattr(self, attr)
                 yield frame
         finally:
-            self._hub_viewers -= 1
+            if not passive:
+                self._hub_viewers -= 1
+                if self._hub_viewers <= 0 and self._worker is not None:
+                    self._worker.set_streaming(False)
 
-    async def _hub_produce(self) -> None:
-        loop = asyncio.get_running_loop()
-        interval = 1 / self.preview_max_fps
-        while self._hub_viewers > 0:
-            started = loop.time()
-            try:
-                frame = await self.get_preview_frame()
-            except Exception:
-                frame = b""
-            if frame and not self.processes_background_internally:
-                frame = await self._hub_background(frame)
+    async def _latest(self, attr: str, *, max_age: float = 1.0, timeout: float = 10.0) -> bytes:
+        """Newest frame of the shared stream; starts the Live-View briefly if
+        nothing current is there (the idle grace then pauses it again)."""
+        if self._closed:
+            return b""
+        self._ensure_hub()
+        if self._hub_seq and time.monotonic() - self._hub_time <= max_age:
+            frame = getattr(self, attr)
             if frame:
-                async with self._hub_cond:
-                    self._hub_frame = frame
-                    self._hub_seq += 1
-                    self._hub_cond.notify_all()
-            else:
-                await asyncio.sleep(0.2)  # camera busy (capturing) or gone
-            rest = interval - (loop.time() - started)
-            if rest > 0:
-                await asyncio.sleep(rest)
+                return frame
+
+        async def first() -> bytes:
+            async with contextlib.aclosing(self._subscribe(attr)) as frames:
+                async for frame in frames:
+                    if frame:
+                        return frame
+            return b""
+        try:
+            return await asyncio.wait_for(first(), timeout)
+        except asyncio.TimeoutError:
+            return b""
+
+    async def _stop_worker(self, timeout: float = 2.5) -> None:
+        """End the camera thread (it releases the device itself) — bounded,
+        so a camera stuck in a USB call can't hold up the service restart
+        (uvicorn gives us 3 s). The thread is a daemon: if it doesn't make it,
+        the process exits without it."""
+        self._closed = True
+        worker = self._worker
+        if self._hub_cond is not None:
+            self._hub_ready.set()  # Aufbereitung aufwecken, damit sie endet
+            async with self._hub_cond:
+                self._hub_cond.notify_all()
+        if worker is None:
+            return
+        worker.stop()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        # Pollen statt join() im Executor: der Default-Executor wartet beim
+        # Beenden auf alle seine Threads — genau das ließ den Neustart hängen.
+        while worker.alive_thread and loop.time() < deadline:
+            await asyncio.sleep(0.05)
+        if worker.alive_thread:
+            logger.warning("%s: Kamera-Thread reagiert nicht, Prozess endet ohne ihn", self.name)
+        self._stream_state = "off"
 
     # ── Hintergrund in der gemeinsamen Vorschau ──────────────────────────
     _ai_mask = None

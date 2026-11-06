@@ -23,13 +23,17 @@ class OpenCVCamera(AbstractCamera):
     processes_background_internally = True  # eigener KI-Worker auf numpy-Frames
     name = "camera.opencv"
     transforms_internally = True  # rotates/flips numpy frames, see _apply_geometry
+    # Webcam/HDMI-Grabber liefern einen echten Videostrom: cap.read() in der
+    # Schleife des Kamera-Threads nimmt einfach das jeweils nächste Bild.
+    preview_source = "stream"
 
     def __init__(self):
         self._cap = None
         self._device_index = 0
         self._preview_size = (640, 480)
         self._bg_remover = None
-        self._lock = threading.Lock()
+        # Kein Lock: cap fasst nur der Kamera-Thread an (worker.py).
+        self._last_read = 0.0
         # AI bg removal runs in a background thread
         self._ai_thread: threading.Thread | None = None
         self._ai_running = False
@@ -42,8 +46,15 @@ class OpenCVCamera(AbstractCamera):
 
     async def shutdown(self) -> None:
         self._ai_running = False
-        if self._ai_thread and self._ai_thread.is_alive():
-            self._ai_thread.join(timeout=3)
+        await self._stop_worker()  # gibt cap im Kamera-Thread frei
+        # KI-Worker nur kurz abwarten (Daemon; ein rembg-Lauf kann länger
+        # dauern) und ohne den Loop zu blockieren.
+        for _ in range(10):
+            if not (self._ai_thread and self._ai_thread.is_alive()):
+                break
+            await asyncio.sleep(0.05)
+
+    def _release_sync(self) -> None:
         if self._cap is not None:
             self._cap.release()
             self._cap = None
@@ -86,10 +97,16 @@ class OpenCVCamera(AbstractCamera):
         return self._bg_remover
 
     def get_raw_frame(self):
-        """Read a raw numpy frame from the camera. Thread-safe."""
-        with self._lock:
-            self._ensure_opened()
-            ret, frame = self._cap.read()
+        """Read a raw numpy frame. Camera thread only — from outside use
+        ``await cam.call(cam.get_raw_frame)``."""
+        self._ensure_opened()
+        if time.monotonic() - self._last_read > 0.5:
+            # Lief der Strom nicht, liegen im V4L2-Puffer noch alte Bilder —
+            # ohne das Wegwerfen zeigte das Foto die Szene von vor Minuten.
+            for _ in range(4):
+                self._cap.grab()
+        ret, frame = self._cap.read()
+        self._last_read = time.monotonic()
         if not ret:
             raise RuntimeError("Failed to read frame")
         return frame
@@ -151,9 +168,6 @@ class OpenCVCamera(AbstractCamera):
 
     # ── Public API ────────────────────────────────────────────────────
 
-    async def capture_raw(self) -> bytes:
-        return await asyncio.to_thread(self._capture_sync)
-
     def _capture_sync(self) -> bytes:
         """Capture a frame with geometry only. BG removal applied by the endpoint."""
         import cv2
@@ -161,9 +175,6 @@ class OpenCVCamera(AbstractCamera):
         frame = self._apply_geometry(frame, preview=False)
         _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         return jpeg.tobytes()
-
-    async def preview_frame_raw(self) -> bytes:
-        return await asyncio.to_thread(self._preview_sync)
 
     def _preview_sync(self) -> bytes:
         import cv2

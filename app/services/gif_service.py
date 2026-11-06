@@ -59,13 +59,16 @@ class GifService:
         # Hängt am gemeinsamen Vorschau-Strom der Kamera, statt selbst abzufragen.
         # Vorher lief hier eine zweite Abfrage-Schleife — ständig, auch ohne
         # GIF — und nahm der Live-Vorschau die Hälfte der Bilder weg.
+        # Passiv: nimmt Bilder, solange jemand die Vorschau sieht (der
+        # Kiosk während der Aufnahme immer), hält die DSLR aber nicht allein
+        # Tag und Nacht in der Live-View.
         while self._running:
             cam = camera_manager.preview_camera
             if cam is None:
                 await asyncio.sleep(1)
                 continue
             try:
-                async for frame in cam.stream_preview():
+                async for frame in cam.stream_preview(passive=True):
                     if not self._running or camera_manager.preview_camera is not cam:
                         break  # Kamera gewechselt: neu anhängen
                     if not frame:
@@ -80,6 +83,10 @@ class GifService:
             except Exception:
                 logger.debug("GIF buffer: preview stream interrupted", exc_info=True)
                 await asyncio.sleep(1)
+                continue
+            # Strom regulär zu Ende (Kamera beendet/gewechselt): kurz warten
+            # statt im Kreis neu anzuhängen.
+            await asyncio.sleep(0.5)
 
     async def stop_buffering(self) -> None:
         self._running = False

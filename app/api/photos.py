@@ -341,7 +341,8 @@ async def camera_stream(request: Request):
 
 @router.get("/camera/snapshot")
 async def camera_snapshot(request: Request):
-    """Single JPEG snapshot from the active camera preview."""
+    """Single JPEG snapshot: the newest frame of the shared preview stream
+    (starts the camera's Live-View briefly if nobody is watching)."""
     cameras = request.app.state.cameras
     cam = cameras.active_camera
     if cam is None:
@@ -409,8 +410,8 @@ async def camera_focus_modes(request: Request):
     fn = getattr(cam, "list_focus_modes", None)
     if cam is None or fn is None:
         return {"available": False, "reason": "Kein gphoto2-Kamera aktiv", "choices": [], "current": ""}
-    import asyncio
-    return await asyncio.to_thread(fn)
+    # Auftrag an den Kamera-Thread (siehe camera/worker.py), nicht direkt.
+    return await fn()
 
 
 @router.post("/camera/switch/{camera_id:path}")
