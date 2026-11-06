@@ -158,7 +158,11 @@ class GPhoto2Camera(AbstractCamera):
         self._apply_focus_mode()
 
         summary = str(self._camera.get_summary())
-        self._model = summary.split("\n")[0] if summary else "Connected"
+        # Die erste Zeile ist "Manufacturer: Canon Inc." — das Modell steht in
+        # "Model: Canon EOS 700D".
+        model = next((ln.split(":", 1)[1].strip() for ln in summary.splitlines()
+                      if ln.strip().lower().startswith("model:")), "")
+        self._model = model or (summary.split("\n")[0] if summary else "Connected")
         logger.info("gPhoto2 connected: %s", summary[:100])
 
     def _apply_focus_mode(self) -> None:
