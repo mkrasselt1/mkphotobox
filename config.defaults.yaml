@@ -240,6 +240,11 @@ display:
   # (z. B. eGalax über die serielle Schnittstelle) können nur einen Finger —
   # dann gibt es kein Zwei-Finger-Drehen/-Zoomen, nur die Knöpfe dafür.
   multitouch: "auto"
+  # Layout-Auswahl: auto = als Leiste neben dem Live-Bild auf dem
+  # Startbildschirm (antippen wählt, „Foto aufnehmen“ startet); screen = eigener
+  # Bildschirm „Layout wählen“ nach „Foto aufnehmen“. Ohne Live-Bild auf dem
+  # Startbildschirm (idle_live_preview: false) immer der eigene Bildschirm.
+  layout_picker: "auto"
 
 session:
   auto_end_seconds: 120

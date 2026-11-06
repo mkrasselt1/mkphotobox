@@ -68,6 +68,20 @@ export async function render(container, state) {
                     </p>
                 </div>
                 <div style="margin-top:1.25rem;">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Layout-Auswahl</label>
+                    <select id="layout-picker" style="${selectStyle}">
+                        ${[
+                            { value: 'auto', label: 'Leiste neben dem Live-Bild auf dem Startbildschirm' },
+                            { value: 'screen', label: 'Eigener Bildschirm nach „Foto aufnehmen“' },
+                        ].map(o => `<option value="${o.value}" ${o.value === (settings?.display?.layout_picker || 'auto') ? 'selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                    <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                        Leiste: Gäste tippen ein Layout an (hervorgehoben, der Rahmen im Live-Bild passt sich an)
+                        und starten mit „Foto aufnehmen“ — ein Bildschirm weniger. Ist das Live-Bild auf dem
+                        Startbildschirm ausgeschaltet (Kameras → Startbildschirm), gibt es immer den eigenen Bildschirm.
+                    </p>
+                </div>
+                <div style="margin-top:1.25rem;">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Touchscreen: mehrere Finger (Multitouch)</label>
                     <select id="multitouch" style="${selectStyle}">
                         ${[
@@ -207,6 +221,7 @@ export async function render(container, state) {
               value: Math.max(0, Math.min(200, parseInt(container.querySelector('#safe-margin').value) || 0)) },
             { key: 'display.storage_badge', value: container.querySelector('#storage-badge').value },
             { key: 'display.multitouch', value: container.querySelector('#multitouch').value },
+            { key: 'display.layout_picker', value: container.querySelector('#layout-picker').value },
             { key: 'gallery.enabled', value: container.querySelector('#gallery-enabled').checked },
             { key: 'gallery.delete_mode', value: container.querySelector('#delete-mode-select').value },
             { key: 'gallery.delete_recent_minutes', value: parseInt(container.querySelector('#delete-minutes').value) || 5 },

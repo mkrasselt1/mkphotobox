@@ -60,6 +60,11 @@ let guestbookMaxLen = 120;
 // einen Finger (eGalax seriell) — dann ist „mit zwei Fingern drehen" eine leere
 // Versprechung; Größe und Drehung gehen dort über die Knöpfe.
 let multitouchSetting = 'auto';
+// display.layout_picker: auto = Layouts als Leiste neben dem Live-Bild auf dem
+// Startbildschirm; screen = eigener Bildschirm „Layout wählen“ nach „Start“.
+// Ohne Live-Bild auf dem Startbildschirm gibt es immer den eigenen Bildschirm.
+let layoutPicker = 'auto';
+let idleTemplateIdx = -1;      // gewähltes Layout am Startbildschirm, -1 = Einzelfoto
 function hasMultitouch() {
     if (multitouchSetting === 'yes') return true;
     if (multitouchSetting === 'no') return false;
@@ -176,6 +181,7 @@ export function render(container, state) {
                 flashEnabled = displayData.flash_enabled !== false;
                 guestbookEnabled = displayData.guestbook_enabled !== false;
                 if (['auto', 'yes', 'no'].includes(displayData.multitouch)) multitouchSetting = displayData.multitouch;
+                if (['auto', 'screen'].includes(displayData.layout_picker)) layoutPicker = displayData.layout_picker;
                 if (Number.isFinite(displayData.guestbook_max_len) && displayData.guestbook_max_len > 0)
                     guestbookMaxLen = displayData.guestbook_max_len;
                 sounds.configure({
@@ -383,18 +389,28 @@ export function render(container, state) {
     }
 
     // ── Crop guide: outline the eventual output aspect on the live preview ───
+    function templateShotAspect(t, index) {
+        const slots = t.slots || [];
+        // the first slot filled by this shot (photo_index defaults to the slot
+        // position; several slots may reuse the same shot)
+        const slot = slots.find((s, i) => (s.photo_index ?? i) === index);
+        if (slot && slot.w && slot.h) return { w: slot.w, h: slot.h };
+        if (t.canvas_width && t.canvas_height) return { w: t.canvas_width, h: t.canvas_height };
+        return null;
+    }
+
     function currentCropAspect() {
         // In a set, frame each shot to the placeholder it fills (slot i ↔ shot i),
         // so a square/strip/circle slot each gets its own crop — not the whole
         // canvas. Fall back to the template canvas, then the single-photo aspect.
         if (seq && seq.template) {
-            const slots = seq.template.slots || [];
-            // the first slot filled by the CURRENT shot (photo_index defaults to
-            // the slot position; several slots may reuse the same shot)
-            const slot = slots.find((s, i) => (s.photo_index ?? i) === seq.index);
-            if (slot && slot.w && slot.h) return { w: slot.w, h: slot.h };
-            if (seq.template.canvas_width && seq.template.canvas_height)
-                return { w: seq.template.canvas_width, h: seq.template.canvas_height };
+            const a = templateShotAspect(seq.template, seq.index);
+            if (a) return a;
+        }
+        // Am Startbildschirm gewähltes Layout: Rahmen des ersten Fotos zeigen
+        if (!seq && useLayoutRail() && idleTemplateIdx >= 0 && templates[idleTemplateIdx]) {
+            const a = templateShotAspect(templates[idleTemplateIdx], 0);
+            if (a) return a;
         }
         return cropAspect;
     }
@@ -468,7 +484,15 @@ export function render(container, state) {
 
     // ── States ───────────────────────────────────────────────────────
 
+    function useLayoutRail() {
+        return layoutPicker !== 'screen' && idleLivePreview && templates && templates.length > 0;
+    }
+
     function beginFlow() {
+        // Layout schon am Startbildschirm gewählt (Leiste neben dem Live-Bild)
+        if (useLayoutRail()) {
+            return startCapture(idleTemplateIdx >= 0 ? templates[idleTemplateIdx] || null : null);
+        }
         // If multi-photo templates are configured, let the guest pick one first.
         if (templates && templates.length) {
             transition('template_select');
@@ -601,11 +625,116 @@ export function render(container, state) {
         el.appendChild(badge);
     }
 
+    // ── Layout-Leiste am Startbildschirm ────────────────────────────────
+    // Antippen wählt (hervorgehoben + Rahmen im Live-Bild), „Foto aufnehmen“
+    // startet. Blättern über Pfeile: viele Fotobox-Touchscreens melden sich als
+    // Maus, und mit der Maus scrollt Chrome eine Leiste nicht per Ziehen.
+    function layoutRailHTML(onDark = false) {
+        if (!useLayoutRail()) return '';
+        const items = [{ idx: -1, name: 'Einzelfoto', count: 1, url: null },
+            ...templates.map((t, i) => ({ idx: i, name: t.name, count: t.photo_count, url: t.preview_url }))];
+        return `
+        <div id="layout-rail" class="lr ${onDark ? 'lr-dark' : ''}">
+            <button class="lr-arrow" data-dir="-1" aria-label="zurück">▲</button>
+            <div class="lr-track">
+                ${items.map(it => `
+                <button class="lr-card ${it.idx === idleTemplateIdx ? 'lr-on' : ''}" data-idx="${it.idx}">
+                    ${it.url
+                        ? `<img class="lr-thumb" src="${it.url}" alt=""
+                             onerror="this.outerHTML='<span class=\\'lr-thumb lr-icon\\'>🖼️</span>'">`
+                        : `<span class="lr-thumb lr-icon">${it.count > 1 ? '🖼️' : '📷'}</span>`}
+                    <strong>${it.name}</strong>
+                    <small>${it.count} Foto${it.count > 1 ? 's' : ''}</small>
+                    <span class="lr-check">✓</span>
+                </button>`).join('')}
+            </div>
+            <button class="lr-arrow" data-dir="1" aria-label="weiter">▼</button>
+        </div>
+        <style>
+            .lr { display:flex;flex-direction:column;align-items:center;gap:0.4rem;max-height:100%;min-height:0; }
+            .lr-track { display:flex;flex-direction:column;gap:0.6rem;overflow:auto;scroll-snap-type:y mandatory;
+                        scrollbar-width:none;padding:0.3rem;min-height:0;max-height:100%; }
+            .lr-track::-webkit-scrollbar { display:none; }
+            .lr-card { position:relative;flex:0 0 auto;scroll-snap-align:center;width:clamp(130px,14vw,200px);
+                display:flex;flex-direction:column;align-items:center;gap:0.2rem;padding:0.6rem;
+                border-radius:var(--pb-radius);background:var(--pb-color-surface);color:var(--pb-color-text);
+                border:3px solid transparent;cursor:pointer;opacity:0.8;transition:transform 0.1s,opacity 0.15s,border-color 0.15s; }
+            .lr-dark .lr-card { background:rgba(0,0,0,0.45);color:#fff;backdrop-filter:blur(6px); }
+            .lr-card small { color:var(--pb-color-text-muted);font-size:0.75rem; }
+            .lr-dark .lr-card small { color:rgba(255,255,255,0.7); }
+            .lr-card:active { transform:scale(0.96); }
+            .lr-card.lr-on { opacity:1;border-color:var(--pb-color-primary);
+                box-shadow:0 0 0 3px rgba(255,255,255,0.15),0 6px 22px rgba(0,0,0,0.45);transform:scale(1.04); }
+            .lr-check { display:none;position:absolute;top:0.35rem;right:0.35rem;width:1.6rem;height:1.6rem;
+                border-radius:50%;background:var(--pb-color-primary);color:#fff;font-weight:bold;
+                align-items:center;justify-content:center;font-size:0.95rem; }
+            .lr-on .lr-check { display:flex; }
+            .lr-thumb { width:100%;height:clamp(80px,13vh,150px);object-fit:contain;display:flex;
+                align-items:center;justify-content:center; }
+            .lr-icon { font-size:2.5rem; }
+            .lr-arrow { width:3.25rem;height:3.25rem;border-radius:50%;border:none;cursor:pointer;flex:0 0 auto;
+                background:var(--pb-color-surface);color:var(--pb-color-text);font-size:1.2rem;
+                box-shadow:0 2px 10px rgba(0,0,0,0.35); }
+            .lr-dark .lr-arrow { background:rgba(0,0,0,0.5);color:#fff; }
+            .lr-arrow[hidden] { display:none; }
+            /* Hochkant-Bildschirm: Leiste waagerecht unter dem Bild */
+            @media (orientation: portrait) {
+                .lr { flex-direction:row;max-width:100%; }
+                .lr-track { flex-direction:row;scroll-snap-type:x mandatory; }
+                .lr-arrow[data-dir="-1"] { transform:rotate(-90deg); }
+                .lr-arrow[data-dir="1"] { transform:rotate(-90deg); }
+            }
+        </style>`;
+    }
+
+    function wireLayoutRail(el) {
+        const rail = el.querySelector('#layout-rail');
+        if (!rail) return;
+        const track = rail.querySelector('.lr-track');
+        const vertical = () => getComputedStyle(track).flexDirection === 'column';
+        const updateArrows = () => {
+            const v = vertical();
+            const max = v ? track.scrollHeight - track.clientHeight : track.scrollWidth - track.clientWidth;
+            const pos = v ? track.scrollTop : track.scrollLeft;
+            const [prev, next] = rail.querySelectorAll('.lr-arrow');
+            prev.hidden = max <= 2;
+            next.hidden = max <= 2;
+            prev.disabled = pos <= 2;
+            next.disabled = pos >= max - 2;
+            prev.style.opacity = prev.disabled ? '0.35' : '1';
+            next.style.opacity = next.disabled ? '0.35' : '1';
+        };
+        rail.querySelectorAll('.lr-arrow').forEach(a => a.addEventListener('click', () => {
+            const card = track.querySelector('.lr-card');
+            const step = card ? (vertical() ? card.offsetHeight : card.offsetWidth) + 10 : 150;
+            const d = Number(a.dataset.dir) * step;
+            track.scrollBy(vertical() ? { top: d, behavior: 'smooth' } : { left: d, behavior: 'smooth' });
+        }));
+        track.addEventListener('scroll', updateArrows, { passive: true });
+        requestAnimationFrame(updateArrows);
+        setTimeout(updateArrows, 300);   // nach dem Laden der Vorschaubilder
+
+        rail.querySelectorAll('.lr-card').forEach(card => card.addEventListener('click', () => {
+            idleTemplateIdx = Number(card.dataset.idx);
+            rail.querySelectorAll('.lr-card').forEach(c => c.classList.toggle('lr-on', c === card));
+            card.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+            // Rahmen im Live-Bild auf das gewählte Layout umstellen
+            const box = el.querySelector('#camera-preview');
+            if (box) {
+                if (previewSize !== 'fullscreen') box.style.cssText = previewContainerStyle();
+                box.querySelectorAll('.crop-guide').forEach(g => g.remove());
+                box.insertAdjacentHTML('beforeend', cropGuideHTML());
+                scheduleCropSizing();
+            }
+        }));
+    }
+
     function renderIdle(el) {
         seq = null;
         lastTemplate = null;
         boothInitiated = false;
         selectedFilter = 'none';   // every new guest starts from the untouched image
+        idleTemplateIdx = -1;      // und mit dem ersten Layout (Einzelfoto)
         const isFS = previewSize === 'fullscreen';
         if (!idleLivePreview) {
             // Normal welcome page without live view — the camera rests until "Start"
@@ -629,6 +758,11 @@ export function render(container, state) {
             el.innerHTML = `
             <div style="width:100%;height:100%;position:relative;">
                 ${cameraPreviewHTML()}
+                ${useLayoutRail() ? `<div class="lr-fs" style="position:absolute;z-index:4;display:flex;align-items:center;justify-content:center;">${layoutRailHTML(true)}</div>
+                <style>
+                    .lr-fs { right:1rem;top:1.5rem;bottom:1.5rem; }
+                    @media (orientation: portrait) { .lr-fs { left:1rem;right:1rem;top:auto;bottom:9rem; } }
+                </style>` : ''}
                 <div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:2rem;pointer-events:none;z-index:2;">
                     <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;text-shadow:0 2px 12px rgba(0,0,0,0.7);">${i18n.t('booth.welcome')}</h1>
                     <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;pointer-events:auto;">
@@ -650,7 +784,16 @@ export function render(container, state) {
             el.innerHTML = `
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:2rem;padding:2rem;">
                 <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;">${i18n.t('booth.welcome')}</h1>
-                ${cameraPreviewHTML()}
+                ${useLayoutRail() ? `
+                <div class="idle-stage">
+                    <div class="idle-preview">${cameraPreviewHTML()}</div>
+                    ${layoutRailHTML()}
+                </div>
+                <style>
+                    .idle-stage { display:flex;gap:1.5rem;align-items:center;justify-content:center;width:100%;min-height:0;max-height:62vh; }
+                    .idle-preview { flex:1 1 auto;min-width:0;display:flex;justify-content:center; }
+                    @media (orientation: portrait) { .idle-stage { flex-direction:column;max-height:none; } }
+                </style>` : cameraPreviewHTML()}
                 ${filterBarHTML()}
                 <button id="btn-start" style="
                     padding:1.5rem 3rem;border-radius:var(--pb-radius);border:none;
@@ -670,6 +813,7 @@ export function render(container, state) {
         showStorage(el);
         showHelpButton(el);
         wireFilterBar(el);
+        wireLayoutRail(el);
 
         const btn = el.querySelector('#btn-start');
         btn.addEventListener('click', () => beginFlow());

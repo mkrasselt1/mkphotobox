@@ -901,6 +901,8 @@ def get_display_config():
         "storage_badge": str(get_nested(cfg, "display.storage_badge", "low") or "low").lower(),
         # auto | yes | no — siehe config.defaults.yaml
         "multitouch": str(get_nested(cfg, "display.multitouch", "auto") or "auto").lower(),
+        # auto (Leiste am Startbildschirm) | screen (eigener Auswahlbildschirm)
+        "layout_picker": str(get_nested(cfg, "display.layout_picker", "auto") or "auto").lower(),
     }
 
 
