@@ -138,3 +138,53 @@ async def test_print(
     outputs = request.app.state.outputs
     result = await outputs.send("output.printer", photo_path, {})
     return result
+
+
+# ── Drucker einrichten (vereinfachte CUPS-Oberfläche) ─────────────────────
+
+@router.get("/discover")
+async def discover_printers(_user=Depends(require_role("admin", "organizer"))):
+    """Angeschlossene und im Netz sichtbare Drucker (dauert einige Sekunden)."""
+    from app.services import printer_setup
+    if not printer_setup.is_supported():
+        return {"supported": False, "devices": []}
+    devices = await asyncio.to_thread(printer_setup.discover)
+    return {"supported": True, "devices": devices}
+
+
+@router.post("/setup")
+async def setup_printer(
+    body: dict,
+    request: Request,
+    session: Session = Depends(get_session),
+    _user=Depends(require_role("admin", "organizer")),
+):
+    """Drucker in CUPS anlegen (Treiber automatisch) und gleich für die
+    Fotobox verwenden: Server-Druck mit diesem Drucker."""
+    from app.services import printer_setup
+    uri = (body.get("uri") or "").strip()
+    if not uri or "://" not in uri:
+        raise HTTPException(400, "uri fehlt")
+    res = await asyncio.to_thread(printer_setup.add_printer, uri, body.get("name", ""))
+    if res.get("status") != "ok":
+        return res
+    if body.get("use", True):
+        persist_settings(session, {"outputs.printer.enabled": True,
+                                   "outputs.printer.mode": "server",
+                                   "outputs.printer.printer_name": res["printer"]})
+        printer_cfg = get_config().get("outputs", {}).get("printer", {})
+        await request.app.state.outputs.reload_output("output.printer", printer_cfg)
+    return res
+
+
+@router.post("/auto-setup")
+async def auto_setup_printers(_user=Depends(require_role("admin", "organizer"))):
+    """Jeden angeschlossenen USB-Drucker einrichten, der noch fehlt."""
+    from app.services import printer_setup
+    return await asyncio.to_thread(printer_setup.auto_setup)
+
+
+@router.delete("/queue/{name}")
+async def remove_printer_queue(name: str, _user=Depends(require_role("admin"))):
+    from app.services import printer_setup
+    return await asyncio.to_thread(printer_setup.remove_printer, name)

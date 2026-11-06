@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -143,6 +144,22 @@ async def lifespan(app: FastAPI):
     telegram_svc = get_telegram()
     telegram_svc.configure(cfg)
     app.state.telegram = telegram_svc
+
+    # Angeschlossene USB-Drucker ohne CUPS-Kenntnisse nutzbar machen. Im
+    # Hintergrund: lpinfo fragt Backends mit Zeitlimit ab, der Start soll
+    # darauf nicht warten.
+    from app.services import printer_setup
+    if printer_setup.is_supported():
+        async def _auto_printers():
+            try:
+                res = await asyncio.to_thread(printer_setup.auto_setup)
+                for a in res.get("added", []):
+                    logger.info("Drucker automatisch eingerichtet: %s", a["printer"])
+                for f in res.get("failed", []):
+                    logger.warning("Drucker %s nicht einrichtbar: %s", f["name"], f["message"])
+            except Exception:
+                logger.exception("Automatische Druckereinrichtung fehlgeschlagen")
+        app.state.printer_autosetup = asyncio.create_task(_auto_printers())
 
     logger.info("Photobox started — cameras=%d, triggers=%d, outputs=%d",
                 len(cameras.list_cameras()),

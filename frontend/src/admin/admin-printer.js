@@ -31,6 +31,18 @@ export async function render(container, state) {
             </div>
 
 
+            <div class="admin-card" id="setup-card">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                    <h3 style="margin:0;">Drucker einrichten</h3>
+                    <button id="btn-discover" class="admin-btn admin-btn-outline" style="font-size:0.8rem;">Drucker suchen</button>
+                </div>
+                <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin:0.5rem 0;">
+                    Drucker per USB anschlie&szlig;en und einschalten &mdash; er wird automatisch eingerichtet.
+                    Netzwerkdrucker im selben WLAN erscheinen hier und lassen sich mit einem Klick hinzuf&uuml;gen.
+                </p>
+                <div id="discover-list" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
+            </div>
+
             <div class="admin-card">
                 <h3>Druck-Modus</h3>
                 <div style="display:flex;flex-direction:column;gap:0.5rem;">
@@ -153,6 +165,81 @@ export async function render(container, state) {
     loadPrinterState(currentStatePrinter());
     _stateTimer = setInterval(() => loadPrinterState(currentStatePrinter()), 12000);
     container.querySelector('#ps-refresh')?.addEventListener('click', () => loadPrinterState(currentStatePrinter()));
+
+    // ── Drucker einrichten (ohne CUPS-Kenntnisse) ───────────────────────
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function discoverPrinters({ auto = false } = {}) {
+        const list = container.querySelector('#discover-list');
+        const btn = container.querySelector('#btn-discover');
+        if (!list) return;
+        btn.disabled = true;
+        list.innerHTML = '<p style="color:var(--pb-color-text-muted);margin:0;">Suche l&auml;uft&hellip; (ca. 10 Sekunden)</p>';
+        let added = [], failed = [];
+        try {
+            if (auto) {
+                const a = await fetch('/api/v1/printer/auto-setup', { method: 'POST', headers }).then(r => r.json());
+                added = a.added || []; failed = a.failed || [];
+            }
+            const d = await fetch('/api/v1/printer/discover', { headers }).then(r => r.json());
+            btn.disabled = false;
+            if (d.supported === false) {
+                list.innerHTML = '<p style="color:var(--pb-color-text-muted);margin:0;">Automatisches Einrichten gibt es nur auf der Fotobox selbst (Linux mit CUPS).</p>';
+                return;
+            }
+            const notes = [
+                ...added.map(a => `<p style="color:var(--pb-color-success);margin:0;">&#10003; ${esc(a.name)} wurde eingerichtet.</p>`),
+                ...failed.map(f => `<p style="color:var(--pb-color-error);margin:0;">&#9888; ${esc(f.name)}: ${esc(f.message)}</p>`),
+            ].join('');
+            const devs = d.devices || [];
+            list.innerHTML = notes + (devs.length ? devs.map((dev, i) => `
+                <div style="display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0.75rem;border:1px solid var(--pb-color-border, #444);border-radius:8px;">
+                    <span style="font-size:1.3rem;">${dev.connection === 'usb' ? '&#128268;' : '&#128246;'}</span>
+                    <div style="flex:1;min-width:0;">
+                        <strong>${esc(dev.name)}</strong>
+                        <div style="font-size:0.8rem;color:var(--pb-color-text-muted);">
+                            ${dev.connection === 'usb' ? 'USB' : 'Netzwerk'}${dev.driverless ? ' &middot; ohne Treiber' : ''}
+                            ${dev.configured_as ? ` &middot; eingerichtet als <code>${esc(dev.configured_as)}</code>` : ''}
+                        </div>
+                    </div>
+                    ${dev.configured_as
+                        ? `<button class="admin-btn admin-btn-outline" data-use="${esc(dev.configured_as)}" style="font-size:0.8rem;">Verwenden</button>`
+                        : `<button class="admin-btn admin-btn-primary" data-add="${i}" style="font-size:0.8rem;">Einrichten</button>`}
+                </div>`).join('')
+                : '<p style="color:var(--pb-color-text-muted);margin:0;">Kein Drucker gefunden. Ist er eingeschaltet und per USB verbunden bzw. im selben WLAN?</p>');
+
+            list.querySelectorAll('[data-add]').forEach(b => b.addEventListener('click', async () => {
+                const dev = devs[+b.dataset.add];
+                b.disabled = true; b.textContent = 'Wird eingerichtet…';
+                const msg = container.querySelector('#msg');
+                try {
+                    const r = await fetch('/api/v1/printer/setup', {
+                        method: 'POST', headers, body: JSON.stringify({ uri: dev.uri, name: dev.name, use: true }),
+                    }).then(r => r.json());
+                    if (r.status !== 'ok') throw new Error(r.message || r.detail || 'Einrichten fehlgeschlagen');
+                    msg.textContent = `${dev.name} ist eingerichtet und wird jetzt verwendet.`;
+                    msg.style.color = 'var(--pb-color-success)';
+                    render(container, state);   // Seite mit neuem Drucker + Papierformaten neu aufbauen
+                } catch (err) {
+                    b.disabled = false; b.textContent = 'Einrichten';
+                    msg.textContent = 'Fehler: ' + err.message;
+                    msg.style.color = 'var(--pb-color-error)';
+                    msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }));
+            list.querySelectorAll('[data-use]').forEach(b => b.addEventListener('click', async () => {
+                await fetch('/api/v1/printer/configure', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ enabled: true, mode: 'server', printer_name: b.dataset.use }),
+                });
+                render(container, state);
+            }));
+        } catch (err) {
+            btn.disabled = false;
+            list.innerHTML = `<p style="color:var(--pb-color-error);margin:0;">Suche fehlgeschlagen: ${esc(err.message)}</p>`;
+        }
+    }
+    container.querySelector('#btn-discover')?.addEventListener('click', () => discoverPrinters({ auto: true }));
+    discoverPrinters({ auto: true });
 
     // Toggle server settings
     container.querySelectorAll('input[name="print_mode"]').forEach(radio => {

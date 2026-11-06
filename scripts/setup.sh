@@ -64,7 +64,10 @@ fi
 echo ">>> [1/5] System-Pakete (apt)"
 PKGS=(python3-venv python3-pip python3-dev build-essential pkg-config git curl rsync sshpass)
 if [[ "$WITH_GPHOTO2" == 1 ]]; then PKGS+=(libgphoto2-dev); fi
-if [[ "$WITH_PRINTER" == 1 ]]; then PKGS+=(cups libcups2-dev); fi
+# cups-filters + ipp-usb: treiberlos drucken (Netz und moderne USB-Drucker),
+# gutenprint: Fotodrucker (Canon SELPHY, DNP, Mitsubishi, Kodak, …) samt
+# eigenem USB-Backend, avahi: Netzwerkdrucker überhaupt finden.
+if [[ "$WITH_PRINTER" == 1 ]]; then PKGS+=(cups cups-filters ipp-usb printer-driver-gutenprint avahi-daemon libcups2-dev); fi
 if [[ "$WITH_CDBURN"  == 1 ]]; then PKGS+=(xorriso); fi
 if [[ "$WITH_WIFI"    == 1 ]]; then PKGS+=(network-manager); fi
 if [[ "$WITH_AUDIO"   == 1 ]]; then PKGS+=(libportaudio2); fi
@@ -241,6 +244,8 @@ echo "  Gruppen für $RUN_USER:"
 if [[ "$WITH_CDBURN" == 1 ]]; then add_group cdrom "CD/DVD brennen"; fi
 add_group dialout "serieller Touchscreen / Auslöser"
 if [[ "$WITH_TRIGGERS" == 1 ]]; then add_group input "evdev — Tastatur-/Bluetooth-Auslöser"; fi
+# lpadmin: Drucker im Admin-Bereich einrichten, ohne CUPS-Weboberfläche.
+if [[ "$WITH_PRINTER" == 1 ]]; then add_group lpadmin "Drucker einrichten"; fi
 
 # ── 4) systemd service ────────────────────────────────────────────────────
 echo ">>> [4/5] systemd-Dienst"
@@ -487,6 +492,17 @@ UNIT
   sudo -u "$RUN_USER" XDG_RUNTIME_DIR="/run/user/$RUN_UID" \
     bluetoothctl discoverable-timeout 0 >/dev/null 2>&1 || true
   echo "  Empfangsordner: $RECV_DIR"
+fi
+
+# ── 4a3) Drucker: angeschlossene USB-Drucker gleich einrichten ─────────────
+# Dieselbe Logik wie Admin → Drucker → „Drucker suchen“. Netzwerkdrucker nur
+# per Klick im Admin-Bereich — sonst landen fremde Drucker im Event-WLAN in
+# der Liste.
+if [[ "$WITH_PRINTER" == 1 ]]; then
+  echo ">>> [4a3] Drucker einrichten"
+  systemctl enable --now cups.service >/dev/null 2>&1 || true
+  (cd "$APP_DIR" && "$PY" -m app.services.printer_setup auto) \
+    || echo "    !! automatische Druckereinrichtung fehlgeschlagen"
 fi
 
 # ── 4b) optional: Tailscale remote access ─────────────────────────────────
