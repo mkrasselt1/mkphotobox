@@ -81,8 +81,12 @@ if [[ "$WITH_AUDIO"   == 1 ]]; then PKGS+=(libportaudio2); fi
 # gnome-bluetooth-sendto wäre ein GTK-Dialog und auf einer Kiosk-Box nutzlos.
 if [[ "$WITH_BLUETOOTH" == 1 ]]; then PKGS+=(bluez bluez-obexd bluez-tools obexftp); fi
 if [[ "$WITH_SSH"     == 1 ]]; then PKGS+=(openssh-server); fi
-apt-get update -y
-apt-get install -y "${PKGS[@]}"
+# Eine frisch eingeschaltete Box installiert oft gerade selbst Updates
+# (unattended-upgrades) und hält die dpkg-Sperre. apt-get bricht dann sofort
+# ab — und mit ihm das ganze Setup. Lieber warten, bis die Sperre frei ist.
+APT=(apt-get -o DPkg::Lock::Timeout=600)
+"${APT[@]}" update -y
+"${APT[@]}" install -y "${PKGS[@]}"
 # Ubuntu Desktop bringt keinen SSH-Server mit. Bleibt der Bildschirm schwarz,
 # ist SSH der einzige Weg auf die Box — also gleich aktivieren.
 if [[ "$WITH_SSH" == 1 ]]; then
@@ -212,6 +216,8 @@ PYEOF
 # ── 2c) nice script/handwriting fonts for template text (best effort) ─────
 echo ">>> [2c] Schriftarten für Text-Elemente"
 sudo -u "$RUN_USER" bash "$APP_DIR/scripts/install-fonts.sh" || echo "  (Font-Download übersprungen — kein Internet?)"
+# Emojis zum Platzieren auf dem Bild (Twemoji-SVGs, ~10 MB, nicht im Repo)
+sudo -u "$RUN_USER" bash "$APP_DIR/scripts/install-emoji.sh" || echo "  (Emoji-Download übersprungen — kein Internet?)"
 
 # ── 3) data dirs + groups ─────────────────────────────────────────────────
 echo ">>> [3/5] Datenverzeichnisse + Gruppen"
@@ -450,7 +456,7 @@ if [[ "$WITH_BLUETOOTH" == 1 ]]; then
   # nach, hat als systemd-Dienst aber keins, stirbt an
   # "g_variant_new_string: assertion 'string != NULL' failed" — und das Handy
   # zeigt eine PIN-Abfrage, die niemand beantworten kann. Eigener Agent:
-  apt-get install -y python3-dbus python3-gi >/dev/null 2>&1 || \
+  "${APT[@]}" install -y python3-dbus python3-gi >/dev/null 2>&1 || \
     echo "   !! python3-dbus/python3-gi fehlen — Kopplung wird nicht funktionieren"
 
   cat > /etc/systemd/system/mkphotobox-btagent.service <<UNIT
