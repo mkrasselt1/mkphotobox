@@ -761,9 +761,14 @@ export function render(container, state) {
                 ${useLayoutRail() ? `<div class="lr-fs" style="position:absolute;z-index:4;display:flex;align-items:center;justify-content:center;">${layoutRailHTML(true)}</div>
                 <style>
                     .lr-fs { right:1rem;top:1.5rem;bottom:1.5rem; }
-                    @media (orientation: portrait) { .lr-fs { left:1rem;right:1rem;top:auto;bottom:9rem; } }
+                    /* Filter-Knöpfe und „Foto aufnehmen“ links neben der Leiste
+                       halten — sonst überdecken die Karten die Fotostile. */
+                    @media (orientation: landscape) {
+                        .lr-room { padding-right:calc(clamp(130px,14vw,200px) + 2.5rem) !important; }
+                    }
+                    @media (orientation: portrait) { .lr-fs { left:1rem;right:1rem;top:7rem;bottom:auto; } }  /* unten liegen Filter + Knopf, deren Höhe je nach Umbruch schwankt */
                 </style>` : ''}
-                <div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:2rem;pointer-events:none;z-index:2;">
+                <div class="${useLayoutRail() ? 'lr-room' : ''}" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:2rem;pointer-events:none;z-index:2;">
                     <h1 style="font-size:clamp(2rem,6vw,3.5rem);text-align:center;text-shadow:0 2px 12px rgba(0,0,0,0.7);">${i18n.t('booth.welcome')}</h1>
                     <div style="display:flex;flex-direction:column;align-items:center;gap:1rem;pointer-events:auto;">
                         ${filterBarHTML(true)}
