@@ -899,6 +899,8 @@ def get_display_config():
         # low | always | never — Gäste interessiert die freie Plattenkapazität
         # nicht; erst wenn es eng wird, muss es jemand sehen.
         "storage_badge": str(get_nested(cfg, "display.storage_badge", "low") or "low").lower(),
+        # auto | yes | no — siehe config.defaults.yaml
+        "multitouch": str(get_nested(cfg, "display.multitouch", "auto") or "auto").lower(),
     }
 
 

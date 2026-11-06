@@ -67,6 +67,21 @@ export async function render(container, state) {
                         wenn es knapp wird. „Immer" ist für den Aufbau nützlich.
                     </p>
                 </div>
+                <div style="margin-top:1.25rem;">
+                    <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Touchscreen: mehrere Finger (Multitouch)</label>
+                    <select id="multitouch" style="${selectStyle}">
+                        ${[
+                            { value: 'auto', label: `Automatisch erkennen (dieses Gerät: ${navigator.maxTouchPoints >= 2 ? `${navigator.maxTouchPoints} Finger` : 'nur ein Finger'})` },
+                            { value: 'yes', label: 'Ja — mit zwei Fingern drehen und zoomen' },
+                            { value: 'no', label: 'Nein — nur ein Finger, Drehen/Zoomen über Knöpfe' },
+                        ].map(o => `<option value="${o.value}" ${o.value === (settings?.display?.multitouch || 'auto') ? 'selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                    <p style="margin-top:0.5rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                        Betrifft Emojis im Gästebuch. Viele Fotobox-Touchscreens erkennen nur einen Finger;
+                        dann werden Größe und Drehung über Knöpfe eingestellt. „Automatisch" fragt den
+                        Browser des jeweiligen Geräts — am Kiosk die Box, am Handy das Handy.
+                    </p>
+                </div>
             </div>
 
             <div class="admin-card" style="margin-bottom:1.5rem;">
@@ -191,6 +206,7 @@ export async function render(container, state) {
             { key: 'display.safe_margin',
               value: Math.max(0, Math.min(200, parseInt(container.querySelector('#safe-margin').value) || 0)) },
             { key: 'display.storage_badge', value: container.querySelector('#storage-badge').value },
+            { key: 'display.multitouch', value: container.querySelector('#multitouch').value },
             { key: 'gallery.enabled', value: container.querySelector('#gallery-enabled').checked },
             { key: 'gallery.delete_mode', value: container.querySelector('#delete-mode-select').value },
             { key: 'gallery.delete_recent_minutes', value: parseInt(container.querySelector('#delete-minutes').value) || 5 },

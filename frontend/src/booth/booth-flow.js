@@ -56,6 +56,15 @@ let selectedFilter = 'none';
 let filterLivePreview = true;
 let guestbookEnabled = true; // let guests draw / write on their photo
 let guestbookMaxLen = 120;
+// display.multitouch: auto | yes | no. Viele Fotobox-Touchscreens können nur
+// einen Finger (eGalax seriell) — dann ist „mit zwei Fingern drehen" eine leere
+// Versprechung; Größe und Drehung gehen dort über die Knöpfe.
+let multitouchSetting = 'auto';
+function hasMultitouch() {
+    if (multitouchSetting === 'yes') return true;
+    if (multitouchSetting === 'no') return false;
+    return (navigator.maxTouchPoints || 0) >= 2;
+}
 let availableOutputs = [];  // loaded output module names (only enabled+available ones)
 let templates = [];          // booth templates for the active event
 let seq = null;              // active multi-photo sequence: {template, total, shots:[], index}
@@ -166,6 +175,7 @@ export function render(container, state) {
                 mirrorPreview = displayData.mirror_preview !== false;
                 flashEnabled = displayData.flash_enabled !== false;
                 guestbookEnabled = displayData.guestbook_enabled !== false;
+                if (['auto', 'yes', 'no'].includes(displayData.multitouch)) multitouchSetting = displayData.multitouch;
                 if (Number.isFinite(displayData.guestbook_max_len) && displayData.guestbook_max_len > 0)
                     guestbookMaxLen = displayData.guestbook_max_len;
                 sounds.configure({
@@ -942,7 +952,9 @@ export function render(container, state) {
                 <button id="gb-clear" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">Alles löschen</button>
             </div>
             <div id="gb-sticker-tools" style="display:none;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
-                <span style="opacity:0.75;font-size:0.9rem;">Emoji: ziehen zum Verschieben, mit zwei Fingern drehen/zoomen</span>
+                <span style="opacity:0.75;font-size:0.9rem;">${hasMultitouch()
+                    ? 'Emoji: ziehen zum Verschieben, mit zwei Fingern drehen/zoomen'
+                    : 'Emoji: ziehen zum Verschieben, Größe und Drehung mit den Knöpfen'}</span>
                 <button class="gb-st" data-act="smaller" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">－</button>
                 <button class="gb-st" data-act="bigger" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">＋</button>
                 <button class="gb-st" data-act="left" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">⟲</button>

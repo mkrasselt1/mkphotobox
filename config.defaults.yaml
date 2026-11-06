@@ -235,6 +235,11 @@ display:
   # Speicheranzeige im Booth: low = nur wenn es eng wird (Vorgabe), always =
   # immer, never = nie. Gäste interessiert die freie Plattenkapazität nicht.
   storage_badge: "low"
+  # Kann der Touchscreen mehrere Finger? auto = der Browser meldet es selbst
+  # (navigator.maxTouchPoints), yes/no legt es fest. Viele Fotobox-Touchscreens
+  # (z. B. eGalax über die serielle Schnittstelle) können nur einen Finger —
+  # dann gibt es kein Zwei-Finger-Drehen/-Zoomen, nur die Knöpfe dafür.
+  multitouch: "auto"
 
 session:
   auto_end_seconds: 120
