@@ -8,7 +8,7 @@ Modulare Photo-Booth-Software für Veranstaltungen: **Python (FastAPI)** im Rüc
 **Vanilla-JS**-Oberfläche im Vordergrund, **komplett offline lauffähig**, bedienbar
 vollständig über den Browser.
 
-![Die Willkommensseite der Fotobox mit Live-Vorschau und Look-Auswahl](docs/media/booth-idle.png)
+![Der Startbildschirm: Live-Bild mit Bildausschnitt, darunter die Looks, rechts die Layout-Leiste mit dem gewählten Party-Rahmen](docs/media/booth-idle.png)
 
 ---
 
@@ -51,25 +51,31 @@ gleich den passenden Ausschnitt; „Foto aufnehmen“ startet. Jede Karte zeigt 
 bloß ein Symbol. Wer lieber einen eigenen Auswahl-Bildschirm will, stellt das in
 den Einstellungen um (so sieht er aus):
 
-![Layout-Auswahl mit Einzelfoto und Dreier-Streifen](docs/media/booth-templates.png)
+![Eigener Bildschirm „Layout wählen“ mit Einzelfoto, Party-Rahmen und Party-Streifen](docs/media/booth-templates.png)
+
+Zum Ausprobieren liegen zwei fertige **Demo-Vorlagen „Party“** bei (Rahmen 10×15
+quer und Doppel-Streifen mit drei Aufnahmen) — sie sind auf diesen Bildern zu sehen
+und im Vorlagen-Editor frei änderbar. Eingespielt werden sie auf der Box mit
+`.venv/bin/python scripts/install-demo-template.py`.
 
 **3 · Countdown.** Mit Piepton, Auslöse-Klick und Weißblende. Der Auslöse-Vorlauf
 gleicht die Verzögerung der Kamera aus, damit das Foto exakt bei „0" entsteht.
 
 ![Countdown über der Live-Vorschau](docs/media/booth-countdown.png)
 
-**4 · Ansehen — und verewigen.** Nicht gefallen? *Nochmal*. Sonst: mit dem Finger
-aufs Foto malen, Emoji-Sticker draufsetzen und ein Grußwort dazuschreiben. Das
-digitale Gästebuch.
+**4 · Ansehen — und verewigen.** Nicht gefallen? *Nochmal*. Sonst über
+*Grußwort & Emojis*: mit dem Finger aufs Foto malen, Emoji-Sticker draufsetzen
+(verschieben, größer, kleiner, drehen) und ein Grußwort dazuschreiben. Links das
+Foto, rechts die Werkzeuge. Das digitale Gästebuch.
 
-![Fotoansicht mit den Schaltflächen Nochmal, Grußwort und Weiter](docs/media/booth-review.png)
+![Fotoansicht mit den Schaltflächen Nochmal, Grußwort & Emojis und Weiter](docs/media/booth-review.png)
 
-![Gästebuch: ein gemaltes Herz über der Gruppe, darunter ein Grußwort](docs/media/booth-guestbook.png)
+![Gästebuch: links das Foto mit gemaltem Herz und Konfetti-Emoji, rechts Stift, Emojis und Grußwort](docs/media/booth-guestbook.png)
 
 **5 · Mitnehmen.** Drucken, per QR aufs Handy, E-Mail, Bluetooth, USB-Stick oder
 auf CD/DVD gebrannt. Und alles landet in der Galerie.
 
-![Galerie mit den Fotos des Abends, Collagen und GIF-Markierungen](docs/media/gallery.png)
+![Galerie mit den Fotos des Abends, Party-Rahmen, einem Fotostreifen und GIF-Markierung](docs/media/gallery.png)
 
 ---
 
@@ -83,6 +89,9 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
 - Drehen und Spiegeln für schräg montierte Kameras. Getrennt davon der
   **Spiegel-Effekt**: Gäste sehen sich wie im Spiegel und posieren richtig herum,
   das gespeicherte Foto bleibt seitenrichtig — Schrift und Logos bleiben lesbar.
+- **Scharfstell-Assistent** für den Aufbau: Autofokus auslösen, bei der
+  Spiegelreflex den Objektivschalter auf MF, Schärfe in der Lupe oder am Testfoto
+  prüfen — Schritt für Schritt unter Admin → Kameras.
 - Hintergrund ersetzen per Greenscreen oder KI-Freisteller.
 - **Animiertes GIF** aus den Sekunden vor dem Auslösen, wahlweise als
   **Boomerang** (vorwärts und wieder rückwärts). Das GIF entsteht im Hintergrund —
@@ -113,6 +122,9 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
   nicht nötig. Umgekehrt nimmt die Box auch Dateien per Bluetooth entgegen.
 - USB-Stick-Export und CD/DVD-Brennen für die Übergabe an den Veranstalter.
 - Online-Galerie: spiegelt jedes neue Foto auf einen eigenen Server.
+- **Galerie-Sichtschutz** für größere Feiern (wahlweise): Wer gerade fotografiert,
+  sieht seine Bilder scharf; die Fotos früherer Gruppen zeigt die Galerie nach einer
+  Pause nur weichgezeichnet.
 
 **Verwalten**
 - Mehrere Veranstaltungen, jede mit eigenen Vorlagen und eigenem Standort.
@@ -137,16 +149,26 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
 ## Die Steuerung
 
 Alles über den Browser — vom Handy, Tablet oder direkt am Touchscreen der Box.
+Das Menü ist nach dem Ablauf einer Veranstaltung nummeriert, **1 bis 6**: von der
+Veranstaltung über Bilder, Layouts, Aufnahme und Drucken bis zu „Vor Ort &
+danach“ (WLAN, USB-Stick). Unten schaltet **🐒 Einfach / 👷 Experte** um: Im
+einfachen Modus steht nur, was man für eine Veranstaltung braucht; der
+Expertenmodus zeigt zusätzlich Netzwerk, Auslöser, Module, Bezahlung und Co.
 
-![Admin-Dashboard mit System-, Kamera-, Ausgabe- und Druckerstatus](docs/media/admin-dashboard.png)
+![Admin-Bereich im einfachen Modus: Menü als Ablauf 1–6, Dashboard mit System- und Kamerastatus](docs/media/admin-dashboard.png)
 
-Die Kamera-Einstellungen mit Drehung, Spiegelung und dem Spiegel-Effekt:
+Die Kamera-Einstellungen (im Expertenmodus) mit Drehung, Spiegelung und dem
+Spiegel-Effekt:
 
-![Kamera-Einstellungen mit Bild-Transformation und Spiegel-Effekt](docs/media/admin-cameras.png)
+![Kamera-Einstellungen mit Bild-Transformation und Spiegel-Effekt, links das volle Expertenmenü](docs/media/admin-cameras.png)
 
 Veranstaltungen — inklusive Standort, der in die Fotos geschrieben wird:
 
-![Veranstaltungsverwaltung mit hinterlegtem Standort](docs/media/admin-events.png)
+![Veranstaltungsverwaltung: eine aktive und eine frühere Veranstaltung, jeweils mit Standort](docs/media/admin-events.png)
+
+Die Foto-Vorlagen, jede mit automatisch erzeugtem Vorschaubild:
+
+![Liste der Foto-Vorlagen mit Party-Rahmen und Party-Streifen](docs/media/admin-templates.png)
 
 Und das Handbuch, das immer auf der Box liegt:
 
@@ -179,6 +201,12 @@ allerdings keine Fotos, sondern mit Pillow gezeichnete Illustrationen aus
 [`docs/media/demo/`](docs/media/demo/) — sie stammen aus diesem Repository, zeigen
 keine realen Personen und sind damit uneingeschränkt frei verwendbar.
 
+Erzeugt werden die Bilder mit [`scripts/docs-screenshots.sh`](scripts/docs-screenshots.sh):
+Es startet die Box mit eigener, frischer Datenbank in Docker, legt eine
+Beispiel-Veranstaltung mit den Demo-Vorlagen an und fotografiert Booth, Galerie und
+Admin-Bereich mit einem Headless-Browser. Als Kamera dient dessen Test-Kamera mit
+einem der Demo-Bilder — Live-Bild, Countdown und Aufnahme sind also echt.
+
 ---
 
 ## Lizenz
@@ -192,3 +220,7 @@ weitere Mitwirkende, lizenziert unter
 Repository, sondern werden beim Setup heruntergeladen
 (`scripts/install-emoji.sh`); beim Rendern werden sie nur skaliert und gedreht.
 Details: [`app/assets/emoji/README.md`](app/assets/emoji/README.md).
+Die mitgelieferten Demo-Rahmen in `app/assets/demo/` (Vorlagen „Demo: Party“)
+enthalten gerenderte Twemoji-Grafiken unter derselben Lizenz; Farbverlauf,
+Konfetti und Wimpelkette sind selbst gezeichnet
+([`app/assets/demo/README.md`](app/assets/demo/README.md)).

@@ -96,6 +96,26 @@ Schalter stehen im Kopf von [`scripts/setup.sh`](../scripts/setup.sh).
 Standard-Login: **`admin` / `admin`** (nach dem ersten Start in den Einstellungen
 ändern).
 
+### Der Admin-Bereich: 🐒 Einfach und 👷 Experte
+
+Das Menü ist nach dem Ablauf einer Veranstaltung nummeriert: **1** Veranstaltung,
+**2** Bilder & Logos, **3** Layouts, **4** Aufnahme, **5** Drucken & Teilen,
+**6** Vor Ort & danach. Unten im Menü sitzt der Umschalter **🐒 Einfach /
+👷 Experte**:
+
+- **Einfach** (Vorgabe) zeigt nur, was man für eine Veranstaltung braucht.
+- **Experte** zeigt zusätzlich alles, was man einmal einrichtet und dann in Ruhe
+  lässt — Netzwerk & Tailscale, Online-Galerie, Auslöser, Module, Tests,
+  Bezahlung, Mieter-Rechte, dazu unten *Software aktualisieren* und
+  *Anzeigemodus*.
+
+Der Umschalter blendet nur aus, er sperrt nichts; die Wahl merkt sich jedes Gerät
+einzeln. **Netzwerk & Tailscale, Online-Galerie, Module, *Software aktualisieren*
+und *Anzeigemodus*, die diese Anleitung anspricht, gibt es nur im Expertenmodus**
+— unten auf **👷 Experte** tippen.
+
+![Admin-Bereich im Expertenmodus: nummeriertes Menü mit allen Bereichen, unten der Umschalter Einfach/Experte](media/admin-expert.png)
+
 ### Zwischen Kiosk und Desktop umschalten
 
 `kiosk-setup.sh` richtet den Kiosk **einmalig** ein (SDDM, Autologin, openbox).
@@ -107,8 +127,8 @@ Im Desktop-Modus liegt dafür die Verknüpfung **„Fotobox-Modus“** auf dem
 Schreibtisch und im App-Menü: ein Klick schaltet auf Kiosk und startet neu.
 GNOME fragt beim ersten Mal per Rechtsklick nach „Start erlauben“.
 
-**Im Alltag genügt der Button:** Admin-Bereich → **Anzeigemodus** (unten in der
-Seitenleiste, neben *Software aktualisieren*). Der Dialog zeigt den aktuellen
+**Im Alltag genügt der Button:** Admin-Bereich (👷 Experte) → **Anzeigemodus**
+(unten in der Seitenleiste, neben *Software aktualisieren*). Der Dialog zeigt den aktuellen
 Modus, schaltet um und bietet an, gleich neu zu starten. Ist der Kiosk noch nicht
 eingerichtet, sagt er das statt eine tote Schaltfläche anzubieten.
 
@@ -157,8 +177,8 @@ python3 -m venv .venv
 
 ## Update
 
-- **In der Weboberfläche**: Admin → **„Software aktualisieren"** (holt den
-  neuesten Stand von GitHub und startet neu).
+- **In der Weboberfläche**: Admin (👷 Experte) → **„Software aktualisieren"**
+  unten in der Seitenleiste (holt den neuesten Stand von GitHub und startet neu).
 - **Per SSH**: `sudo ./scripts/update.sh`
 
 Der Neustart danach dauert nur wenige Sekunden. Der Kiosk-Bildschirm merkt, dass
@@ -173,8 +193,8 @@ fehlende Spalten additiv; Umbenennungen/Drops bräuchten Alembic, `migrations/`)
 
 ## Drucker einrichten
 
-Ohne CUPS-Kenntnisse, alles im Admin-Bereich unter **Drucker → „Drucker
-einrichten“**:
+Ohne CUPS-Kenntnisse, alles im Admin-Bereich unter **Drucker** (Schritt 5 im
+Menü, auch im einfachen Modus) → **„Drucker einrichten“**:
 
 - **USB-Drucker** anschließen und einschalten — er wird automatisch eingerichtet
   (beim Start der Box, am Ende von `setup.sh` und beim Öffnen der Seite). In der
@@ -195,7 +215,7 @@ Gruppe `lpadmin` auf).
 Für stabilen Fernzugriff (durch NAT/Firewall, unabhängig vom lokalen Netz).
 `setup.sh` installiert Tailscale bereits — angemeldet wird ohne Terminal:
 
-1. Admin → **Netzwerk-Status** → Abschnitt *Tailscale* → **Verbinden**.
+1. Admin (👷 Experte) → **Netzwerk & Tailscale** → Abschnitt *Tailscale* → **Verbinden**.
 2. Den angezeigten Link öffnen oder den **QR-Code** mit dem Handy scannen und
    dort beim eigenen Tailscale-Konto anmelden. Alternativ einen Auth-Key
    eintragen, dann entfällt der Link.
@@ -222,7 +242,7 @@ sudo ./scripts/cloudflared-setup.sh                 # cloudflared + Dienst insta
 sudo WITH_CLOUDFLARE=1 ./scripts/setup.sh           # beim Setup mit einrichten
 ```
 
-Ein-/ausschalten im Admin unter **Online-Galerie → Cloudflare Quick-Tunnel** (zeigt die
+Ein-/ausschalten im Admin (👷 Experte) unter **Online-Galerie → Cloudflare Quick-Tunnel** (zeigt die
 aktuelle URL). Die URL wird bei jedem Tunnel-Neustart neu vergeben (bei Quick-Tunneln
 normal). Für eine feste Adresse stattdessen die **Online-Galerie** mit eigener Domain
 nutzen oder `share.base_url` in der `config.yaml` setzen.
@@ -272,7 +292,7 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
   nutzlos). `obexd` hängt am D-Bus-**Session**-Bus, den ein System-Dienst nicht
   hat — `setup.sh` aktiviert deshalb Lingering für den Dienst-Benutzer. Empfangen
   übernehmen die Units `mkphotobox-btrecv` und `mkphotobox-btagent`.
-- **Ein Modul lässt sich einschalten, tut aber nichts**: **Admin → Module** nennt
+- **Ein Modul lässt sich einschalten, tut aber nichts**: **Admin (👷 Experte) → Module** nennt
   den Grund samt Installationsbefehl. Fehlt ein Python-Paket, ist beim Setup
   meist der Download abgebrochen — dann `setup.sh` einfach erneut ausführen.
 - **Kein AirDrop / Quick Share**: Beides sind geschlossene Protokolle, die Box
