@@ -261,6 +261,166 @@ class GPhoto2Camera(AbstractCamera):
         except Exception as e:
             logger.debug("Autofocus drive not supported / failed: %s", e)
 
+    # ── Scharfstell-Assistent (Admin → Kamera) ──────────────────────────
+    # Den Fokus festhalten kann Software bei Canon nicht verlässlich: der
+    # AF/MF-Schalter sitzt am Objektiv, "focusmode" ist bei EOS nur lesbar und
+    # spiegelt genau diesen Schalter. Also: Software löst EINMAL den AF aus
+    # (autofocusdrive), der Mensch prüft im vergrößerten Live-Bild (eoszoom)
+    # oder am Testfoto und stellt dann den Objektivschalter auf MF.
+
+    #: Live-View-Lupe der Kamera (eoszoom). 1 = aus.
+    _lv_zoom = 1
+    #: Lupe schaltet sich nach dieser Zeit von selbst ab — falls jemand die
+    #: Admin-Seite einfach schließt, soll der Booth nicht vergrößert bleiben.
+    _LV_ZOOM_MAX_S = 90.0
+    _lv_zoom_until = 0.0
+
+    def _has_widget(self, name: str) -> bool:
+        """Gibt es das Widget? Bei EOS-Aktionen (autofocusdrive, eoszoom) legt
+        libgphoto2 es nur an, wenn die Kamera die PTP-Operation kann."""
+        try:
+            self._camera.get_single_config(name)
+            return True
+        except AttributeError:
+            pass  # alte python-gphoto2 ohne single_config
+        except Exception:
+            return False
+        try:
+            self._camera.get_config().get_child_by_name(name)
+            return True
+        except Exception:
+            return False
+
+    def _read_widget(self, name: str) -> str:
+        try:
+            try:
+                return str(self._camera.get_single_config(name).get_value())
+            except AttributeError:
+                return str(self._camera.get_config().get_child_by_name(name).get_value())
+        except Exception:
+            return ""
+
+    def _write_widget(self, name: str, value) -> None:
+        """Ein Widget setzen; Fehler gehen an den Aufrufer."""
+        try:
+            widget = self._camera.get_single_config(name)
+            widget.set_value(value)
+            self._camera.set_single_config(name, widget)
+            return
+        except AttributeError:
+            pass
+        config = self._camera.get_config()
+        config.get_child_by_name(name).set_value(value)
+        self._camera.set_config(config)
+
+    async def focus_info(self) -> dict[str, Any]:
+        """Was kann die Kamera beim Scharfstellen? Liest "focusmode" frisch —
+        bei Canon EOS steht dort "Manual", sobald der Objektivschalter auf MF
+        steht (so meldet es die Kamera; auf der Box gegenprüfen)."""
+        try:
+            return await self.call(self._focus_info_sync, timeout=8.0)
+        except asyncio.TimeoutError:
+            return {"available": False, "busy": True,
+                    "reason": "Kamera beschäftigt — bitte kurz erneut versuchen"}
+        except Exception as e:
+            return {"available": False, "reason": str(e)}
+
+    def _focus_info_sync(self) -> dict[str, Any]:
+        try:
+            if self._camera is None:
+                self._connect()
+        except Exception as e:
+            return {"available": False, "reason": str(e)}
+        mode = ""
+        for wname in self._FOCUS_WIDGETS:
+            mode = self._read_widget(wname)
+            if mode:
+                break
+        return {
+            "available": True,
+            "model": self._model,
+            "autofocus": self._has_widget("autofocusdrive"),
+            "zoom": self._has_widget("eoszoom"),
+            "focus_mode": mode,
+            # Canon: "Manual" = Objektivschalter steht auf MF
+            "manual": mode.strip().lower() in ("manual", "mf", "manual focus"),
+            "lv_zoom": self._lv_zoom,
+        }
+
+    async def autofocus_now(self) -> dict[str, Any]:
+        """Einmal scharfstellen — wie Auslöser halb drücken und loslassen."""
+        try:
+            return await self.call(self._autofocus_now_sync, timeout=15.0)
+        except asyncio.TimeoutError:
+            return {"ok": False, "message": "Kamera antwortet nicht — bitte erneut versuchen"}
+        except Exception as e:
+            return {"ok": False, "message": str(e)}
+
+    def _autofocus_now_sync(self) -> dict[str, Any]:
+        """Kamera-Thread. Canon: autofocusdrive=1 schickt PTP DoAf (AF läuft in
+        der Kamera los, das Ergebnis meldet sie nur über Ereignisse), danach
+        autofocusdrive=0 = AfCancel, also "Auslöser wieder loslassen" — der
+        Fokus bleibt stehen, die Kamera hängt aber nicht im Halbdruck-Zustand
+        (sonst scheitert gern die nächste Aufnahme mit "busy")."""
+        try:
+            if self._camera is None:
+                self._connect()
+        except Exception as e:
+            return {"ok": False, "message": f"Kamera nicht erreichbar: {e}"}
+        if not self._has_widget("autofocusdrive"):
+            return {"ok": False, "unsupported": True,
+                    "message": "Diese Kamera lässt den Autofokus nicht per USB auslösen — "
+                               "bitte den Auslöser an der Kamera halb drücken."}
+        try:
+            self._write_widget("autofocusdrive", 1)
+        except Exception as e:
+            logger.info("autofocusdrive fehlgeschlagen: %s", e)
+            return {"ok": False,
+                    "message": "Autofokus nicht möglich — steht der Schalter am Objektiv auf AF? "
+                               "Sonst den Auslöser an der Kamera halb drücken."}
+        # Dem Motor Zeit lassen; Ereignisse abholen, damit nichts liegen bleibt.
+        self._drain_events(budget=2.0, until_quiet=False)
+        try:
+            self._write_widget("autofocusdrive", 0)
+        except Exception:
+            logger.debug("AfCancel fehlgeschlagen", exc_info=True)
+        self._drain_events(budget=0.3)
+        return {"ok": True, "message": "Autofokus ausgelöst"}
+
+    async def set_liveview_zoom(self, level: int) -> dict[str, Any]:
+        """Live-View-Lupe der Kamera: 1 (aus), 5 oder 10 — echte Sensor-Pixel,
+        nicht nur das kleine Vorschaubild hochgerechnet."""
+        level = level if level in (1, 5, 10) else 1
+        try:
+            return await self.call(self._set_zoom_sync, level, timeout=8.0)
+        except asyncio.TimeoutError:
+            return {"ok": False, "message": "Kamera beschäftigt"}
+        except Exception as e:
+            return {"ok": False, "message": str(e)}
+
+    def _set_zoom_sync(self, level: int) -> dict[str, Any]:
+        try:
+            if self._camera is None:
+                self._connect()
+            self._write_widget("eoszoom", str(level))
+        except Exception as e:
+            logger.info("eoszoom=%s fehlgeschlagen: %s", level, e)
+            self._lv_zoom = 1
+            return {"ok": False, "message": "Kamera-Lupe nicht verfügbar"}
+        self._lv_zoom = level
+        self._lv_zoom_until = time.monotonic() + self._LV_ZOOM_MAX_S
+        return {"ok": True, "zoom": level, "auto_off_s": self._LV_ZOOM_MAX_S}
+
+    def _reset_lv_zoom(self) -> None:
+        """Lupe aus — vor jedem Foto und beim Pausieren der Live-View."""
+        if self._lv_zoom == 1 or self._camera is None:
+            return
+        self._lv_zoom = 1
+        try:
+            self._write_widget("eoszoom", "1")
+        except Exception:
+            logger.debug("eoszoom=1 fehlgeschlagen", exc_info=True)
+
     async def shutdown(self) -> None:
         """Release the camera cleanly (gphoto2 exit) so the next process can open
         it — otherwise a restart leaves a wedged PTP session (black stream).
@@ -319,24 +479,27 @@ class GPhoto2Camera(AbstractCamera):
                     raise
         return b""
 
-    def _drain_events(self, budget: float = 0.5) -> None:
+    def _drain_events(self, budget: float = 0.5, until_quiet: bool = True) -> None:
         """Canon meldet nach dem Foto noch Ereignisse (Datei hinzugefügt,
         Einstellungen geändert). Bleiben sie liegen, scheitert der erste
         capture_preview danach gern mit "I/O in progress" — also abholen, bis
-        die Kamera ruhig ist, höchstens ``budget`` Sekunden."""
+        die Kamera ruhig ist, höchstens ``budget`` Sekunden. ``until_quiet``
+        False: die ganze Zeit abholen (Autofokus läuft noch, auch wenn gerade
+        nichts gemeldet wird)."""
         import gphoto2 as gp
 
         end = time.monotonic() + budget
         try:
             while time.monotonic() < end:
                 ev, _data = self._camera.wait_for_event(50)
-                if ev == gp.GP_EVENT_TIMEOUT:
+                if ev == gp.GP_EVENT_TIMEOUT and until_quiet:
                     return
         except Exception:
             logger.debug("wait_for_event nach Aufnahme fehlgeschlagen", exc_info=True)
 
     def _reset(self):
         """Drop and re-acquire the camera handle (recovers from I/O errors)."""
+        self._lv_zoom = 1  # neue Verbindung = Live-View ohne Lupe
         try:
             if self._camera is not None:
                 self._camera.exit()
@@ -348,6 +511,8 @@ class GPhoto2Camera(AbstractCamera):
         """Kamera-Thread: ein Live-View-Bild. In enger Schleife gerufen ist das
         der Videostrom einer DSLR über USB — PTP kennt nichts anderes; der
         erste Aufruf schaltet die Live-View ein (Spiegel hoch)."""
+        if self._lv_zoom != 1 and time.monotonic() > self._lv_zoom_until:
+            self._reset_lv_zoom()  # Lupe vergessen auszuschalten → von selbst aus
         for attempt in (1, 2):
             try:
                 if self._camera is None:
@@ -368,6 +533,9 @@ class GPhoto2Camera(AbstractCamera):
         Pausieren ohne Zuschauer immer, das schont Sensor und Akku."""
         if self._camera is None:
             return
+        # Lupe aus, auch wenn die Live-View fürs Foto anbleibt: sonst kann
+        # Canon nicht auslösen bzw. die nächste Vorschau bliebe vergrößert.
+        self._reset_lv_zoom()
         if for_capture and not self._liveview_off_for_capture:
             return
         self._set_viewfinder(0)

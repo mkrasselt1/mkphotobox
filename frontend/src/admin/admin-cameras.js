@@ -1,4 +1,5 @@
 import { adminShell, getHeaders, setupLogout } from './admin-shell.js';
+import { openFocusAssistant } from './focus-assistant.js';
 
 // Cache discovered devices — only rescan when user clicks the button.
 // null = noch nie gesucht, [] = gesucht und nichts gefunden. Der Status der
@@ -259,6 +260,17 @@ export async function render(container, state) {
             </div>
 
             <div class="admin-card">
+                <h3>Scharfstellen</h3>
+                <p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin:0 0 0.75rem;">
+                    Einmal beim Aufbau: Person an den Platz der Gäste stellen, scharfstellen,
+                    ${gphotoActive ? 'Objektivschalter auf <strong>MF</strong> — dann bleibt die Schärfe den ganzen Abend. ' : ''}Danach
+                    in der Lupe oder am Testfoto prüfen. Schritt für Schritt erklärt.
+                </p>
+                <button id="btn-focus-assistant" type="button" class="admin-btn admin-btn-primary"
+                        ${previewId || captureId ? '' : 'disabled title="Erst eine Kamera aktivieren"'}>🎯 Scharfstellen …</button>
+            </div>
+
+            <div class="admin-card">
                 <h3>DSLR-Fokus (gPhoto2)</h3>
                 ${gphotoActive
                     ? `<p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.5rem;">
@@ -308,6 +320,21 @@ export async function render(container, state) {
                ${f.choices.map(c => `<option value="${c}" ${c === prev ? 'selected' : ''}>${c}</option>`).join('')}
            </select>`;
     })();
+
+    container.querySelector('#btn-focus-assistant')?.addEventListener('click', () => {
+        // Die kleine Vorschau unten abbestellen, solange der Assistent sein
+        // eigenes Live-Bild zeigt (ein MJPEG-Strom weniger übers Netz).
+        const small = container.querySelector('img[alt="Preview"]');
+        const src = small?.getAttribute('src');
+        if (small) small.src = '';
+        openFocusAssistant({ headers });
+        const restore = new MutationObserver(() => {
+            if (document.getElementById('focus-assistant')) return;
+            restore.disconnect();
+            if (small && small.isConnected && src) small.src = src + (src.includes('?') ? '&' : '?') + 't=' + Date.now();
+        });
+        restore.observe(document.body, { childList: true });
+    });
 
     container.querySelector('#separate-capture')?.addEventListener('change', (e) => {
         document.getElementById('capture-section').style.display = e.target.checked ? '' : 'none';

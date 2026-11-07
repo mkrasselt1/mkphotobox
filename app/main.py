@@ -235,12 +235,13 @@ def create_app() -> FastAPI:
         return await call_next(request)
 
     # Register API routes
-    from app.api import assets, auth, background, bluetooth, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, telegram, templates, tests, theme, triggers, usb_export, wifi, ws
+    from app.api import assets, auth, background, bluetooth, camera_focus, cd_burn, events, modules, photos, presets, printer, remote_gallery, settings, setup, system, telegram, templates, tests, theme, triggers, usb_export, wifi, ws
 
     app.include_router(auth.router)
     app.include_router(auth.user_router)
     app.include_router(assets.router)
     app.include_router(background.router)
+    app.include_router(camera_focus.router)
     app.include_router(cd_burn.router)
     app.include_router(events.router)
     app.include_router(photos.router)
