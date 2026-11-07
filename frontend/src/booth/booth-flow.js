@@ -1105,54 +1105,94 @@ export function render(container, state) {
         // must not throw away what someone just drew.
         const o = document.createElement('div');
         o.id = 'pb-overlay';   // same id, so transition() still cleans it up
-        o.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.9);' +
+        // Sicherer Rand gilt auch hier: das Overlay liegt über #booth, nicht darin.
+        const sm = Math.max(0, Math.min(200, safeMargin | 0));
+        o.style.cssText = `position:fixed;inset:${sm}px;z-index:9000;background:rgba(0,0,0,0.92);` +
             'backdrop-filter:blur(4px);display:flex;';
         document.body.appendChild(o);
+        // Querformat: Foto links so groß wie möglich, Werkzeuge rechts in einer
+        // Spalte. Vorher stand alles untereinander — auf 1024×768 passte das
+        // nicht, das Foto (feste 58vh) rutschte über Farben und Knöpfe.
+        // Hochkant: Foto oben, Werkzeuge darunter.
+        const pill = 'min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;background:rgba(127,127,127,0.2);color:inherit;';
+        const round = 'min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;';
         o.innerHTML = `
-        <div style="width:100%;height:100%;display:flex;flex-direction:column;gap:0.75rem;padding:1rem;box-sizing:border-box;">
-            <div id="gb-stage" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative;">
+        <div class="gb-wrap">
+            <div id="gb-stage" class="gb-stage">
                 <!-- Der Rahmen muss das Bild exakt umschließen (inline-block + line-height:0),
                      sonst ist die Zeichenfläche größer als das Foto: die Striche säßen
-                     versetzt und die Fläche würde die Bedienelemente darunter überdecken.
-                     Die Höhe begrenzt vh, damit Werkzeuge und Textfeld immer Platz haben. -->
+                     versetzt und die Fläche würde die Bedienelemente überdecken. -->
                 <div id="gb-frame" style="position:relative;display:inline-block;line-height:0;max-width:100%;">
-                    <img id="gb-photo" src="${photoUrl}" style="display:block;max-width:100%;max-height:58vh;border-radius:var(--pb-radius);" alt="">
+                    <img id="gb-photo" src="${photoUrl}" style="display:block;border-radius:var(--pb-radius);" alt="">
                     <canvas id="gb-canvas" style="position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none;border-radius:var(--pb-radius);cursor:crosshair;"></canvas>
                     <!-- Emoji-Sticker liegen über der Zeichnung (so rendert sie auch der Server).
                          overflow:hidden schneidet überstehende Sticker ab, wie im Foto. -->
                     <div id="gb-stickers" style="position:absolute;inset:0;overflow:hidden;pointer-events:none;border-radius:var(--pb-radius);"></div>
                 </div>
             </div>
-            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
-                ${COLORS.map((c, i) => `<button class="gb-color" data-color="${c}" style="
-                    width:2.75rem;height:2.75rem;border-radius:50%;background:${c};cursor:pointer;
-                    border:3px solid ${i === 0 ? 'var(--pb-color-primary)' : 'rgba(255,255,255,0.35)'};"></button>`).join('')}
-                <span style="width:1rem;"></span>
-                <button class="gb-size" data-size="4" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid var(--pb-color-primary);background:rgba(127,127,127,0.2);color:inherit;">dünn</button>
-                <button class="gb-size" data-size="10" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid transparent;background:rgba(127,127,127,0.2);color:inherit;">dick</button>
-                <button id="gb-emoji" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">😀 Emoji</button>
-                <button id="gb-undo" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">↶ Zurück</button>
-                <button id="gb-clear" class="pb-btn pb-btn-outline" style="min-height:2.75rem;">Alles löschen</button>
+            <div class="gb-side">
+                <section>
+                    <h4>✏️ Stift</h4>
+                    <div class="gb-colors">
+                        ${COLORS.map((c, i) => `<button class="gb-color" data-color="${c}" aria-label="Farbe" style="
+                            width:2.5rem;height:2.5rem;border-radius:50%;background:${c};cursor:pointer;
+                            border:3px solid ${i === 0 ? 'var(--pb-color-primary)' : 'rgba(255,255,255,0.35)'};"></button>`).join('')}
+                    </div>
+                    <div class="gb-row">
+                        <button class="gb-size" data-size="4" style="${pill}border:2px solid var(--pb-color-primary);">dünn</button>
+                        <button class="gb-size" data-size="10" style="${pill}border:2px solid transparent;">dick</button>
+                        <button id="gb-undo" style="${pill}border:2px solid rgba(255,255,255,0.35);margin-left:auto;">↶ Zurück</button>
+                    </div>
+                </section>
+                <section>
+                    <h4>😀 Emojis</h4>
+                    <button id="gb-emoji" class="pb-btn pb-btn-outline" style="min-height:2.75rem;width:100%;">Emoji hinzufügen</button>
+                    <div id="gb-sticker-tools" style="display:none;flex-direction:column;gap:0.4rem;margin-top:0.5rem;">
+                        <small style="opacity:0.75;">${hasMultitouch()
+                            ? 'Ziehen verschiebt, zwei Finger drehen/zoomen'
+                            : 'Ziehen verschiebt, Größe und Drehung:'}</small>
+                        <div class="gb-row">
+                            <button class="gb-st" data-act="smaller" aria-label="kleiner" style="${round}">－</button>
+                            <button class="gb-st" data-act="bigger" aria-label="größer" style="${round}">＋</button>
+                            <button class="gb-st" data-act="left" aria-label="nach links drehen" style="${round}">⟲</button>
+                            <button class="gb-st" data-act="right" aria-label="nach rechts drehen" style="${round}">⟳</button>
+                            <button class="gb-st" data-act="delete" aria-label="Emoji entfernen" style="${round}">🗑</button>
+                        </div>
+                    </div>
+                </section>
+                <section>
+                    <h4>💬 Grußwort</h4>
+                    <input id="gb-message" type="text" maxlength="${guestbookMaxLen}" placeholder="optional" style="
+                        width:100%;box-sizing:border-box;padding:0.7rem 0.9rem;border-radius:var(--pb-radius);
+                        border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.4);color:inherit;font-size:1.05rem;">
+                </section>
+                <div class="gb-end">
+                    <button id="gb-save" class="pb-btn pb-btn-primary" style="width:100%;">Aufs Foto übernehmen</button>
+                    <div class="gb-row">
+                        <button id="gb-cancel" class="pb-btn pb-btn-outline" style="flex:1;">Abbrechen</button>
+                        <button id="gb-clear" class="pb-btn pb-btn-outline" style="flex:1;">Alles löschen</button>
+                    </div>
+                    <p id="gb-msg" style="margin:0;font-size:0.9rem;min-height:1.2em;"></p>
+                </div>
             </div>
-            <div id="gb-sticker-tools" style="display:none;gap:0.5rem;flex-wrap:wrap;align-items:center;justify-content:center;">
-                <span style="opacity:0.75;font-size:0.9rem;">${hasMultitouch()
-                    ? 'Emoji: ziehen zum Verschieben, mit zwei Fingern drehen/zoomen'
-                    : 'Emoji: ziehen zum Verschieben, Größe und Drehung mit den Knöpfen'}</span>
-                <button class="gb-st" data-act="smaller" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">－</button>
-                <button class="gb-st" data-act="bigger" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">＋</button>
-                <button class="gb-st" data-act="left" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">⟲</button>
-                <button class="gb-st" data-act="right" style="min-width:2.75rem;min-height:2.75rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;font-size:1.2rem;">⟳</button>
-                <button class="gb-st" data-act="delete" style="min-height:2.75rem;padding:0 0.9rem;border-radius:999px;cursor:pointer;border:2px solid rgba(255,255,255,0.35);background:rgba(127,127,127,0.2);color:inherit;">🗑 Entfernen</button>
-            </div>
-            <input id="gb-message" type="text" maxlength="${guestbookMaxLen}" placeholder="Grußwort (optional)" style="
-                width:100%;box-sizing:border-box;padding:0.75rem 0.9rem;border-radius:var(--pb-radius);
-                border:1px solid rgba(255,255,255,0.25);background:rgba(0,0,0,0.4);color:inherit;font-size:1.05rem;">
-            <div style="display:flex;gap:0.75rem;justify-content:flex-end;flex-wrap:wrap;">
-                <button id="gb-cancel" class="pb-btn pb-btn-outline">Abbrechen</button>
-                <button id="gb-save" class="pb-btn pb-btn-primary">Aufs Foto übernehmen</button>
-            </div>
-            <p id="gb-msg" style="margin:0;text-align:right;font-size:0.9rem;min-height:1.2em;"></p>
         </div>
+        <style>
+            .gb-wrap { width:100%;height:100%;display:flex;gap:1rem;padding:1rem;box-sizing:border-box; }
+            .gb-stage { flex:1 1 auto;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative; }
+            .gb-side { flex:0 0 clamp(260px,28vw,340px);display:flex;flex-direction:column;gap:0.9rem;overflow-y:auto;min-height:0; }
+            .gb-side section { display:flex;flex-direction:column;gap:0.5rem; }
+            .gb-side h4 { margin:0;font-size:0.85rem;font-weight:600;opacity:0.7;letter-spacing:0.02em; }
+            .gb-colors { display:grid;grid-template-columns:repeat(6,1fr);gap:0.35rem;justify-items:center; }
+            .gb-row { display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap; }
+            .gb-end { margin-top:auto;display:flex;flex-direction:column;gap:0.5rem; }
+            #gb-photo { max-width:calc(100vw - ${2 * sm}px - clamp(260px,28vw,340px) - 3rem);
+                        max-height:calc(100vh - ${2 * sm}px - 2rem); }
+            @media (orientation: portrait) {
+                .gb-wrap { flex-direction:column; }
+                .gb-side { flex:0 0 auto;max-height:48vh; }
+                #gb-photo { max-width:calc(100vw - ${2 * sm}px - 2rem);max-height:46vh; }
+            }
+        </style>
         ${btnStyles()}`;
 
         const canvas = o.querySelector('#gb-canvas');
