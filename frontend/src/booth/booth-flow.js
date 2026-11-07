@@ -1084,8 +1084,11 @@ export function render(container, state) {
         ${btnStyles()}`;
 
         el.querySelector('#btn-retake').addEventListener('click', () => {
-            // Repeat the SAME thing: a set restarts the whole set, a single retakes one.
-            if (lastTemplate && lastTemplate.photo_count > 1) startCapture(lastTemplate);
+            // Dasselbe nochmal: mit Vorlage wieder mit DIESER Vorlage — auch bei
+            // einer Vorlage mit nur einem Foto (Rahmen). Vorher startete dann
+            // nur ein neuer Countdown ohne Vorlage: das zweite Foto kam ohne
+            // Rahmen, und das Gästebuch bemalte das rohe Foto.
+            if (lastTemplate) startCapture(lastTemplate);
             else transition('countdown');
         });
         el.querySelector('#btn-guestbook')?.addEventListener('click', () => openGuestbook(photoUrl));
