@@ -157,9 +157,25 @@ class GifService:
             # forward and back. The endpoints are left out — otherwise the first and
             # last frame show twice each and the motion stutters exactly there.
             # These are repeated *references*, so only pil_frames gets closed below.
-            sequence = pil_frames
-            if self._boomerang and len(pil_frames) > 2:
-                sequence = pil_frames + pil_frames[-2:0:-1]
+            # EINE Farbpalette für alle Bilder. GIF kann nur 256 Farben, und
+            # Pillow rechnet sonst für jedes Bild eine eigene Palette samt
+            # Dithering aus — das war fast die ganze Rechenzeit: 49 Bilder
+            # 6,2 s auf der Box (im Betrieb neben Live-Stream bis 20 s), mit
+            # gemeinsamer Palette 0,2 s bei gleicher Dateigröße. Gebaut aus
+            # mehreren über den Clip verteilten Bildern, damit Farben vom
+            # Anfang und Ende nicht fehlen.
+            w, h = pil_frames[0].size
+            picks = pil_frames[::max(1, len(pil_frames) // 6)][:6]
+            sheet = Image.new("RGB", (w, h * len(picks)))
+            for i, im in enumerate(picks):
+                sheet.paste(im, (0, i * h))
+            palette = sheet.quantize(colors=256, method=Image.Quantize.MEDIANCUT)
+            sheet.close()
+            pal_frames = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in pil_frames]
+
+            sequence = pal_frames
+            if self._boomerang and len(pal_frames) > 2:
+                sequence = pal_frames + pal_frames[-2:0:-1]
 
             gif_path = output_dir / f"{filename_base}.gif"
             # Abspieltempo aus den echten Zeitstempeln: die Kamera liefert so
@@ -172,18 +188,22 @@ class GifService:
                 frame_duration = int(1000 / self._fps)
             frame_duration = max(20, min(frame_duration, 500))
 
+            # Erst fertig schreiben, dann umbenennen: wird der Bau abgebrochen
+            # (Neustart mitten drin), bleibt keine halbe/leere GIF-Datei liegen.
+            tmp_path = gif_path.with_suffix(".gif.part")
             sequence[0].save(
-                gif_path,
+                tmp_path,
+                format="GIF",
                 save_all=True,
                 append_images=sequence[1:],
                 duration=frame_duration,
                 loop=0,
-                optimize=True,
                 **({"comment": comment} if comment else {}),
             )
+            tmp_path.replace(gif_path)
 
             # Close all frames
-            for img in pil_frames:
+            for img in pil_frames + pal_frames:
                 img.close()
 
             file_size = gif_path.stat().st_size
