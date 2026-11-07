@@ -73,6 +73,12 @@ class GifService:
                         break  # Kamera gewechselt: neu anhängen
                     if not frame:
                         continue
+                    # Dasselbe Bild nicht zweimal: der Strom meldet sich auch
+                    # ohne neues Kamerabild (die 700D liefert ~3,4 Bilder/s,
+                    # hier kamen 10/s an). Das verdreifachte Bilderzahl, Größe
+                    # und Bauzeit des GIFs — 50 statt 17 Bilder, 20 s statt 7 s.
+                    if self._buffer and self._buffer[-1].jpeg_bytes == frame:
+                        continue
                     now = time.time()
                     self._buffer.append(BufferedFrame(jpeg_bytes=frame, timestamp=now))
                     cutoff = now - self._buffer_seconds
@@ -95,18 +101,24 @@ class GifService:
             self._task = None
         self._buffer.clear()
 
+    def snapshot(self) -> list[BufferedFrame]:
+        """Die Bilder der letzten Sekunden, festgehalten im Moment des Fotos —
+        damit das GIF danach im Hintergrund gebaut werden kann, ohne dass
+        inzwischen neue Bilder (der nächste Countdown) hineinrutschen."""
+        return list(self._buffer)
+
     async def create_gif(self, output_dir: Path, filename_base: str,
-                         comment: bytes | None = None) -> Path | None:
+                         comment: bytes | None = None,
+                         frames: list[BufferedFrame] | None = None) -> Path | None:
         """Create a GIF from the buffered frames. Returns the file path or None.
 
         ``comment`` is written as the GIF comment block — GIFs cannot carry EXIF,
-        so that is where the event/camera/location details go."""
-        if not self._buffer:
+        so that is where the event/camera/location details go. ``frames``: ein
+        vorher mit snapshot() festgehaltener Stand, sonst der aktuelle Puffer."""
+        frames = list(self._buffer) if frames is None else frames
+        if not frames:
             logger.warning("GIF: no frames in buffer")
             return None
-
-        # Snapshot the current buffer
-        frames = list(self._buffer)
         if len(frames) < 3:
             logger.warning("GIF: only %d frames, need at least 3", len(frames))
             return None

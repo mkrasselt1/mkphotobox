@@ -40,7 +40,11 @@ class CameraWorker:
     #: Wie lange nach dem letzten Zuschauer die Live-View noch weiterläuft. Ein
     #: Seitenwechsel im Browser schließt den MJPEG-Strom und öffnet ihn sofort
     #: neu — ohne Gnadenfrist klappte der Spiegel dabei jedes Mal runter und hoch.
-    idle_grace = 3.0
+    # Ohne Zuschauer erst nach dieser Zeit pausieren. Zwischen zwei Fotos eines
+    # Sets zeigt der Booth kurz kein Live-Bild („wird verarbeitet“); mit 3 s war
+    # die Live-View dann eingeschlafen, und bis die 700D sie wieder hochgefahren
+    # hatte, war der 3-Sekunden-Countdown fast vorbei.
+    idle_grace = 15.0
 
     def __init__(self, cam, *, on_frame: Callable[[bytes], None],
                  on_state: Callable[[str], None] | None = None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,6 +17,8 @@ from app.auth import get_current_user, require_role
 from app.database import get_session
 from app.models import Event, OutputJob, Photo, PhotoSession
 from app.schemas import PhotoResponse, SessionResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["photos"])
 
@@ -194,15 +197,19 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
         _generate_thumbnail, filepath, _get_thumb_dir(cfg), cfg["photos"]["thumbnail_size"]
     )
 
-    # Create GIF from buffered preview frames
+    # GIF aus den Vorschaubildern der letzten Sekunden. Die Bilder werden
+    # JETZT festgehalten, gebaut wird im Hintergrund: das Bauen dauerte 7–20 s,
+    # und so lange stand „Foto wird verarbeitet“ da und der nächste Countdown
+    # eines Sets wartete. Bis es fertig ist, antwortet /photos/{id}/gif mit 404.
     gif_filename = None
+    gif_job = None
     gif_service = getattr(app.state, "gif_service", None)
     if gif_service and gif_service.enabled:
-        gif_base = filepath.stem
-        comment = exif_service.gif_comment(meta, now) if meta else None
-        gif_path = await gif_service.create_gif(photo_dir, gif_base, comment=comment)
-        if gif_path:
-            gif_filename = gif_path.name
+        gif_frames = gif_service.snapshot()
+        if len(gif_frames) >= 3:
+            gif_filename = f"{filepath.stem}.gif"
+            comment = exif_service.gif_comment(meta, now) if meta else None
+            gif_job = (gif_service, gif_frames, photo_dir, filepath.stem, comment)
 
     # Save to DB
     photo = Photo(
@@ -223,7 +230,35 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
         "photo_id": photo.id, "filename": filename, "gif": gif_filename,
         "intermediate": part_of_set,
     })
+    if gif_job:
+        task = asyncio.create_task(_build_gif_later(bus, photo.id, *gif_job))
+        _gif_tasks.add(task)
+        task.add_done_callback(_gif_tasks.discard)
     return photo
+
+
+_gif_tasks: set[asyncio.Task] = set()   # Referenz halten, sonst räumt der GC sie weg
+
+
+async def _build_gif_later(bus, photo_id: int, gif_service, frames, photo_dir, base, comment):
+    """GIF nach dem Foto im Hintergrund bauen. Scheitert es, wird der schon
+    eingetragene Dateiname wieder entfernt, damit niemand auf ein GIF wartet,
+    das nie kommt."""
+    path = None
+    try:
+        path = await gif_service.create_gif(photo_dir, base, comment=comment, frames=frames)
+    except Exception:
+        logger.exception("GIF für Foto %s fehlgeschlagen", photo_id)
+    if path:
+        await bus.emit("photo.gif_ready", {"photo_id": photo_id, "gif": path.name})
+        return
+    from app.database import get_engine
+    with Session(get_engine()) as s:
+        p = s.get(Photo, photo_id)
+        if p is not None:
+            p.gif_filename = None
+            s.add(p)
+            s.commit()
 
 
 # ── Guest book ────────────────────────────────────────────────────────────
