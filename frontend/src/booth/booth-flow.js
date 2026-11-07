@@ -64,7 +64,8 @@ let multitouchSetting = 'auto';
 // Startbildschirm; screen = eigener Bildschirm „Layout wählen“ nach „Start“.
 // Ohne Live-Bild auf dem Startbildschirm gibt es immer den eigenen Bildschirm.
 let layoutPicker = 'auto';
-let idleTemplateIdx = -1;      // gewähltes Layout am Startbildschirm, -1 = Einzelfoto
+let idleTemplateIdx = -1;
+let idleKeyHandler = null;     // Leertaste/Enter am Startbildschirm (genau einer)      // gewähltes Layout am Startbildschirm, -1 = Einzelfoto
 function hasMultitouch() {
     if (multitouchSetting === 'yes') return true;
     if (multitouchSetting === 'no') return false;
@@ -337,7 +338,7 @@ export function render(container, state) {
              padding:0.5rem;border-radius:var(--pb-radius);background:${bg};
              ${onDark ? 'backdrop-filter:blur(8px);' : ''}pointer-events:auto;max-width:100%;">
             ${photoFilters.map(f => `
-                <button class="look-btn" data-look="${f.id}" style="
+                <button class="look-btn" data-look="${f.id}" data-fg="${fg}" style="
                     padding:0.55rem 0.95rem;border-radius:calc(var(--pb-radius) - 4px);
                     border:2px solid ${f.id === selectedFilter ? 'var(--pb-color-primary)' : 'transparent'};
                     background:${f.id === selectedFilter ? 'var(--pb-color-primary)' : 'rgba(127,127,127,0.18)'};
@@ -363,8 +364,10 @@ export function render(container, state) {
                     const on = b.dataset.look === selectedFilter;
                     b.style.borderColor = on ? 'var(--pb-color-primary)' : 'transparent';
                     b.style.background = on ? 'var(--pb-color-primary)' : 'rgba(127,127,127,0.18)';
-                    if (on) b.style.color = '#fff';
-                    else b.style.removeProperty('color');
+                    // Zurück auf die Ausgangsfarbe, nicht entfernen: ohne Inline-
+                    // Farbe greift die dunkle Standardfarbe — dunkler Text auf
+                    // dunklem Grund, die übrigen Looks waren kaum lesbar.
+                    b.style.color = on ? '#fff' : (b.dataset.fg || '');
                 });
                 applyLookToPreview();
             });
@@ -826,15 +829,27 @@ export function render(container, state) {
         btn.addEventListener('pointerup', () => { btn.style.transform = ''; });
         btn.addEventListener('pointerleave', () => { btn.style.transform = ''; });
 
-        // Keyboard trigger
-        const keyHandler = (e) => {
+        // Keyboard trigger — nur am Startbildschirm und nie beim Tippen. Der
+        // Handler blieb nach dem Verlassen hängen: ein Leerzeichen im Grußwort
+        // startete einen neuen Countdown. Und jedes Neuzeichnen hängte einen
+        // weiteren an, dann löste eine Taste mehrfach aus.
+        if (idleKeyHandler) document.removeEventListener('keydown', idleKeyHandler);
+        idleKeyHandler = (e) => {
+            if (currentState !== 'idle') {
+                document.removeEventListener('keydown', idleKeyHandler);
+                idleKeyHandler = null;
+                return;
+            }
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
             if (e.code === 'Space' || e.key === 'Enter') {
                 e.preventDefault();
-                document.removeEventListener('keydown', keyHandler);
+                document.removeEventListener('keydown', idleKeyHandler);
+                idleKeyHandler = null;
                 beginFlow();
             }
         };
-        document.addEventListener('keydown', keyHandler);
+        document.addEventListener('keydown', idleKeyHandler);
     }
 
     function renderPayment(el) {
