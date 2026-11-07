@@ -41,6 +41,18 @@ let layer = 'letters';
 let panel = null;
 let lastPressTs = 0;
 let lastPressKey = '';
+// Felder, deren Wert die Bildschirmtastatur geändert hat. Ein Wert, der per
+// Programm gesetzt wird, löst beim Verlassen des Feldes KEIN 'change' aus — nur
+// echte Tastatureingaben tun das. Viele Admin-Felder hören aber auf 'change':
+// Zahl eintippen, „Speichern“ antippen, und gespeichert wurde der alte Wert
+// (z. B. „Aufnahme Nr.“ im Vorlagen-Editor). Also melden wir es selbst.
+const dirty = new WeakSet();
+
+function flushChange(el) {
+    if (!el || !dirty.has(el)) return;
+    dirty.delete(el);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
 export function initOSK() {
     if (panel) return;
@@ -60,6 +72,10 @@ export function initOSK() {
     });
 
     document.addEventListener('focusout', (e) => {
+        // Sofort, nicht erst im Timer: das Verlassen des Feldes passiert beim
+        // Antippen von „Speichern“ noch VOR dessen Klick — so ist der neue Wert
+        // übernommen, bevor gespeichert wird.
+        flushChange(e.target);
         // Key presses preventDefault focus loss, so this only fires on real exits
         setTimeout(() => {
             const a = document.activeElement;
@@ -177,6 +193,7 @@ function insert(text) {
     const [start, end] = caretRange(el);
     el.value = el.value.slice(0, start) + text + el.value.slice(end);
     setCaret(el, start + text.length);
+    dirty.add(el);
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -192,6 +209,7 @@ function backspace() {
         el.value = el.value.slice(0, start) + el.value.slice(end);
         setCaret(el, start);
     }
+    dirty.add(el);
     el.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -199,6 +217,7 @@ function enter() {
     const el = target;
     if (!el) return;
     if (el.tagName === 'TEXTAREA') return insert('\n');
+    dirty.delete(el);
     el.dispatchEvent(new Event('change', { bubbles: true }));
     const form = el.closest('form');
     if (form) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
