@@ -997,15 +997,49 @@ export function render(container, state) {
         }, fireAt);
     }
 
+    // Letztes Live-Bild im Moment der Auslösung — liegt unscharf hinter
+    // „Wird verarbeitet“, damit man sieht, was gerade verarbeitet wird. Das
+    // eigentliche Foto kennt der Browser erst, wenn der Server fertig ist.
+    let processingBackdrop = null;
+
+    function grabPreviewFrame() {
+        const src = document.getElementById('preview-img') || document.getElementById('preview-video');
+        if (!src) return null;
+        const w = src.naturalWidth || src.videoWidth, h = src.naturalHeight || src.videoHeight;
+        if (!w || !h) return null;
+        const s = Math.min(1, 480 / w);   // wird ohnehin weichgezeichnet
+        const c = document.createElement('canvas');
+        c.width = Math.round(w * s); c.height = Math.round(h * s);
+        try {
+            const g = c.getContext('2d');
+            if (src.tagName === 'VIDEO' && mirrorPreview) { g.translate(c.width, 0); g.scale(-1, 1); }
+            g.drawImage(src, 0, 0, c.width, c.height);
+            return c.toDataURL('image/jpeg', 0.7);
+        } catch {
+            return null;
+        }
+    }
+
+    function processingBackdropHTML() {
+        if (!processingBackdrop) return '';
+        const look = currentLookCss();
+        return `<div style="position:absolute;inset:-40px;background:url(${processingBackdrop}) center/cover no-repeat;
+            filter:blur(14px) brightness(0.6) ${look};z-index:0;pointer-events:none;"></div>`;
+    }
+
     function renderCapture(el) {
+        processingBackdrop = grabPreviewFrame();
         const flash = flashEnabled
             ? '<div style="position:absolute;top:0;left:0;right:0;bottom:0;background:white;animation:flash 0.5s ease-out forwards;z-index:10;pointer-events:none;"></div>'
             : '';
         el.innerHTML = `
         ${flash}
-        <div id="capture-status" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1rem;">
+        <div style="position:relative;height:100%;overflow:hidden;">
+        ${processingBackdropHTML()}
+        <div id="capture-status" style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1rem;">
             <div class="spinner" style="width:48px;height:48px;border:4px solid var(--pb-color-surface);border-top-color:var(--pb-color-primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
-            <p id="capture-msg" style="font-size:1rem;color:var(--pb-color-text-muted);">${i18n.t('booth.processing')}</p>
+            <p id="capture-msg" style="font-size:1.1rem;color:${processingBackdrop ? '#fff;text-shadow:0 1px 6px rgba(0,0,0,0.7)' : 'var(--pb-color-text-muted)'};">${i18n.t('booth.processing')}</p>
+        </div>
         </div>
         <style>
             @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
@@ -1025,9 +1059,12 @@ export function render(container, state) {
 
     function renderProcessing(el) {
         el.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1.5rem;">
+        <div style="position:relative;height:100%;overflow:hidden;">
+        ${processingBackdropHTML()}
+        <div style="position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:1.5rem;">
             <div class="spinner" style="width:64px;height:64px;border:4px solid var(--pb-color-surface);border-top-color:var(--pb-color-primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
-            <p style="font-size:1.25rem;">${i18n.t('booth.processing')}</p>
+            <p style="font-size:1.25rem;${processingBackdrop ? 'color:#fff;text-shadow:0 1px 6px rgba(0,0,0,0.7);' : ''}">${i18n.t('booth.processing')}</p>
+        </div>
         </div>
         <style>@keyframes spin { to { transform: rotate(360deg); } }</style>`;
     }
