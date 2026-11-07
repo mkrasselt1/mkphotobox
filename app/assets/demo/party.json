@@ -1,0 +1,204 @@
+{
+  "_comment": "Erzeugt von scripts/make-demo-frame.py — nicht von Hand ändern. {DATUM} ersetzt scripts/install-demo-template.py durch das Installationsdatum.",
+  "attribution": "Emoji-Grafiken: Twemoji © Twitter, Inc. und Mitwirkende, CC-BY 4.0",
+  "templates": [
+    {
+      "name": "Demo: Party",
+      "asset_name": "demo-party-frame",
+      "file": "party-frame-1800x1200.png",
+      "canvas_width": 1800,
+      "canvas_height": 1200,
+      "orientation": "landscape",
+      "mode": "free",
+      "definition": {
+        "slots": [
+          {
+            "x": 220,
+            "y": 150,
+            "w": 1360,
+            "h": 850,
+            "rotation": 0,
+            "fit": "cover"
+          }
+        ],
+        "overlays": [],
+        "emojis": [],
+        "texts": [
+          {
+            "text": "Happy Birthday!",
+            "x": 300,
+            "y": 1012,
+            "w": 1200,
+            "h": 128,
+            "rotation": 0,
+            "font": "Lobster",
+            "size": 104,
+            "color": "#ffffff",
+            "align": "center",
+            "valign": "middle",
+            "bold": false,
+            "italic": false,
+            "stroke_width": 5,
+            "stroke_color": "#2a0f45"
+          },
+          {
+            "text": "{DATUM}",
+            "x": 500,
+            "y": 1134,
+            "w": 800,
+            "h": 54,
+            "rotation": 0,
+            "font": "Sans",
+            "size": 38,
+            "color": "#ffe9a8",
+            "align": "center",
+            "valign": "middle",
+            "bold": true,
+            "italic": false,
+            "stroke_width": 2,
+            "stroke_color": "#2a0f45"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Demo: Party-Streifen",
+      "asset_name": "demo-party-strip",
+      "file": "party-strip-1200x1800.png",
+      "canvas_width": 1200,
+      "canvas_height": 1800,
+      "orientation": "portrait",
+      "mode": "free",
+      "definition": {
+        "slots": [
+          {
+            "x": 40,
+            "y": 150,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 0
+          },
+          {
+            "x": 40,
+            "y": 560,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 1
+          },
+          {
+            "x": 40,
+            "y": 970,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 2
+          },
+          {
+            "x": 640,
+            "y": 150,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 0
+          },
+          {
+            "x": 640,
+            "y": 560,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 1
+          },
+          {
+            "x": 640,
+            "y": 970,
+            "w": 520,
+            "h": 370,
+            "rotation": 0,
+            "fit": "cover",
+            "photo_index": 2
+          }
+        ],
+        "overlays": [],
+        "emojis": [],
+        "texts": [
+          {
+            "text": "Happy Birthday!",
+            "x": 30,
+            "y": 1362,
+            "w": 540,
+            "h": 110,
+            "rotation": 0,
+            "font": "Lobster",
+            "size": 74,
+            "color": "#ffffff",
+            "align": "center",
+            "valign": "middle",
+            "bold": false,
+            "italic": false,
+            "stroke_width": 4,
+            "stroke_color": "#2a0f45"
+          },
+          {
+            "text": "{DATUM}",
+            "x": 60,
+            "y": 1470,
+            "w": 480,
+            "h": 46,
+            "rotation": 0,
+            "font": "Sans",
+            "size": 30,
+            "color": "#ffe9a8",
+            "align": "center",
+            "valign": "middle",
+            "bold": true,
+            "italic": false,
+            "stroke_width": 2,
+            "stroke_color": "#2a0f45"
+          },
+          {
+            "text": "Happy Birthday!",
+            "x": 630,
+            "y": 1362,
+            "w": 540,
+            "h": 110,
+            "rotation": 0,
+            "font": "Lobster",
+            "size": 74,
+            "color": "#ffffff",
+            "align": "center",
+            "valign": "middle",
+            "bold": false,
+            "italic": false,
+            "stroke_width": 4,
+            "stroke_color": "#2a0f45"
+          },
+          {
+            "text": "{DATUM}",
+            "x": 660,
+            "y": 1470,
+            "w": 480,
+            "h": 46,
+            "rotation": 0,
+            "font": "Sans",
+            "size": 30,
+            "color": "#ffe9a8",
+            "align": "center",
+            "valign": "middle",
+            "bold": true,
+            "italic": false,
+            "stroke_width": 2,
+            "stroke_color": "#2a0f45"
+          }
+        ]
+      }
+    }
+  ]
+}
