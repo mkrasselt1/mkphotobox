@@ -121,6 +121,74 @@ class RemoteGallerySync:
             bus.on("capture.completed", self._on_capture)
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._worker())
+        if self._enabled:
+            asyncio.create_task(self._catch_up())
+
+    # ── Nachholen nach einem Neustart ──────────────────────────────────────
+    # Die Warteschlange liegt nur im Speicher. Ein Neustart (Software-Update,
+    # Stromausfall) mitten im Upload verlor also das Foto: es kam nie in der
+    # Online-Galerie an. Deshalb steht auf der Platte, welche Fotos oben sind,
+    # und beim Start wird nachgeholt, was fehlt.
+    def _synced_path(self) -> Path:
+        from app.config import get_config
+        return Path(get_config()["photos"]["storage_path"]) / ".remote_synced.json"
+
+    def _load_synced(self) -> set[int]:
+        try:
+            return {int(i) for i in json.loads(self._synced_path().read_text(encoding="utf-8"))}
+        except (OSError, ValueError, TypeError):
+            return set()
+
+    def _mark_synced(self, photo_id: int) -> None:
+        done = self._load_synced()
+        done.add(int(photo_id))
+        path = self._synced_path()
+        tmp = path.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(sorted(done)), encoding="utf-8")
+            tmp.replace(path)
+        except OSError:
+            logger.debug("remote_gallery: Vermerk nicht schreibbar", exc_info=True)
+
+    def _pending_ids(self) -> list[int]:
+        """Fotos der Online-Galerie (wie im Manifest: ohne Set-Rohbilder), die
+        noch nicht als hochgeladen vermerkt sind — älteste zuerst."""
+        from app.database import get_engine
+        from app.models import Event, Photo, PhotoSession
+        from sqlmodel import Session, select
+
+        with Session(get_engine()) as session:
+            event = session.exec(select(Event).where(Event.is_active == True)).first()
+            if event is None:
+                return []
+            rows = session.exec(
+                select(Photo).join(PhotoSession).where(PhotoSession.event_id == event.id)
+                .order_by(Photo.captured_at.desc()).limit(1000)
+            ).all()
+            source_ids: set[int] = set()
+            for p in rows:
+                try:
+                    meta = json.loads(p.metadata_json or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if meta.get("collage"):
+                    source_ids.update(int(i) for i in (meta.get("source_photo_ids") or []))
+            done = self._load_synced()
+            return [p.id for p in reversed(rows) if p.id not in source_ids and p.id not in done]
+
+    async def _catch_up(self) -> None:
+        await asyncio.sleep(10)   # erst den Start fertig werden lassen
+        try:
+            pending = await asyncio.to_thread(self._pending_ids)
+        except Exception:
+            logger.exception("remote_gallery: Nachholen fehlgeschlagen")
+            return
+        if pending:
+            logger.info("remote_gallery: %d Foto(s) nachholen", len(pending))
+        for pid in pending:
+            # Diff-Modus: was schon gleich groß oben liegt, wird übersprungen
+            await self._queue.put((pid, True))
+        self._state["queued"] = self._queue.qsize()
 
     async def stop(self) -> None:
         if self._task:
@@ -210,6 +278,7 @@ class RemoteGallerySync:
             self._push_viewer()
             self._viewer_pushed = True
 
+        self._mark_synced(photo_id)
         self._state["uploaded"] = self._state.get("uploaded", 0) + 1
         from datetime import datetime
         self._state["last_ok"] = datetime.utcnow().isoformat()
