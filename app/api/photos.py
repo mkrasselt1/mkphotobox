@@ -20,6 +20,13 @@ from app.schemas import PhotoResponse, SessionResponse
 
 logger = logging.getLogger(__name__)
 
+# Foto, Vorschaubild und GIF können sich unter derselben Adresse ändern
+# (Gästebuch/Emojis überschreiben das Foto, das Vorschaubild wird neu erzeugt).
+# Ohne diese Angabe zeigte Chrome auf dem Druck-Bildschirm und in der Galerie
+# die zwischengespeicherte Fassung von vor dem Bearbeiten. no-cache = jedes Mal
+# kurz nachfragen; unverändert kommt nur ein 304 zurück (ETag).
+_REVALIDATE = {"Cache-Control": "no-cache"}
+
 router = APIRouter(prefix="/api/v1", tags=["photos"])
 
 
@@ -753,7 +760,7 @@ def get_photo_file(photo_id: int, request: Request, session: Session = Depends(g
         select(Event).join(PhotoSession).where(PhotoSession.id == photo.session_id)
     ).first()
     dl_name = build_filename(dl_template, event_slug=event.slug if event else "photo", now=photo.captured_at)
-    return FileResponse(filepath, media_type="image/jpeg", filename=dl_name)
+    return FileResponse(filepath, media_type="image/jpeg", filename=dl_name, headers=_REVALIDATE)
 
 
 @router.get("/photos/{photo_id}/gif")
@@ -773,7 +780,7 @@ def get_photo_gif(photo_id: int, request: Request, session: Session = Depends(ge
         select(Event).join(PhotoSession).where(PhotoSession.id == photo.session_id)
     ).first()
     dl_name = build_filename(dl_template, event_slug=event.slug if event else "photo", now=photo.captured_at, extension=".gif")
-    return FileResponse(filepath, media_type="image/gif", filename=dl_name)
+    return FileResponse(filepath, media_type="image/gif", filename=dl_name, headers=_REVALIDATE)
 
 
 @router.get("/photos/{photo_id}/thumb")
@@ -785,7 +792,7 @@ def get_photo_thumb(photo_id: int, request: Request, session: Session = Depends(
     filepath = Path(cfg["photos"]["storage_path"]) / photo.thumbnail
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(filepath, media_type="image/jpeg")
+    return FileResponse(filepath, media_type="image/jpeg", headers=_REVALIDATE)
 
 
 @router.delete("/photos/{photo_id}", status_code=204)
