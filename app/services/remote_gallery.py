@@ -119,6 +119,7 @@ class RemoteGallerySync:
         self._bus = bus
         if bus is not None:
             bus.on("capture.completed", self._on_capture)
+            bus.on("photo.gif_ready", self._on_gif_ready)
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._worker())
         if self._enabled:
@@ -205,6 +206,18 @@ class RemoteGallerySync:
         pid = data.get("photo_id")
         if pid is not None:
             await self._queue.put((int(pid), False))   # new photo → always upload
+            self._state["queued"] = self._queue.qsize()
+
+    async def _on_gif_ready(self, event: str, data: dict) -> None:
+        """Das GIF entsteht im Hintergrund — meist erst nach dem Upload des
+        Fotos, der direkt auf capture.completed folgt. Ohne das hier fehlte es
+        online. Diff-Modus: das Foto selbst liegt schon oben und wird
+        übersprungen, nur das GIF (und das Manifest) kommen nach."""
+        if not self._enabled:
+            return
+        pid = data.get("photo_id")
+        if pid is not None:
+            await self._queue.put((int(pid), True))
             self._state["queued"] = self._queue.qsize()
 
     async def request_manifest_refresh(self) -> None:
