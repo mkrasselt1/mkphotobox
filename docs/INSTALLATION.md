@@ -16,6 +16,10 @@ Veranstaltung ein?") beantwortet das Handbuch in der App selbst unter
 ### Hardware
 - x86_64-PC oder Raspberry Pi (3+).
 - Kamera: DSLR (USB, gPhoto2-kompatibel) **oder** USB-Webcam.
+  Eine Canon-DSLR über USB liefert als Live-Bild nur etwa 3–4 Bilder pro Sekunde
+  (gemessen an einer EOS 700D) — das Live-Bild ruckelt also sichtbar. Flüssig wird
+  es nur mit einem **HDMI-Grabber** an der Kamera, der in der Box als eigene
+  Vorschaukamera eingetragen wird (Vorschau über HDMI, Foto über USB).
 - Optional: Touchscreen (USB-HID oder seriell/RS232), Fotodrucker (CUPS),
   internes/externes CD/DVD-Laufwerk, WLAN/Ethernet, USB-Stick (Export).
 
@@ -29,11 +33,13 @@ Veranstaltung ein?") beantwortet das Handbuch in der App selbst unter
   |---------------------------|--------------------------------------|---------------------|
   | DSLR (gPhoto2)            | `libgphoto2-dev`, Toolchain          | `.[gphoto2]`        |
   | USB-Webcam                | —                                    | `.[opencv]`         |
-  | Drucken + Status          | `cups`, `libcups2-dev`               | `.[printer-linux]`  |
+  | Drucken + Status          | `cups`, `cups-filters`, `ipp-usb`, `printer-driver-gutenprint`, `avahi-daemon`, `libcups2-dev` | `.[printer-linux]` |
   | CD/DVD brennen            | `xorriso`                            | —                   |
   | WLAN-Verwaltung           | `network-manager` (nmcli)            | —                   |
   | Online-Galerie (Server-Sync) | `curl`, `rsync`, `sshpass`        | —                   |
   | Öffentliche QR-Links (Cloudflare Quick-Tunnel) | `cloudflared`      | —                   |
+  | Fernzugang                | `tailscale` (eigenes Paket-Repo)     | —                   |
+  | Emojis auf dem Bild       | Twemoji-Grafiken (Download, s. u.)   | — (`resvg-py` ist Kern-Abhängigkeit) |
   | Akustik-Auslöser          | `libportaudio2`                      | `.[audio]`          |
   | Serieller Auslöser        | —                                    | `.[serial]`         |
   | Tastatur/BT/evdev-Auslöser| Gruppe `input`                       | `.[triggers]`       |
@@ -67,11 +73,25 @@ Google Chrome falls kein Browser da ist) und installiert `openssh-server` —
 ohne SSH kommt man an eine Box mit schwarzem Bildschirm nicht mehr heran. Für
 eine Box, die im Desktop bleiben soll: `sudo WITH_KIOSK=0 ./scripts/setup.sh`.
 
+Außerdem erledigt `setup.sh` gleich mit:
+- **Tailscale** installieren (aber nicht anmelden — das geht später im
+  Admin-Bereich, siehe [Remote-Zugang](#remote-zugang-tailscale)).
+- Angeschlossene **USB-Drucker** einrichten (siehe [Drucker](#drucker-einrichten)).
+- Die **Emoji-Grafiken** laden (`scripts/install-emoji.sh`, ca. 6 MB, braucht
+  einmal Internet). Fehlt das Internet, läuft das Setup trotzdem durch; ein
+  späterer Lauf holt es nach.
+
+Eine frisch eingeschaltete Ubuntu-Box installiert oft gerade selbst Updates.
+`setup.sh` wartet dann bis zu 10 Minuten, bis diese fertig sind, statt
+abzubrechen — es sieht also eine Weile so aus, als passiere nichts.
+
 `setup.sh` ist idempotent (mehrfach ausführbar), richtet den Dienst
 `mkphotobox.service` (Autostart, Port **8080**) ein, pinnt fastapi/starlette und
 legt die NOPASSWD-sudoers-Regel für Herunterfahren/Neustart/Self-Update an.
-Toggles z. B. `WITH_GPHOTO2=1 WITH_PRINTER=1 WITH_TAILSCALE=1 …` — siehe Kopf von
-[`scripts/setup.sh`](../scripts/setup.sh).
+Fast alles ist standardmäßig an; abschalten lässt sich einzelnes z. B. mit
+`WITH_TAILSCALE=0` oder `WITH_PRINTER=0`. Standardmäßig **aus** sind nur
+`WITH_BG_AI` (KI-Hintergrund, großer Download) und `WITH_CLOUDFLARE`. Alle
+Schalter stehen im Kopf von [`scripts/setup.sh`](../scripts/setup.sh).
 
 Standard-Login: **`admin` / `admin`** (nach dem ersten Start in den Einstellungen
 ändern).
@@ -141,19 +161,50 @@ python3 -m venv .venv
   neuesten Stand von GitHub und startet neu).
 - **Per SSH**: `sudo ./scripts/update.sh`
 
+Der Neustart danach dauert nur wenige Sekunden. Der Kiosk-Bildschirm merkt, dass
+neue Software läuft, und lädt die Oberfläche von selbst neu (tippt gerade jemand,
+erst 15 Sekunden später) — niemand muss am Bildschirm etwas tun.
+
 `config.yaml`, `data/` und `.venv` sind gitignored und bleiben erhalten.
 **Schema-Migrationen laufen automatisch beim Start** (`database.py` ergänzt
 fehlende Spalten additiv; Umbenennungen/Drops bräuchten Alembic, `migrations/`).
 
 ---
 
+## Drucker einrichten
+
+Ohne CUPS-Kenntnisse, alles im Admin-Bereich unter **Drucker → „Drucker
+einrichten“**:
+
+- **USB-Drucker** anschließen und einschalten — er wird automatisch eingerichtet
+  (beim Start der Box, am Ende von `setup.sh` und beim Öffnen der Seite). In der
+  Liste steht er dann als „eingerichtet“; **„Verwenden“** stellt die Fotobox auf
+  Server-Druck mit diesem Drucker.
+- **Netzwerkdrucker** im selben Netz erscheinen in der Liste und werden mit
+  **„Einrichten“** hinzugefügt und gleich verwendet — bewusst nur per Klick, damit
+  im Event-WLAN keine fremden Drucker auftauchen.
+- **Fotodrucker (Thermosublimation)** laufen über den mitinstallierten
+  Gutenprint-Treiber. Getestet mit dem Mitsubishi CP9550DW-S.
+
+Taucht ein Drucker nicht auf: **„Drucker suchen“** drücken. Fehlt die
+Berechtigung, `setup.sh` erneut ausführen (es nimmt den Dienst-Benutzer in die
+Gruppe `lpadmin` auf).
+
 ## Remote-Zugang (Tailscale)
 
-Für stabilen Fernzugriff (durch NAT/Firewall, unabhängig vom lokalen Netz):
+Für stabilen Fernzugriff (durch NAT/Firewall, unabhängig vom lokalen Netz).
+`setup.sh` installiert Tailscale bereits — angemeldet wird ohne Terminal:
+
+1. Admin → **Netzwerk-Status** → Abschnitt *Tailscale* → **Verbinden**.
+2. Den angezeigten Link öffnen oder den **QR-Code** mit dem Handy scannen und
+   dort beim eigenen Tailscale-Konto anmelden. Alternativ einen Auth-Key
+   eintragen, dann entfällt der Link.
+
+Dort gibt es auch **Trennen** und **Abmelden**. Per Konsole geht es weiterhin:
 
 ```bash
 sudo ./scripts/tailscale-setup.sh                        # interaktiv (Link bestätigen)
-sudo WITH_TAILSCALE=1 TS_AUTHKEY=tskey-... ./scripts/setup.sh   # nicht-interaktiv
+sudo TS_AUTHKEY=tskey-... ./scripts/setup.sh             # gleich beim Setup anmelden
 ```
 
 Aktiviert **Tailscale SSH** → danach `ssh photobooth@mkphotobox` aus dem eigenen
@@ -207,6 +258,15 @@ nutzen oder `share.base_url` in der `config.yaml` setzen.
   Berechtigung — daher erscheinen die Netze ganz normal. `setup.sh` legt dafür
   `/etc/polkit-1/rules.d/50-mkphotobox-network.rules` an; fehlt die Datei, das
   Setup erneut ausführen.
+- **Mehrere WLANs**: Unter **WLAN** lassen sich Netze auch vorab speichern, die
+  gerade nicht in Reichweite sind (Zuhause, Location, Handy-Hotspot), jeweils mit
+  Priorität. Die Box verbindet sich selbst mit dem verfügbaren Netz der höchsten
+  Priorität.
+- **Live-Bild der DSLR ruckelt**: Bei Canon über USB normal (ca. 3–4 Bilder/s),
+  siehe [Hardware](#hardware). Abhilfe: HDMI-Grabber als Vorschaukamera.
+- **„Login-Schlüsselbund entsperren“-Fenster am Kiosk**: schaltet
+  `kiosk-setup.sh` ab. Taucht es nach einem Update doch auf, `setup.sh` erneut
+  ausführen.
 - **Bluetooth**: Das Senden nutzt `bt-obex` aus `bluez-tools`, nicht den
   GTK-Dialog `bluetooth-sendto` (auf einer Kiosk-Box ohne Desktop-Sitzung
   nutzlos). `obexd` hängt am D-Bus-**Session**-Bus, den ein System-Dienst nicht

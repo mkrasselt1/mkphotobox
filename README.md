@@ -44,8 +44,12 @@ hinterher herauskommt.
 ![Booth mit ausgewähltem Sepia-Look, die Vorschau ist bereits sepiafarben](docs/media/booth-looks.png)
 
 **2 · Layout wählen.** Einzelfoto oder Mehrbild-Streifen — was du für die
-Veranstaltung freigegeben hast. Jede Karte zeigt das **fertig gerenderte Layout**
-mit Rahmen, Text und durchnummerierten Plätzen, nicht bloß ein Symbol.
+Veranstaltung freigegeben hast. Die Layouts stehen als Leiste direkt neben dem
+Live-Bild auf dem Startbildschirm: antippen, und der Rahmen im Live-Bild zeigt
+gleich den passenden Ausschnitt; „Foto aufnehmen“ startet. Jede Karte zeigt das
+**fertig gerenderte Layout** mit Rahmen, Text und durchnummerierten Plätzen, nicht
+bloß ein Symbol. Wer lieber einen eigenen Auswahl-Bildschirm will, stellt das in
+den Einstellungen um (so sieht er aus):
 
 ![Layout-Auswahl mit Einzelfoto und Dreier-Streifen](docs/media/booth-templates.png)
 
@@ -55,7 +59,8 @@ gleicht die Verzögerung der Kamera aus, damit das Foto exakt bei „0" entsteht
 ![Countdown über der Live-Vorschau](docs/media/booth-countdown.png)
 
 **4 · Ansehen — und verewigen.** Nicht gefallen? *Nochmal*. Sonst: mit dem Finger
-aufs Foto malen und ein Grußwort dazuschreiben. Das digitale Gästebuch.
+aufs Foto malen, Emoji-Sticker draufsetzen und ein Grußwort dazuschreiben. Das
+digitale Gästebuch.
 
 ![Fotoansicht mit den Schaltflächen Nochmal, Grußwort und Weiter](docs/media/booth-review.png)
 
@@ -80,11 +85,14 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
   das gespeicherte Foto bleibt seitenrichtig — Schrift und Logos bleiben lesbar.
 - Hintergrund ersetzen per Greenscreen oder KI-Freisteller.
 - **Animiertes GIF** aus den Sekunden vor dem Auslösen, wahlweise als
-  **Boomerang** (vorwärts und wieder rückwärts).
+  **Boomerang** (vorwärts und wieder rückwärts). Das GIF entsteht im Hintergrund —
+  Gäste sehen ihr Foto, ohne darauf zu warten.
 
 **Gestalten**
-- Vorlagen-Editor mit frei platzierbaren Foto-Slots, Rahmen, Logos und Text
-  (Schriftart, Kontur, Drehung) — direkt auf dem Touchscreen bedienbar.
+- Vorlagen-Editor mit frei platzierbaren Foto-Slots, Rahmen, Logos, Text
+  (Schriftart, Kontur, Drehung) und **Emojis** — direkt auf dem Touchscreen
+  bedienbar. Emojis werden in voller Auflösung gerechnet und bleiben auch im Druck
+  scharf.
 - Ausgabe-Formate (10×15, A6, A4 …) bestimmen die Leinwandgröße der Vorlage.
 - Jede Vorlage bekommt automatisch ein **Vorschaubild** — im Booth auf den
   Auswahlkarten und in der Vorlagenliste. Es wird beim Speichern erzeugt und
@@ -95,6 +103,11 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
 **Ausgeben**
 - Druck über CUPS mit **Papierstand-Überwachung** — die Box warnt und stoppt,
   bevor mitten in der Nacht das Papier ausgeht.
+- **Drucker einrichten ohne CUPS-Kenntnisse:** USB-Drucker anstecken und
+  einschalten — er wird automatisch eingerichtet. Netzwerkdrucker erscheinen im
+  Admin-Bereich und werden mit einem Klick hinzugefügt. Fotodrucker
+  (Thermosublimation, z. B. Mitsubishi CP9550DW-S) laufen über den mitgelieferten
+  Gutenprint-Treiber.
 - QR-Code aufs Gäste-Handy, E-Mail oder Bluetooth — beim Bluetooth-Versand sucht
   die Box Geräte in der Nähe, der Gast tippt seins an; vorheriges Koppeln ist
   nicht nötig. Umgekehrt nimmt die Box auch Dateien per Bluetooth entgegen.
@@ -110,6 +123,12 @@ auf CD/DVD gebrannt. Und alles landet in der Galerie.
 - Bezahlung per SumUp (QR oder Terminal) oder Münzprüfer, wenn die Box Geld
   verdienen soll.
 - Telegram-Benachrichtigungen: Hilfe-Knopf im Booth und Warnung bei leerem Drucker.
+- **WLAN mit mehreren bekannten Netzen** (z. B. Zuhause, Location, Handy-Hotspot)
+  samt Priorität — die Box verbindet sich selbst mit dem besten verfügbaren.
+- **Fernwartung über Tailscale:** ist vorinstalliert, angemeldet wird im
+  Admin-Bereich per Link oder QR-Code — ganz ohne Terminal.
+- Nach einem Software-Update lädt sich die Oberfläche am Kiosk-Bildschirm von
+  selbst neu.
 - Eingebauter **Selbsttest** prüft Kamera, Datenbank, Drucker, Auslöser und
   Bildverarbeitung auf Knopfdruck.
 
@@ -165,3 +184,11 @@ keine realen Personen und sind damit uneingeschränkt frei verwendbar.
 ## Lizenz
 
 TBD.
+
+**Fremde Inhalte:** Die Emoji-Grafiken sind
+[Twemoji](https://github.com/jdecked/twemoji) — © Twitter, Inc., jdecked und
+weitere Mitwirkende, lizenziert unter
+[CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/). Sie liegen nicht im
+Repository, sondern werden beim Setup heruntergeladen
+(`scripts/install-emoji.sh`); beim Rendern werden sie nur skaliert und gedreht.
+Details: [`app/assets/emoji/README.md`](app/assets/emoji/README.md).

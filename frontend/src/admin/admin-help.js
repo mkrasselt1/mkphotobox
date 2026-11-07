@@ -37,6 +37,9 @@ const SECTIONS = [
         und die <strong>Browser-Kamera</strong> (WebRTC). Wähle die aktive Kamera und teste die Vorschau.</p>
         <ul>
             <li>Die DSLR kann nur von <em>einem</em> Programm gleichzeitig genutzt werden.</li>
+            <li>Eine Canon-DSLR über USB liefert als Live-Bild nur etwa 3–4 Bilder pro Sekunde — das
+                ruckelt sichtbar und ist normal. Flüssig wird es mit einem <strong>HDMI-Grabber</strong>
+                an der Kamera, den du als eigene Vorschaukamera einträgst (Vorschau über HDMI, Foto über USB).</li>
             <li>Vorschaugröße, Countdown und der „Auslöse-Vorlauf" (Foto landet exakt bei „0")
                 stellst du in den <em>Einstellungen</em> ein.</li>
         </ul>
@@ -83,6 +86,10 @@ const SECTIONS = [
         aufs Foto malen und eine kurze Nachricht darunter schreiben — das digitale Gästebuch.</p>
         <ul>
             <li>Sechs Farben, zwei Strichstärken, <em>Zurück</em> und <em>Alles löschen</em>.</li>
+            <li><strong>Emoji-Sticker</strong>: antippen, mit dem Finger verschieben; Größe und Drehung mit
+                zwei Fingern oder über die Knöpfe －/＋/⟲/⟳. Viele Fotobox-Touchscreens erkennen nur einen
+                Finger — unter <em>Einstellungen → Touchscreen: mehrere Finger</em> lässt sich das festlegen
+                (ab Werk: automatisch erkennen).</li>
             <li>Das Ergebnis wird ins Foto gerechnet und ist damit auch im Druck und im Download dabei.</li>
             <li>Das <strong>unberührte Original</strong> bleibt erhalten (Ordner <code>originals/</code>).
                 Ein zweiter Versuch startet deshalb wieder vom sauberen Bild, statt sich zu stapeln.</li>
@@ -103,6 +110,8 @@ const SECTIONS = [
                 drehen, Größe ändern; Füllung <em>cover</em> (füllt, beschneidet) oder <em>contain</em> (ganz).</li>
             <li><strong>Grafiken</strong>: Hintergrund, ganzflächiger Rahmen, Logos/Sticker.</li>
             <li><strong>Text</strong>: Schriftart, Größe, Farbe, Kontur, Ausrichtung, Drehung.</li>
+            <li><strong>Emojis</strong>: wie Text und Logos platzieren; sie werden in voller Auflösung
+                gerechnet und bleiben auch im Druck scharf.</li>
             <li><strong>Ausgabe-Format</strong> zuweisen → die Leinwandgröße folgt dem Format (siehe unten).</li>
             <li><em>Vorschau rendern</em> zeigt das echte Ergebnis (mit Platzhaltern oder echten Fotos).</li>
             <li>Beim Speichern entsteht zusätzlich ein <strong>Vorschaubild</strong>, das in der
@@ -110,6 +119,9 @@ const SECTIONS = [
                 sehen also das fertige Layout statt eines Symbols. Es erneuert sich automatisch,
                 sobald du die Vorlage änderst; für die Vorschau werden immer nummerierte
                 Platzhalter benutzt, nie echte Gästefotos.</li>
+            <li>Die <strong>Layout-Auswahl</strong> steht ab Werk als Leiste neben dem Live-Bild auf dem
+                Startbildschirm. Wer lieber einen eigenen Bildschirm nach „Foto aufnehmen“ will, stellt das unter
+                <em>Einstellungen → Layout-Auswahl</em> um.</li>
         </ul>
         <p>Mehrbild-Vorlagen nimmt der Booth nacheinander auf und erzeugt zusätzlich ein <strong>animiertes GIF</strong> der Aufnahmen.</p>`,
     },
@@ -125,7 +137,9 @@ const SECTIONS = [
             <li>Druckt der Booth eine Collage einer Format-gebundenen Vorlage, geht sie automatisch auf den
                 im Format hinterlegten <strong>Drucker + Papier</strong> (z. B. Dreier-Set → Panorama-Drucker).</li>
         </ul>
-        <p>Im Booth wird der spätere <strong>Zuschnitt</strong> als Rahmen über das Live-Bild gelegt.</p>`,
+        <p>Im Booth wird der spätere <strong>Zuschnitt</strong> als Rahmen über das Live-Bild gelegt:
+        mit gewählter Vorlage deren Foto-Slot, ohne Vorlage bei eingeschaltetem Drucker das Papierformat,
+        sonst gar kein Rahmen (volles Kamerabild).</p>`,
     },
     {
         icon: '🖼️', title: 'Vorlagen-Assets & Hintergrund',
@@ -137,6 +151,11 @@ const SECTIONS = [
         html: `<p>Zwei Modi: <strong>Browser-Druck</strong> (Druckdialog am Client) oder <strong>Server-Druck</strong>
         (direkt über die Box, Drucker am Server). Im Server-Modus wählst du Drucker, Papierformat (live aus CUPS),
         Ausrichtung, Kopien, Rand.</p>
+        <p><strong>Drucker einrichten</strong> geht ohne CUPS-Kenntnisse: Einen <strong>USB-Drucker</strong>
+        anschließen und einschalten — er wird automatisch eingerichtet, <em>Verwenden</em> stellt die Box auf
+        Server-Druck mit diesem Drucker. <strong>Netzwerkdrucker</strong> im selben Netz erscheinen in der Liste
+        und werden mit <em>Einrichten</em> hinzugefügt. Fotodrucker (Thermosublimation, z. B. Mitsubishi
+        CP9550DW-S) laufen über den mitinstallierten Gutenprint-Treiber. Fehlt einer: <em>Drucker suchen</em>.</p>
         <p>Das <strong>Status-Banner</strong> zeigt live, ob der Drucker bereit ist oder ein Problem meldet
         (<em>Papier leer, Tür/Abdeckung offen, offline, Toner/Tinte niedrig …</em>). Im Booth wird nach dem
         Druck gewarnt, falls der Drucker blockiert ist.</p>`,
@@ -176,8 +195,15 @@ const SECTIONS = [
     },
     {
         icon: '📶', title: 'WLAN & Netzwerk',
-        html: `<p>WLAN-Netze suchen/verbinden (NetworkManager). Der <em>Netzwerk-Status</em> zeigt IP-Adressen —
-        wichtig, da QR-Codes die LAN-IP der Box verwenden (nicht <code>localhost</code>), damit Gäste-Handys laden können.</p>`,
+        html: `<p>WLAN-Netze suchen/verbinden (NetworkManager). Unter <em>WLAN</em> lassen sich <strong>mehrere
+        bekannte Netze</strong> hinterlegen — auch solche, die gerade nicht in Reichweite sind (Zuhause, Location,
+        Handy-Hotspot) — jeweils mit Priorität. Die Box verbindet sich selbst mit dem verfügbaren Netz der
+        höchsten Priorität.</p>
+        <p>Der <em>Netzwerk-Status</em> zeigt IP-Adressen —
+        wichtig, da QR-Codes die LAN-IP der Box verwenden (nicht <code>localhost</code>), damit Gäste-Handys laden können.</p>
+        <p><strong>Fernzugriff (Tailscale):</strong> ist vorinstalliert. Unter <em>Netzwerk-Status → Verbinden</em>
+        erscheinen ein Anmeldelink und ein QR-Code — mit dem Handy öffnen und beim eigenen Tailscale-Konto
+        anmelden (oder einen Auth-Key eintragen). <em>Trennen</em> und <em>Abmelden</em> gibt es dort ebenfalls.</p>`,
     },
     {
         icon: '💳', title: 'Bezahlung',
@@ -198,7 +224,8 @@ const SECTIONS = [
         icon: '⚙️', title: 'System: Aktualisieren, Anzeigemodus & Herunterfahren',
         html: `<p><strong>Software aktualisieren</strong> holt den neuesten Stand von GitHub und startet die Box
         neu — Schema-Migrationen laufen automatisch. <strong>Herunterfahren</strong> fährt die Box sauber herunter
-        (warnt bei offenen Druckaufträgen).</p>
+        (warnt bei offenen Druckaufträgen). Nach einem Update lädt sich die Oberfläche am Kiosk-Bildschirm
+        von selbst neu.</p>
         <p><strong>Anzeigemodus</strong> schaltet um, womit die Box startet:</p>
         <ul>
             <li><strong>Fotobox</strong> — der Betriebsmodus: automatischer Start in den Vollbild-Browser,
