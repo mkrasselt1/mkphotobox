@@ -74,10 +74,10 @@ export async function render(container, state) {
                  style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.6rem;border-radius:8px;flex-wrap:wrap;${n.active ? 'background:rgba(255,255,255,0.06);' : ''}">
                 <span style="flex:1;min-width:8rem;">
                     ${esc(n.ssid)}${n.active ? ' <strong style="color:var(--pb-color-success);">✓ aktiv</strong>' : ''}
-                    ${n.name !== n.ssid ? `<br><span style="font-size:0.75rem;color:var(--pb-color-text-muted);">Profil: ${esc(n.name)}</span>` : ''}
+                    ${n.name !== n.ssid ? `<br data-level="expert"><span data-level="expert" style="font-size:0.75rem;color:var(--pb-color-text-muted);">Profil: ${esc(n.name)}</span>` : ''}
                     ${!n.autoconnect ? '<br><span style="font-size:0.75rem;color:var(--pb-color-text-muted);">automatisches Verbinden aus</span>' : ''}
                 </span>
-                <span style="display:flex;align-items:center;gap:0.25rem;" title="Priorität (höher = bevorzugt)">
+                <span data-level="expert" style="display:flex;align-items:center;gap:0.25rem;" title="Priorität (höher = bevorzugt)">
                     <button class="admin-btn admin-btn-outline btn-prio-up" style="padding:0.2rem 0.5rem;" ${i === 0 ? 'disabled' : ''} title="Bevorzugen">▲</button>
                     <input type="number" class="admin-input prio-input" value="${n.priority}" min="-999" max="999" style="width:4.5rem;text-align:center;">
                     <button class="admin-btn admin-btn-outline btn-prio-down" style="padding:0.2rem 0.5rem;" ${i === saved.list.length - 1 ? 'disabled' : ''} title="Zurückstufen">▼</button>
@@ -115,7 +115,8 @@ export async function render(container, state) {
                 <div class="admin-card">
                     <h3>Status</h3>
                     ${connBox}
-                    <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;cursor:pointer;">
+                    <!-- Funk aus? Dann auch im einfachen Modus zeigen, sonst kommt man nie ins WLAN. -->
+                    <label ${status.radio_enabled ? 'data-level="expert"' : ''} style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;cursor:pointer;">
                         <input type="checkbox" id="radio-toggle" ${status.radio_enabled ? 'checked' : ''}>
                         WLAN-Funk aktiviert
                     </label>
@@ -142,7 +143,7 @@ export async function render(container, state) {
 
                 <div class="admin-card">
                     <h3>Bekannte Netze</h3>
-                    <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-bottom:0.75rem;">
+                    <p data-level="expert" style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-bottom:0.75rem;">
                         Die Box verbindet sich automatisch mit dem verfügbaren Netz mit der höchsten Priorität.
                     </p>
                     <div id="saved-list">${savedRows()}</div>
@@ -156,7 +157,7 @@ export async function render(container, state) {
                         <input type="text" id="add-ssid" class="admin-input" style="width:100%;margin:0.25rem 0 0.5rem;" maxlength="32" placeholder="z. B. Mein-Hotspot">
                         <label style="font-size:0.9rem;">Passwort (leer lassen bei offenem Netz)</label>
                         <input type="password" id="add-pass" class="admin-input" style="width:100%;margin:0.25rem 0 0.5rem;" maxlength="64" placeholder="8–63 Zeichen" autocomplete="new-password">
-                        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <label data-level="expert" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
                             <input type="checkbox" id="add-hidden"> Verstecktes Netz (SSID wird nicht ausgestrahlt)
                         </label>
                         <button type="submit" id="btn-add" class="admin-btn admin-btn-primary" style="margin-top:0.75rem;">Speichern</button>

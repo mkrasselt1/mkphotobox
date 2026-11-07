@@ -95,7 +95,7 @@ export async function render(container, state) {
         <h1 style="margin-bottom:1.5rem;">Kamera-Einstellungen</h1>
         <div style="max-width:650px;">
 
-            <div class="admin-card">
+            <div data-level="expert" class="admin-card">
                 <h3>USB-Kameras suchen</h3>
                 ${devices.length
                     ? devices.map(d => `<p>
@@ -127,7 +127,7 @@ export async function render(container, state) {
                 </div>
             </div>
 
-            <div class="admin-card">
+            <div data-level="expert" class="admin-card">
                 <h3>Bild-Transformation</h3>
                 <p style="margin:0 0 0.9rem;font-size:0.85rem;color:var(--pb-color-text-muted);">
                     Gleicht aus, wie die Kamera montiert ist — gilt für die Vorschau
@@ -233,7 +233,7 @@ export async function render(container, state) {
                 </label>
             </div>
 
-            <div class="admin-card">
+            <div data-level="expert" class="admin-card">
                 <h3>Animiertes GIF</h3>
                 <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
                     <input type="checkbox" id="gif-boomerang" ${boomerang ? 'checked' : ''} style="margin-top:0.25rem;">
@@ -270,7 +270,7 @@ export async function render(container, state) {
                         ${previewId || captureId ? '' : 'disabled title="Erst eine Kamera aktivieren"'}>🎯 Scharfstellen …</button>
             </div>
 
-            <div class="admin-card">
+            <div data-level="expert" class="admin-card">
                 <h3>DSLR-Fokus (gPhoto2)</h3>
                 ${gphotoActive
                     ? `<p style="color:var(--pb-color-text-muted);font-size:0.85rem;margin-bottom:0.5rem;">

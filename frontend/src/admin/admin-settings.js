@@ -44,7 +44,7 @@ export async function render(container, state) {
                         Im Vollbild-Modus werden Tasten halbtransparent über dem Kamerabild angezeigt.
                     </p>
                 </div>
-                <div style="margin-top:1.25rem;">
+                <div data-level="expert" style="margin-top:1.25rem;">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Sicherer Rand (Pixel)</label>
                     <input id="safe-margin" type="number" min="0" max="200" step="5"
                            value="${Number(settings?.display?.safe_margin) || 0}" style="${selectStyle}">
@@ -83,7 +83,7 @@ export async function render(container, state) {
                         Startbildschirm ausgeschaltet (Kameras → Startbildschirm), gibt es immer den eigenen Bildschirm.
                     </p>
                 </div>
-                <div style="margin-top:1.25rem;">
+                <div data-level="expert" style="margin-top:1.25rem;">
                     <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Touchscreen: mehrere Finger (Multitouch)</label>
                     <select id="multitouch" style="${selectStyle}">
                         ${[
@@ -167,7 +167,7 @@ export async function render(container, state) {
                 </div>
             </div>
 
-            <div class="admin-card" id="touch-card" style="margin-bottom:1.5rem;display:none;">
+            <div data-level="expert" class="admin-card" id="touch-card" style="margin-bottom:1.5rem;display:none;">
                 <h3>Touchscreen</h3>
                 <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.25rem;">
                     25 Fadenkreuze erscheinen nacheinander auf dem Bildschirm der Box — jeweils genau in
@@ -178,7 +178,7 @@ export async function render(container, state) {
                 <span id="touch-msg" style="margin-left:0.75rem;font-size:0.85rem;"></span>
             </div>
 
-            <div class="admin-card" style="margin-bottom:1.5rem;">
+            <div data-level="expert" class="admin-card" style="margin-bottom:1.5rem;">
                 <h3>Lüfter</h3>
                 <p style="font-size:0.85rem;color:var(--pb-color-text-muted);margin-top:0.25rem;">
                     Alle Lüfteranschlüsse, die das Mainboard meldet. „Automatisch“ überlässt den
@@ -194,7 +194,7 @@ export async function render(container, state) {
             ">Alle Einstellungen speichern</button>
             <span id="save-status" style="margin-left:0.75rem;font-size:0.85rem;display:none;"></span>
 
-            <div class="admin-card" style="margin-top:1rem;">
+            <div data-level="expert" class="admin-card" style="margin-top:1rem;">
                 <h3>Aktuelle Konfiguration</h3>
                 <pre style="background:#0a0e1a;padding:1rem;border-radius:8px;overflow:auto;max-height:60vh;font-size:0.8rem;color:var(--pb-color-text-muted);white-space:pre-wrap;">${JSON.stringify(settings, null, 2)}</pre>
             </div>

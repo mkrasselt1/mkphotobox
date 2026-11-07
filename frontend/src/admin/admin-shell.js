@@ -24,108 +24,213 @@ function loadKioskMargin() {
     }).catch(() => {});
 }
 
-export function adminShell(contentHTML) {
-    const { i18n } = window.pb;
-    loadKioskMargin();
-    const hash = location.hash.replace('#/', '');
-    const auth = window.pb.state.auth || {};
-    const isAdmin = auth.role === 'admin';
-
-    // key = section key (matches backend MIETER_SECTIONS); adminOnly hides it from a Mieter
-    // group = nav grouping; 'top' items sit above the groups and are always visible.
-    let navItems = [
-        { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊', group: 'top' },
-        { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'event' },
-        { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'event', adminOnly: true },
-        { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'event', adminOnly: true },
-        { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷', group: 'capture' },
-        { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', group: 'capture', adminOnly: true },
-        { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'capture' },
-        { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'design' },
-        { key: 'assets', href: '#/admin/assets', label: 'Vorlagen-Assets', icon: '🖼️', group: 'design' },
-        { key: 'presets', href: '#/admin/presets', label: 'Ausgabe-Formate', icon: '📐', group: 'design' },
-        { key: 'appearance', href: '#/admin/appearance', label: 'Design', icon: '🎨', group: 'design', adminOnly: true },
-        { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️', group: 'output' },
-        { key: 'remote-gallery', href: '#/admin/remote-gallery', label: 'Online-Galerie', icon: '☁️', group: 'output', adminOnly: true },
-        { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿', group: 'output' },
-        { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'output' },
-        { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'system', adminOnly: true },
-        { key: 'wifi', href: '#/admin/wifi', label: 'WLAN', icon: '📶', group: 'system' },
-        { key: 'bluetooth', href: '#/admin/bluetooth', label: 'Bluetooth', icon: '🔵', group: 'system' },
-        { key: 'network', href: '#/admin/network', label: 'Netzwerk-Status', icon: '🌐', group: 'system', adminOnly: true },
-        { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'system', adminOnly: true },
-        { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'system', adminOnly: true },
-        { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'system', adminOnly: true },
-        { key: 'help', href: '#/admin/help', label: 'Hilfe', icon: '❓', group: 'top', adminOnly: true },
-    ];
-
-    if (!isAdmin) {
-        // Mieter: only the granted, non-admin-only sections
-        const sections = auth.sections || [];
-        navItems = navItems.filter(n => !n.adminOnly && sections.includes(n.key));
+// ── Einfach / Experte ────────────────────────────────────────────────────
+// Pro Gerät gemerkt (localStorage), Vorgabe „einfach". Der Modus blendet nur
+// aus — er sperrt nichts: jede Seite bleibt per Link erreichbar, die Rechte
+// (Admin / Mieter-Bereiche) entscheiden weiterhin allein Router und Backend.
+const MODE_KEY = 'pb_admin_mode';
+let expertMode = null;          // null = noch nicht gelesen
+export function isExpertMode() {
+    if (expertMode === null) {
+        try { expertMode = localStorage.getItem(MODE_KEY) === 'expert'; } catch { expertMode = false; }
     }
+    return expertMode;
+}
+function setExpertMode(on) {
+    expertMode = !!on;
+    try { localStorage.setItem(MODE_KEY, on ? 'expert' : 'simple'); } catch { /* privater Modus */ }
+    applyModeClass();
+}
+// Klasse am <html>, nicht am Admin-Root: so greift data-level="expert" auch in
+// Dialogen, die Seiten an document.body hängen. Außerhalb des Admins ist die
+// zugehörige CSS-Regel (im Shell-<style>) nicht im Dokument — die Klasse stört dort nicht.
+function applyModeClass() {
+    document.documentElement.classList.toggle('pb-admin-simple', !isExpertMode());
+}
 
-    // Collapsible groups: listing all 22 entries at once makes the sidebar taller
-    // than a booth screen, so only the group holding the current page is open.
-    // Everything else is one tap away and the whole nav fits without scrolling.
-    const GROUPS = [
-        { id: 'event', label: 'Veranstaltung' },
-        { id: 'capture', label: 'Aufnahme' },
-        { id: 'design', label: 'Gestaltung' },
-        { id: 'output', label: 'Ausgabe' },
-        { id: 'system', label: 'System' },
-    ];
-    const isActive = (n) => hash === n.href.replace('#/', '');
-    const itemHtml = (n) => `
+// Menü. key = Bereichsschlüssel (wie MIETER_SECTIONS im Backend) — davon hängen die
+// Mieter-Rechte ab, also nie umbenennen. adminOnly blendet den Punkt für Mieter aus.
+// level 'expert' = nur im Expertenmodus im Menü (für Admins; Mieter sehen immer alles
+// Freigegebene — die Freigabe ist schon die Auswahl).
+// Reihenfolge = Reihenfolge beim Einrichten einer Veranstaltung, Häufiges zuerst.
+const NAV_ITEMS = [
+    { key: 'dashboard', href: '#/admin/dashboard', label: 'Dashboard', icon: '📊', group: 'top' },
+    // 1 – 6: der Ablauf für eine Veranstaltung
+    { key: 'events', href: '#/admin/events', label: 'Veranstaltungen', icon: '🎉', group: 'event' },
+    { key: 'assets', href: '#/admin/assets', label: 'Bilder & Logos', icon: '🖼️', group: 'images' },
+    { key: 'templates', href: '#/admin/templates', label: 'Foto-Vorlagen', icon: '🧱', group: 'layouts' },
+    { key: 'presets', href: '#/admin/presets', label: 'Ausgabe-Formate', icon: '📐', group: 'layouts', level: 'expert' },
+    { key: 'appearance', href: '#/admin/appearance', label: 'Booth-Design', icon: '🎨', group: 'layouts', adminOnly: true, level: 'expert' },
+    { key: 'cameras', href: '#/admin/cameras', label: 'Kameras', icon: '📷', group: 'capture' },
+    { key: 'background', href: '#/admin/background', label: 'Hintergrund', icon: '🪄', group: 'capture', level: 'expert' },
+    { key: 'triggers', href: '#/admin/triggers', label: 'Auslöser', icon: '⚡', group: 'capture', adminOnly: true, level: 'expert' },
+    { key: 'printer', href: '#/admin/printer', label: 'Drucker', icon: '🖨️', group: 'output' },
+    { key: 'remote-gallery', href: '#/admin/remote-gallery', label: 'Online-Galerie', icon: '☁️', group: 'output', adminOnly: true, level: 'expert' },
+    { key: 'wifi', href: '#/admin/wifi', label: 'WLAN verbinden', icon: '📶', group: 'onsite' },
+    { key: 'usb-export', href: '#/admin/usb-export', label: 'Auf USB kopieren', icon: '🔌', group: 'onsite' },
+    { key: 'cd-burn', href: '#/admin/cd-burn', label: 'CD/DVD brennen', icon: '💿', group: 'onsite', level: 'expert' },
+    { key: 'telegram', href: '#/admin/telegram', label: 'Telegram-Bot', icon: '📨', group: 'onsite', adminOnly: true, level: 'expert' },
+    // Seltener: einmal einrichten, dann in Ruhe lassen
+    { key: 'settings', href: '#/admin/settings', label: 'Einstellungen', icon: '⚙️', group: 'system', adminOnly: true },
+    { key: 'modules', href: '#/admin/modules', label: 'Module', icon: '🧩', group: 'system', adminOnly: true, level: 'expert' },
+    { key: 'tests', href: '#/admin/tests', label: 'Tests', icon: '🧪', group: 'system', adminOnly: true, level: 'expert' },
+    { key: 'network', href: '#/admin/network', label: 'Netzwerk & Tailscale', icon: '🌐', group: 'network', adminOnly: true, level: 'expert' },
+    { key: 'bluetooth', href: '#/admin/bluetooth', label: 'Bluetooth', icon: '🔵', group: 'network', level: 'expert' },
+    { key: 'permissions', href: '#/admin/permissions', label: 'Mieter-Rechte', icon: '🔑', group: 'rental', adminOnly: true, level: 'expert' },
+    { key: 'payment', href: '#/admin/payment', label: 'Bezahlung', icon: '💳', group: 'rental', adminOnly: true, level: 'expert' },
+    { key: 'help', href: '#/admin/help', label: 'Hilfe', icon: '❓', group: 'end', adminOnly: true },
+];
+
+// step = Nummer im Ablauf (wird beim Anzeigen fortlaufend vergeben, damit ein
+// Mieter mit wenigen Bereichen keine Lücken sieht).
+const GROUPS = [
+    { id: 'event', label: 'Veranstaltung', icon: '🎉', step: true },
+    { id: 'images', label: 'Bilder & Logos', icon: '🖼️', step: true },
+    { id: 'layouts', label: 'Layouts', icon: '🗂️', step: true },
+    { id: 'capture', label: 'Aufnahme', icon: '🎬', step: true },
+    { id: 'output', label: 'Drucken & Teilen', icon: '📤', step: true },
+    { id: 'onsite', label: 'Vor Ort & danach', icon: '📍', step: true },
+    { id: 'system', label: 'System' },
+    { id: 'network', label: 'Netzwerk & Funk' },
+    { id: 'rental', label: 'Vermietung & Bezahlung' },
+];
+
+function currentRoute() {
+    const hash = location.hash.replace('#/', '');
+    return hash === 'admin' ? 'admin/dashboard' : hash;
+}
+
+/** Alle Punkte, die diese Rolle überhaupt sehen darf (ohne Modus-Filter). */
+function permittedItems() {
+    const auth = (window.pb && window.pb.state && window.pb.state.auth) || {};
+    if (auth.role === 'admin') return NAV_ITEMS;
+    // Mieter: nur freigegebene, nicht-admin-only Bereiche — wie bisher
+    const sections = auth.sections || [];
+    return NAV_ITEMS.filter(n => !n.adminOnly && sections.includes(n.key));
+}
+
+function currentItem() {
+    const route = currentRoute();
+    return NAV_ITEMS.find(n => n.href.replace('#/', '') === route) || null;
+}
+
+/** Ist die aktuelle Seite eine, die im einfachen Modus nicht im Menü steht? */
+function currentPageIsExpert() {
+    const auth = window.pb.state.auth || {};
+    const item = currentItem();
+    return auth.role === 'admin' && !!item && item.level === 'expert';
+}
+
+/** Menü-Liste (ohne Kopf und Fußleiste) — wird beim Umschalten neu gezeichnet. */
+function navListHtml() {
+    const auth = window.pb.state.auth || {};
+    const route = currentRoute();
+    let items = permittedItems();
+    if (auth.role === 'admin' && !isExpertMode()) items = items.filter(n => n.level !== 'expert');
+
+    const isActive = (n) => route === n.href.replace('#/', '');
+    const stepBadge = (num) => num ? `<span class="nav-step">${num}</span>` : '';
+    const itemHtml = (n, num) => `
         <a href="${n.href}" class="nav-item ${isActive(n) ? 'active' : ''}">
-            <span class="nav-icon">${n.icon}</span><span>${n.label}</span>
+            ${stepBadge(num)}<span class="nav-icon">${n.icon}</span><span>${n.label}</span>
         </a>`;
 
-    // The group containing the current page wins; otherwise fall back to the last
-    // one the user opened, so navigating back and forth doesn't fight them.
-    const activeGroup = (navItems.find(isActive) || {}).group;
-    let openGroup = activeGroup && activeGroup !== 'top' ? activeGroup : null;
+    // Einklappbare Gruppen: alles auf einmal wäre höher als der Box-Bildschirm,
+    // also ist nur eine Gruppe offen — die mit der aktuellen Seite, sonst die
+    // zuletzt geöffnete. Eine Gruppe mit nur einem sichtbaren Punkt braucht keine
+    // Überschrift: der Punkt steht direkt da (spart einen Tipp und eine Zeile).
+    const multi = GROUPS.filter(g => items.filter(n => n.group === g.id).length > 1).map(g => g.id);
+    const activeGroup = (items.find(isActive) || {}).group;
+    let openGroup = multi.includes(activeGroup) ? activeGroup : null;
     if (!openGroup) {
         try { openGroup = localStorage.getItem('pb_nav_group'); } catch { openGroup = null; }
     }
-    if (!GROUPS.some(g => g.id === openGroup)) openGroup = GROUPS[0].id;
+    if (!multi.includes(openGroup)) openGroup = null;
 
-    let navHtml = navItems.filter(n => n.group === 'top').map(itemHtml).join('');
+    let html = items.filter(n => n.group === 'top').map(n => itemHtml(n)).join('');
+    let step = 0;
+    let sepDone = false;
     for (const g of GROUPS) {
-        const items = navItems.filter(n => n.group === g.id);
-        if (!items.length) continue;
+        const gi = items.filter(n => n.group === g.id);
+        if (!gi.length) continue;
+        const num = g.step ? ++step : 0;
+        if (!g.step && !sepDone) { html += '<div class="nav-sep"></div>'; sepDone = true; }
+        if (gi.length === 1) { html += itemHtml(gi[0], num); continue; }
         const open = g.id === openGroup;
-        navHtml += `
-        <button class="nav-group" data-group="${g.id}" aria-expanded="${open}">
-            <span>${g.label}</span><span class="nav-chevron">${open ? '▾' : '▸'}</span>
+        html += `
+        <button type="button" class="nav-group ${g.step ? 'nav-group-step' : ''}" data-group="${g.id}" aria-expanded="${open}">
+            <span class="nav-group-label">${stepBadge(num)}${g.icon ? `<span class="nav-icon">${g.icon}</span>` : ''}<span>${g.label}</span></span><span class="nav-chevron">${open ? '▾' : '▸'}</span>
         </button>
         <div class="nav-group-items" data-group-items="${g.id}" ${open ? '' : 'hidden'}>
-            ${items.map(itemHtml).join('')}
+            ${gi.map(n => itemHtml(n)).join('')}
         </div>`;
     }
+    html += items.filter(n => n.group === 'end').map(n => itemHtml(n)).join('');
+    return html;
+}
+
+function modeSwitchHtml() {
+    const expert = isExpertMode();
+    return `
+    <div class="nav-mode" role="group" aria-label="Menü-Umfang">
+        <button type="button" class="nav-mode-btn ${expert ? '' : 'on'}" data-mode="simple" aria-pressed="${!expert}"
+            title="Nur das Wichtigste zeigen"><span class="nav-mode-ico">🐒</span><span>Einfach</span></button>
+        <button type="button" class="nav-mode-btn ${expert ? 'on' : ''}" data-mode="expert" aria-pressed="${expert}"
+            title="Alle Bereiche und Optionen zeigen"><span class="nav-mode-ico">👷</span><span>Experte</span></button>
+    </div>`;
+}
+
+export function adminShell(contentHTML) {
+    const { i18n } = window.pb;
+    loadKioskMargin();
+    applyModeClass();
+    const auth = window.pb.state.auth || {};
+    const isAdmin = auth.role === 'admin';
+
+    // Hinweise oben auf der Seite — nur im einfachen Modus sichtbar (pb-only-simple),
+    // so verschwinden sie beim Umschalten ohne Neuzeichnen.
+    const pageHint = currentPageIsExpert()
+        ? `<div class="admin-mode-hint pb-only-simple">👷 Experten-Seite — im einfachen Modus steht sie nicht im Menü.
+               <button type="button" class="admin-mode-link" data-set-mode="expert">Expertenmodus einschalten</button></div>`
+        : contentHTML.includes('data-level="expert"')
+            ? `<div class="admin-mode-hint admin-mode-hint-quiet pb-only-simple">🐒 Einfacher Modus — Experten-Optionen sind ausgeblendet.
+                   <button type="button" class="admin-mode-link" data-set-mode="expert">Alle zeigen</button></div>`
+            : '';
 
     return `
     <div id="admin-root" style="display:flex;box-sizing:border-box;${marginStyle(kioskMargin || 0)}">
         <nav class="admin-nav">
-            <div class="admin-brand"><span class="admin-brand-dot"></span> Photobox Admin</div>
-            ${navHtml}
+            <div class="admin-nav-head">
+                <div class="admin-brand"><span class="admin-brand-dot"></span> Photobox Admin</div>
+                <button type="button" class="nav-burger" aria-expanded="false" aria-label="Menü öffnen">
+                    <span>${(currentItem() || {}).label || 'Menü'}</span><span class="nav-burger-ico">☰</span>
+                </button>
+            </div>
+            <div class="nav-list" id="nav-list">${navListHtml()}</div>
             <div style="flex:1;"></div>
+            ${modeSwitchHtml()}
             <a href="#/booth" class="nav-item nav-muted"><span class="nav-icon">↩️</span><span>Zum Booth</span></a>
-            ${isAdmin ? '<a href="#" class="nav-item" id="btn-update"><span class="nav-icon">⬆️</span><span>Software aktualisieren</span></a>' : ''}
-            ${isAdmin ? '<a href="#" class="nav-item" id="btn-mode"><span class="nav-icon">🖥️</span><span>Anzeigemodus</span></a>' : ''}
+            ${isAdmin ? '<a href="#" class="nav-item" id="btn-update" data-level="expert"><span class="nav-icon">⬆️</span><span>Software aktualisieren</span></a>' : ''}
+            ${isAdmin ? '<a href="#" class="nav-item" id="btn-mode" data-level="expert"><span class="nav-icon">🖥️</span><span>Anzeigemodus</span></a>' : ''}
             <a href="#/booth" class="nav-item nav-danger" id="btn-logout"><span class="nav-icon">🚪</span><span>${i18n.t('auth.logout')}</span></a>
             ${isAdmin ? '<a href="#" class="nav-item nav-danger" id="btn-shutdown"><span class="nav-icon">⏻</span><span>Herunterfahren</span></a>' : ''}
         </nav>
-        <main style="flex:1;padding:2rem;overflow-y:auto;">
+        <main style="flex:1;padding:2rem;overflow-y:auto;min-width:0;">
+            ${pageHint}
             ${contentHTML}
         </main>
     </div>
     <style>
+        /* Einfach/Experte: Elemente mit data-level="expert" sind im einfachen Modus weg.
+           !important, weil Seiten display oft per JS/Inline-Style setzen. */
+        html.pb-admin-simple [data-level="expert"] { display:none !important; }
+        html:not(.pb-admin-simple) .pb-only-simple { display:none !important; }
         .admin-nav {
             width:240px;background:linear-gradient(180deg, var(--pb-color-surface) 0%, var(--pb-color-background) 100%);
             padding:1rem 0.75rem;display:flex;flex-direction:column;gap:0.15rem;overflow-y:auto;flex-shrink:0;
             border-right:1px solid var(--pb-color-border);
         }
+        .nav-list { display:flex;flex-direction:column;gap:0.15rem; }
         .admin-brand {
             display:flex;align-items:center;gap:0.5rem;font-size:1.15rem;font-weight:700;
             padding:0.5rem 0.75rem 1rem;letter-spacing:0.2px;
@@ -143,15 +248,85 @@ export function adminShell(contentHTML) {
             background:none;border:none;cursor:pointer;font-family:inherit;text-align:left;
         }
         .nav-group:hover { opacity:1; }
+        .nav-group-label { display:flex;align-items:center;gap:0.5rem; }
+        /* Schritt-Gruppen (1–6) sehen aus wie Menüpunkte — sie sind ja Teil des Ablaufs */
+        .nav-group-step {
+            font-size:0.93rem;font-weight:400;text-transform:none;letter-spacing:0;opacity:1;
+            color:var(--pb-color-text);padding:0.65rem 0.85rem;border-radius:10px;
+        }
+        .nav-group-step .nav-group-label { gap:0.7rem; }
+        .nav-group-step .nav-step { margin-right:-0.3rem; }
+        .nav-group-step:hover { background:rgba(255,255,255,0.07); }
+        .nav-group-step[aria-expanded="true"] + .nav-group-items { padding-left:1.1rem; }
+        /* Box-Bildschirm (768 px hoch, dazu sicherer Rand): Zeilen etwas dichter,
+           damit das Menü möglichst ohne Scrollen passt. Tippfläche bleibt ≥ 36 px. */
+        /* Handy: Menü oben als aufklappbare Leiste statt fester 240-px-Spalte */
+        .admin-nav-head { display:flex;align-items:center;justify-content:space-between;gap:0.5rem; }
+        .nav-burger { display:none; }
+        @media (max-width: 700px) {
+            #admin-root { flex-direction:column; }
+            .admin-nav {
+                width:auto;max-height:none;overflow:visible;padding:0.5rem 0.75rem;
+                border-right:none;border-bottom:1px solid var(--pb-color-border);
+            }
+            .admin-nav.nav-open { max-height:75vh;overflow-y:auto; }
+            .admin-nav:not(.nav-open) > :not(.admin-nav-head) { display:none !important; }
+            .admin-nav > div[style*="flex:1"] { display:none !important; }
+            .admin-brand { padding:0.25rem 0.25rem;font-size:1rem; }
+            .nav-burger {
+                display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.8rem;border-radius:10px;
+                border:1px solid var(--pb-color-border);background:rgba(255,255,255,0.05);
+                color:var(--pb-color-text);font-family:inherit;font-size:0.9rem;cursor:pointer;
+                max-width:60%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+            }
+            .nav-burger-ico { font-size:1.1rem; }
+            #admin-root > main { padding:1rem !important;flex:1; }
+        }
+        @media (max-height: 820px) {
+            .admin-brand { padding:0.25rem 0.75rem 0.5rem; }
+            .nav-item, .nav-group-step { padding:0.5rem 0.85rem; }
+            .nav-group:not(.nav-group-step) { padding:0.5rem 0.85rem 0.3rem; }
+            .nav-mode { margin:0.35rem 0 0.2rem; }
+            .nav-mode-btn { padding:0.4rem; }
+        }
         .nav-chevron { font-size:0.85rem;line-height:1; }
         .nav-group-items { display:flex;flex-direction:column;gap:0.15rem; }
         .nav-group-items[hidden] { display:none; }
+        .nav-step {
+            display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+            width:1.15rem;height:1.15rem;border-radius:50%;font-size:0.68rem;font-weight:700;letter-spacing:0;
+            border:1.5px solid var(--pb-color-primary);color:var(--pb-color-primary);
+        }
+        .nav-item .nav-step { margin-right:-0.3rem; }
+        .nav-item.active .nav-step { border-color:#fff;color:#fff; }
+        .nav-sep { height:1px;background:var(--pb-color-border);margin:0.5rem 0.85rem; }
         .nav-icon { width:1.4rem;text-align:center;font-size:1.05rem;flex-shrink:0; }
         .nav-item:hover { background:rgba(255,255,255,0.07); }
         .nav-item:active { transform:scale(0.98); }
         .nav-item.active { background:var(--pb-gradient);color:#fff;box-shadow:var(--pb-shadow-sm); }
         .nav-muted { color:var(--pb-color-text-muted); }
         .nav-danger { color:var(--pb-color-error); }
+        .nav-mode {
+            display:flex;gap:0.25rem;padding:0.25rem;margin:0.5rem 0 0.35rem;border-radius:12px;
+            background:rgba(0,0,0,0.2);border:1px solid var(--pb-color-border);
+        }
+        .nav-mode-btn {
+            flex:1;display:flex;align-items:center;justify-content:center;gap:0.35rem;
+            padding:0.5rem 0.4rem;border:none;border-radius:9px;background:none;cursor:pointer;
+            color:var(--pb-color-text-muted);font-family:inherit;font-size:0.85rem;font-weight:600;
+        }
+        .nav-mode-btn.on { background:var(--pb-gradient);color:#fff;box-shadow:var(--pb-shadow-sm); }
+        .nav-mode-ico { font-size:1.15rem;line-height:1; }
+        .admin-mode-hint {
+            display:flex;align-items:center;flex-wrap:wrap;gap:0.4rem 0.75rem;max-width:680px;
+            margin:-0.75rem 0 1.25rem;padding:0.55rem 0.85rem;border-radius:10px;font-size:0.85rem;
+            background:rgba(108,140,255,0.10);border:1px solid var(--pb-color-border);color:var(--pb-color-text);
+        }
+        .admin-mode-hint-quiet { background:none;color:var(--pb-color-text-muted); }
+        .admin-mode-link {
+            background:none;border:none;padding:0;cursor:pointer;font:inherit;font-weight:600;
+            color:var(--pb-color-primary);text-decoration:underline;
+        }
         .admin-card {
             background:var(--pb-color-surface);border:1px solid var(--pb-color-border);
             border-radius:var(--pb-radius);padding:1.25rem;margin-bottom:1rem;box-shadow:var(--pb-shadow-sm);
@@ -183,28 +358,54 @@ export function getHeaders() {
     return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
-/** Wire the collapsible nav groups. Called from setupLogout so every admin page
- *  gets it without each one having to remember. */
+/** Wire the collapsible nav groups and the Einfach/Experte switch. Called from
+ *  setupLogout so every admin page gets it without each one having to remember. */
 export function setupNav(container) {
-    container.querySelectorAll('.nav-group').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const id = btn.dataset.group;
-            const items = container.querySelector(`[data-group-items="${id}"]`);
-            if (!items) return;
-            const open = items.hasAttribute('hidden');
-            // One group at a time — that is what keeps the nav on one screen.
-            container.querySelectorAll('[data-group-items]').forEach(el => el.setAttribute('hidden', ''));
-            container.querySelectorAll('.nav-group').forEach(b => {
-                b.setAttribute('aria-expanded', 'false');
-                b.querySelector('.nav-chevron').textContent = '▸';
-            });
-            if (open) {
-                items.removeAttribute('hidden');
-                btn.setAttribute('aria-expanded', 'true');
-                btn.querySelector('.nav-chevron').textContent = '▾';
-                try { localStorage.setItem('pb_nav_group', id); } catch { /* private mode */ }
-            }
+    const list = container.querySelector('#nav-list');
+    // Delegiert: die Liste wird beim Umschalten neu gezeichnet, die Handler bleiben.
+    list?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.nav-group');
+        if (!btn) return;
+        const id = btn.dataset.group;
+        const items = list.querySelector(`[data-group-items="${id}"]`);
+        if (!items) return;
+        const open = items.hasAttribute('hidden');
+        // One group at a time — that is what keeps the nav on one screen.
+        list.querySelectorAll('[data-group-items]').forEach(el => el.setAttribute('hidden', ''));
+        list.querySelectorAll('.nav-group').forEach(b => {
+            b.setAttribute('aria-expanded', 'false');
+            b.querySelector('.nav-chevron').textContent = '▸';
         });
+        if (open) {
+            items.removeAttribute('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            btn.querySelector('.nav-chevron').textContent = '▾';
+            try { localStorage.setItem('pb_nav_group', id); } catch { /* private mode */ }
+        }
+    });
+
+    // Umschalten zeichnet nur das Menü neu und setzt die Klasse — die Seite selbst
+    // bleibt stehen, halb ausgefüllte Formulare gehen nicht verloren.
+    const switchTo = (expert) => {
+        setExpertMode(expert);
+        if (list) list.innerHTML = navListHtml();
+        container.querySelectorAll('.nav-mode-btn').forEach(b => {
+            const on = (b.dataset.mode === 'expert') === expert;
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-pressed', String(on));
+        });
+    };
+    container.querySelectorAll('.nav-mode-btn').forEach(b =>
+        b.addEventListener('click', () => switchTo(b.dataset.mode === 'expert')));
+    container.querySelectorAll('[data-set-mode]').forEach(b =>
+        b.addEventListener('click', () => switchTo(b.dataset.setMode === 'expert')));
+
+    // Handy: Menü auf-/zuklappen (am Desktop ist der Knopf unsichtbar)
+    const burger = container.querySelector('.nav-burger');
+    burger?.addEventListener('click', () => {
+        const nav = container.querySelector('.admin-nav');
+        const open = nav.classList.toggle('nav-open');
+        burger.setAttribute('aria-expanded', String(open));
     });
 }
 

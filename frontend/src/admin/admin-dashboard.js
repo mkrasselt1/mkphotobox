@@ -31,7 +31,7 @@ export async function render(container, state) {
                 <p>Uptime: ${Math.round((info.uptime_seconds || 0) / 60)} min</p>
                 <p>Disk: ${info.disk_free_mb || '?'} MB frei</p>
                 <p>Fotos: ${info.photos_count ?? '?'}</p>
-                <p>WS: ${info.ws_connections ?? 0} Verbindungen</p>
+                <p data-level="expert">WS: ${info.ws_connections ?? 0} Verbindungen</p>
             </div>
             <div class="admin-card">
                 <h3>Kameras</h3>
@@ -39,11 +39,11 @@ export async function render(container, state) {
                     `<p>${c.name}: ${c.available ? '&#10003; aktiv' : '&#10007;'}</p>`
                 ).join('') || '<p>Keine geladen</p>'}
             </div>
-            <div class="admin-card">
+            <div class="admin-card" data-level="expert">
                 <h3>Ausgabe</h3>
                 ${(modules.outputs || []).map(o => `<p>${o.name}: &#10003;</p>`).join('') || '<p>Keine</p>'}
             </div>
-            <div class="admin-card">
+            <div class="admin-card" data-level="expert">
                 <h3>Ausl&ouml;ser</h3>
                 ${(modules.triggers || []).map(t => `<p>${t.name}: &#10003;</p>`).join('') || '<p>Keine</p>'}
             </div>

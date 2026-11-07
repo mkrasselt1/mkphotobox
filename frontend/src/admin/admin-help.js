@@ -7,13 +7,20 @@ const SECTIONS = [
         icon: '🚀', title: 'Erste Schritte',
         html: `
         <p>Die Box wird komplett über den Browser bedient — kein Verlassen des Browsers nötig.</p>
+        <p>Das Menü ist nach diesem Ablauf nummeriert:</p>
         <ol>
-            <li><strong>Veranstaltung</strong> anlegen/aktivieren (Bereich <em>Veranstaltungen</em>).</li>
-            <li><strong>Kamera</strong> wählen und testen (<em>Kameras</em>).</li>
-            <li>Optional <strong>Foto-Vorlagen</strong> und ein <strong>Ausgabe-Format</strong> einrichten.</li>
-            <li><strong>Drucker</strong> bzw. Teilen-Wege (E-Mail, QR, Online-Galerie) konfigurieren.</li>
-            <li>Über <em>„Zum Booth"</em> in den Gäste-Modus wechseln.</li>
+            <li><strong>Veranstaltung</strong> anlegen/aktivieren (<em>Veranstaltungen</em>).</li>
+            <li><strong>Bilder &amp; Logos</strong> importieren — die stehen danach in den Vorlagen zur Auswahl.</li>
+            <li><strong>Layouts:</strong> Foto-Vorlagen gestalten bzw. auswählen.</li>
+            <li><strong>Aufnahme:</strong> Kamera wählen und testen (<em>Kameras</em>).</li>
+            <li><strong>Drucken &amp; Teilen:</strong> Drucker einrichten, ggf. Online-Galerie.</li>
+            <li><strong>Vor Ort &amp; danach:</strong> mit dem WLAN der Location verbinden, am Ende Fotos auf USB kopieren.</li>
         </ol>
+        <p>Danach über <em>„Zum Booth"</em> in den Gäste-Modus wechseln.</p>
+        <p><strong>🐒 Einfach / 👷 Experte</strong> (unten im Menü): Im einfachen Modus zeigt das Menü nur das,
+        was man für eine Veranstaltung braucht, und seltene Optionen sind ausgeblendet. Der Expertenmodus zeigt
+        alles — Netzwerk/Tailscale, Bluetooth, Auslöser, Module, Bezahlung, Mieter-Rechte, Tests. Die Wahl
+        merkt sich jedes Gerät einzeln.</p>
         <p>Standard-Login ist <code>admin / admin</code> — bitte in den Einstellungen ändern.</p>`,
     },
     {

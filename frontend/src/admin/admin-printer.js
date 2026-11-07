@@ -101,13 +101,13 @@ export async function render(container, state) {
                         <label style="font-size:0.9rem;">Kopien</label>
                         <input type="number" id="copies" class="admin-input" value="${printerStatus.copies || 1}" min="1" max="10" style="width:100%;margin-top:0.25rem;">
                     </div>
-                    <div>
+                    <div data-level="expert">
                         <label style="font-size:0.9rem;">Rand (mm)</label>
                         <input type="number" id="margin" class="admin-input" value="${printerStatus.margin_mm || 0}" min="0" max="50" style="width:100%;margin-top:0.25rem;">
                     </div>
                 </div>
 
-                <label style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;cursor:pointer;">
+                <label data-level="expert" style="display:flex;align-items:center;gap:0.5rem;margin-top:1rem;cursor:pointer;">
                     <input type="checkbox" id="fit-to-page" ${printerStatus.fit_to_page !== false ? 'checked' : ''}>
                     An Seitengr&ouml;&szlig;e anpassen
                 </label>
