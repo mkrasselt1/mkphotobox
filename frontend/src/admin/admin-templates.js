@@ -265,7 +265,9 @@ function renderEditor(container, state, ed) {
 
         // Layer 1: photo slots (numbered, draggable, rotatable)
         ed.slots.forEach((s, i) => {
-            const b = makeBox(s, i, 'slot', `${i + 1}`);
+            // Beschriftung = welche Aufnahme hineinkommt (nicht die Slot-Position):
+            // so sieht man sofort, dass z. B. Slot 4 wieder Foto 1 zeigt.
+            const b = makeBox(s, i, 'slot', `📷 ${(s.photo_index ?? i) + 1}`);
             b.style.zIndex = '1';
             canvas.appendChild(b);
         });
@@ -590,9 +592,14 @@ function renderEditor(container, state, ed) {
                 <button id="p-del" class="admin-btn admin-btn-outline" style="margin-top:0.5rem;font-size:0.75rem;color:var(--pb-color-error);">Entfernen</button>
             </div>`;
         el.querySelector('#p-fit')?.addEventListener('change', (e) => { item.fit = e.target.value; });
-        el.querySelector('#p-shot')?.addEventListener('change', (e) => {
-            item.photo_index = Math.max(1, parseInt(e.target.value) || 1) - 1;   // store 0-based
-        });
+        // Schon beim Tippen übernehmen, nicht erst bei 'change': am Kiosk tippt
+        // man über die Bildschirmtastatur und drückt dann direkt „Speichern“.
+        const setShot = (e) => {
+            const n = parseInt(e.target.value);
+            if (Number.isFinite(n) && n >= 1) item.photo_index = n - 1;   // store 0-based
+        };
+        el.querySelector('#p-shot')?.addEventListener('input', setShot);
+        el.querySelector('#p-shot')?.addEventListener('change', (e) => { setShot(e); drawCanvas(); });
         el.querySelector('#p-rot')?.addEventListener('change', (e) => { item.rotation = parseInt(e.target.value) || 0; drawCanvas(); });
         el.querySelector('#p-del')?.addEventListener('click', () => { list.splice(selected.index, 1); selected = null; drawCanvas(); });
     }
