@@ -256,10 +256,14 @@ async def _build_gif_later(bus, photo_id: int, gif_service, frames, photo_dir, b
         path = await gif_service.create_gif(photo_dir, base, comment=comment, frames=frames)
     except Exception:
         logger.exception("GIF für Foto %s fehlgeschlagen", photo_id)
+    from app.database import get_engine
     if path:
+        with Session(get_engine()) as s:
+            if s.get(Photo, photo_id) is None:   # inzwischen verworfen („Nochmal“)
+                path.unlink(missing_ok=True)
+                return
         await bus.emit("photo.gif_ready", {"photo_id": photo_id, "gif": path.name})
         return
-    from app.database import get_engine
     with Session(get_engine()) as s:
         p = s.get(Photo, photo_id)
         if p is not None:
@@ -844,31 +848,83 @@ def delete_photo(
             raise HTTPException(status_code=403, detail="Foto ist zu alt zum Löschen")
 
     try:
-        # Remove dependent rows first (FK: OutputJob.photo_id, CollagePhoto.photo_id)
-        from app.models import CollagePhoto, OutputJob
-        for oj in session.exec(select(OutputJob).where(OutputJob.photo_id == photo_id)).all():
-            session.delete(oj)
-        for cp in session.exec(select(CollagePhoto).where(CollagePhoto.photo_id == photo_id)).all():
-            session.delete(cp)
-
-        # Delete the files from disk too
-        storage = Path(cfg["photos"]["storage_path"])
-        for rel in (photo.filename, photo.thumbnail, photo.gif_filename):
-            if rel:
-                try:
-                    (storage / rel).unlink(missing_ok=True)
-                except OSError:
-                    pass
-        from app.services import gallery_privacy
-        gallery_privacy.invalidate(storage, photo)
-
-        session.delete(photo)
+        _remove_photo(session, photo, Path(cfg["photos"]["storage_path"]))
         session.commit()
     except Exception as e:
         session.rollback()
         import logging
         logging.getLogger(__name__).exception("delete_photo failed for id=%s", photo_id)
         raise HTTPException(status_code=500, detail=f"Löschen fehlgeschlagen: {e}")
+
+
+def _remove_photo(session: Session, photo: Photo, storage: Path) -> None:
+    """Foto samt Dateien (Bild, Vorschaubild, GIF, unscharfe Fassung, ggf.
+    Gästebuch-Original) und abhängigen Zeilen löschen. Commit macht der Aufrufer."""
+    from app.models import CollagePhoto, OutputJob
+    for oj in session.exec(select(OutputJob).where(OutputJob.photo_id == photo.id)).all():
+        session.delete(oj)
+    for cp in session.exec(select(CollagePhoto).where(CollagePhoto.photo_id == photo.id)).all():
+        session.delete(cp)
+    for rel in (photo.filename, photo.thumbnail, photo.gif_filename,
+                getattr(photo, "original_path", None)):
+        if rel:
+            try:
+                (storage / rel).unlink(missing_ok=True)
+            except OSError:
+                pass
+    from app.services import gallery_privacy
+    gallery_privacy.invalidate(storage, photo)
+    session.delete(photo)
+
+
+DISCARD_MINUTES = 10
+
+
+@router.post("/photos/{photo_id}/discard")
+async def discard_photo(photo_id: int, session: Session = Depends(get_session)):
+    """„Nochmal“ am Booth: das gerade gemachte Foto verwerfen — bei einer
+    Collage samt ihren Einzelaufnahmen. Wer „Nochmal“ drückt, will das Bild
+    nicht; vorher blieb es in Galerie, Online-Galerie und auf der Platte.
+
+    Ohne Anmeldung (der Booth hat keine), deshalb eng begrenzt: nur das
+    NEUESTE Foto und nur in den ersten {DISCARD_MINUTES} Minuten. Unabhängig
+    von gallery.delete_mode — das regelt das Löschen in der Galerie."""
+    import json as _json
+
+    from app.config import get_config
+
+    photo = session.get(Photo, photo_id)
+    if photo is None:
+        return {"status": "ok", "discarded": []}   # schon weg
+    if photo.captured_at < datetime.utcnow() - timedelta(minutes=DISCARD_MINUTES):
+        raise HTTPException(status_code=403, detail="Foto ist zu alt zum Verwerfen")
+    newest = session.exec(select(Photo).order_by(Photo.captured_at.desc(), Photo.id.desc())).first()
+    try:
+        meta = _json.loads(photo.metadata_json or "{}")
+    except (ValueError, TypeError):
+        meta = {}
+    sources = [int(i) for i in (meta.get("source_photo_ids") or [])] if meta.get("collage") else []
+    if newest is not None and newest.id != photo.id:
+        raise HTTPException(status_code=403, detail="Nur das neueste Foto kann verworfen werden")
+
+    storage = Path(get_config()["photos"]["storage_path"])
+    gone = [photo.id]
+    _remove_photo(session, photo, storage)
+    for sid in sources:
+        src = session.get(Photo, sid)
+        if src is not None:
+            gone.append(src.id)
+            _remove_photo(session, src, storage)
+    session.commit()
+    logger.info("Verworfen („Nochmal“): %s", gone)
+
+    # Online-Galerie: Manifest ohne die verworfenen Fotos neu hochladen
+    try:
+        from app.services.remote_gallery import get_remote_gallery
+        await get_remote_gallery().request_manifest_refresh()
+    except Exception:
+        logger.debug("Manifest-Refresh nach Verwerfen fehlgeschlagen", exc_info=True)
+    return {"status": "ok", "discarded": gone}
 
 
 # ── Gallery ───────────────────────────────────────────────────────────────

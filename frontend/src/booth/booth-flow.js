@@ -1088,6 +1088,13 @@ export function render(container, state) {
             // einer Vorlage mit nur einem Foto (Rahmen). Vorher startete dann
             // nur ein neuer Countdown ohne Vorlage: das zweite Foto kam ohne
             // Rahmen, und das Gästebuch bemalte das rohe Foto.
+            // „Nochmal“ heißt verwerfen: das Foto (bei einer Collage samt
+            // Einzelaufnahmen) kommt nicht in die Galerie. Nicht abwarten —
+            // der neue Countdown startet sofort.
+            if (lastPhoto?.photo_id) {
+                fetch(`/api/v1/photos/${lastPhoto.photo_id}/discard`, { method: 'POST' }).catch(() => {});
+                lastPhoto = null;
+            }
             if (lastTemplate) startCapture(lastTemplate);
             else transition('countdown');
         });
