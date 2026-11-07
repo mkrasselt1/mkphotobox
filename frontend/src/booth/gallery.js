@@ -217,8 +217,12 @@ export function render(container, state) {
         const qrUrl = (remoteGallery?.active && photo.filename)
             ? `${remoteGallery.image_base}/${baseName(photo.filename)}`
             : `${shareBase}${fileUrl}`;
+        // „Herunterladen“ nur am Handy/Laptop: auf dem Kiosk-Bildschirm der Box
+        // selbst (der Browser dort öffnet localhost) landet die Datei irgendwo
+        // auf der Box — der Knopf stört dort nur. Aufs Handy geht es per QR-Code.
+        const onKiosk = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
         let html = `<div class="pb-gallery-actions">
-            <a href="${fileUrl}" download class="ga-btn" style="background:#4a90d9;"><span ${ico}>\u2B07</span> ${i18n.t('share.download')}</a>
+            ${onKiosk ? '' : `<a href="${fileUrl}" download class="ga-btn" style="background:#4a90d9;"><span ${ico}>\u2B07</span> ${i18n.t('share.download')}</a>`}
             ${availableOutputs.includes('output.printer') ? `<button class="ga-btn ga-print" data-id="${photo.id}" style="background:#8e44ad;"><span ${ico}>\uD83D\uDDA8</span> ${i18n.t('share.print')}</button>` : ''}
             <button class="ga-btn ga-qr" data-url="${qrUrl}" style="background:#2c3e50;"><span ${ico}>\uD83D\uDD17</span> ${i18n.t('share.qr_code')}</button>`;
         if (photo.gif_filename) {
