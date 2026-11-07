@@ -323,6 +323,9 @@ async def photo_guestbook(
     # The thumbnail has to follow, otherwise the gallery still shows the plain photo.
     await asyncio.to_thread(
         _generate_thumbnail, photo_file, _get_thumb_dir(cfg), cfg["photos"]["thumbnail_size"])
+    # Die unscharfe Galerie-Fassung (Sichtschutz) zeigt sonst noch das alte Bild.
+    from app.services import gallery_privacy
+    gallery_privacy.invalidate(storage, photo)
 
     photo.original_path = original_rel
     photo.file_size = photo_file.stat().st_size
@@ -719,20 +722,28 @@ def photos_feed(limit: int = 300, session: Session = Depends(get_session)):
         .order_by(Photo.captured_at.desc())
         .limit(limit)
     ).all()
-    return {
-        "event": event.name,
-        "photos": [
-            {
-                "id": p.id,
-                "url": f"/api/v1/photos/{p.id}/file",
-                "gif": f"/api/v1/photos/{p.id}/gif" if p.gif_filename else None,
-                "thumb": f"/api/v1/photos/{p.id}/thumb" if p.thumbnail else f"/api/v1/photos/{p.id}/file",
-                "name": p.filename,
-                "ts": p.captured_at.isoformat() if p.captured_at else None,
-            }
-            for p in photos
-        ],
-    }
+    from app.config import get_config
+    from app.services import gallery_privacy
+    blurred = gallery_privacy.blurred_ids_for_event(session, event.id, get_config())
+
+    def entry(p) -> dict:
+        ts = p.captured_at.isoformat() if p.captured_at else None
+        if p.id in blurred:
+            # Ältere Runde: nur die unscharfe Kachel, kein Link aufs Original.
+            # ?blur=1 macht die Adresse für den Viewer zu einem neuen Bild, sonst
+            # behielte er die scharfe Kachel unter derselben URL im Cache.
+            return {"id": p.id, "thumb": f"/api/v1/photos/{p.id}/thumb?blur=1",
+                    "blurred": True, "ts": ts}
+        return {
+            "id": p.id,
+            "url": f"/api/v1/photos/{p.id}/file",
+            "gif": f"/api/v1/photos/{p.id}/gif" if p.gif_filename else None,
+            "thumb": f"/api/v1/photos/{p.id}/thumb" if p.thumbnail else f"/api/v1/photos/{p.id}/file",
+            "name": p.filename,
+            "ts": ts,
+        }
+
+    return {"event": event.name, "photos": [entry(p) for p in photos]}
 
 
 @router.get("/photos/{photo_id}", response_model=PhotoResponse)
@@ -785,11 +796,25 @@ def get_photo_gif(photo_id: int, request: Request, session: Session = Depends(ge
 
 @router.get("/photos/{photo_id}/thumb")
 def get_photo_thumb(photo_id: int, request: Request, session: Session = Depends(get_session)):
+    # Bewusst ``def``: läuft im Threadpool, so blockiert das seltene Erzeugen
+    # einer fehlenden unscharfen Fassung (meist erledigt das der PrivacyWatcher
+    # vorab) nicht die Ereignisschleife.
+    from app.services import gallery_privacy
+
     photo = session.get(Photo, photo_id)
-    if photo is None or not photo.thumbnail:
+    if photo is None:
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     cfg = request.app.state.config
-    filepath = Path(cfg["photos"]["storage_path"]) / photo.thumbnail
+    storage = Path(cfg["photos"]["storage_path"])
+    if gallery_privacy.photo_is_blurred(session, photo, cfg):
+        # Ältere Runde: nie das scharfe Vorschaubild — lieber gar keins.
+        blurred = gallery_privacy.ensure_blur(storage, photo)
+        if blurred is None:
+            raise HTTPException(status_code=404, detail="Thumbnail not found")
+        return FileResponse(blurred, media_type="image/jpeg", headers=_REVALIDATE)
+    if not photo.thumbnail:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    filepath = storage / photo.thumbnail
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(filepath, media_type="image/jpeg", headers=_REVALIDATE)
@@ -834,6 +859,8 @@ def delete_photo(
                     (storage / rel).unlink(missing_ok=True)
                 except OSError:
                     pass
+        from app.services import gallery_privacy
+        gallery_privacy.invalidate(storage, photo)
 
         session.delete(photo)
         session.commit()
@@ -865,7 +892,7 @@ def get_gallery(
         .offset(offset)
         .limit(limit)
     ).all()
-    return photos
+    return _with_privacy(session, event.id, photos)
 
 
 @router.get("/gallery/{event_slug}/latest", response_model=list[PhotoResponse])
@@ -885,7 +912,27 @@ def get_latest_photos(
         .order_by(Photo.captured_at.desc())
         .limit(count)
     ).all()
-    return photos
+    return _with_privacy(session, event.id, photos)
+
+
+def _with_privacy(session: Session, event_id: int, photos) -> list[dict]:
+    """Galerie-Sichtschutz: Fotos älterer Runden als ``blurred`` markieren.
+
+    Ihre Kachel (/thumb) kommt dann weichgezeichnet; Datei- und GIF-Namen
+    bleiben weg, damit die Galerie nichts anbietet, was zum Original führt.
+    /file und /gif selbst bleiben erreichbar — gespeicherte Download- und
+    QR-Links der Gäste sollen weiter funktionieren."""
+    from app.config import get_config
+    from app.services import gallery_privacy
+
+    blurred = gallery_privacy.blurred_ids_for_event(session, event_id, get_config())
+    out = []
+    for p in photos:
+        d = p.model_dump()
+        if p.id in blurred:
+            d.update(filename="", gif_filename=None, blurred=True)
+        out.append(d)
+    return out
 
 
 def _generate_thumbnail(filepath: Path, thumb_dir: Path, size: list[int]) -> Path | None:

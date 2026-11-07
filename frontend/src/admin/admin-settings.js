@@ -17,6 +17,8 @@ export async function render(container, state) {
     const galleryEnabled = settings?.gallery?.enabled !== false;
     const deleteMode = settings?.gallery?.delete_mode || 'off';
     const deleteMinutes = settings?.gallery?.delete_recent_minutes ?? 5;
+    const privacyBlur = settings?.gallery?.privacy_blur === true;
+    const privacyIdle = settings?.gallery?.privacy_idle_minutes ?? 10;
 
     const selectStyle = `padding:0.75rem 1rem;border-radius:8px;border:1px solid #333;
         background:var(--pb-color-surface);color:var(--pb-color-text);
@@ -122,6 +124,22 @@ export async function render(container, state) {
                             Fotos können nur innerhalb dieses Zeitfensters nach der Aufnahme gelöscht werden.
                         </p>
                     </div>
+                    <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                        <input type="checkbox" id="privacy-blur" ${privacyBlur ? 'checked' : ''}
+                            style="width:20px;height:20px;accent-color:var(--pb-color-primary);cursor:pointer;">
+                        <span>Ältere Fotos in der Galerie unscharf zeigen (Sichtschutz)</span>
+                    </label>
+                    <div id="privacy-idle-row" style="display:${privacyBlur ? 'block' : 'none'};">
+                        <label style="display:block;margin-bottom:0.5rem;font-weight:500;">Leerlauf bis zur nächsten Runde (Minuten)</label>
+                        <input type="number" id="privacy-idle" value="${privacyIdle}" min="1" max="240"
+                            style="padding:0.6rem;border-radius:6px;border:1px solid #333;background:#0e1a30;color:white;font-size:1rem;width:100px;">
+                        <p style="margin-top:0.25rem;font-size:0.8rem;color:var(--pb-color-text-muted);">
+                            Fotos ohne längere Pause dazwischen gehören zu einer Runde. Nur die laufende Runde
+                            ist scharf; kommt so lange kein Foto, wird auch sie unscharf — für die nächste Gruppe.
+                            Gilt für Box, Handys im WLAN und die Online-Galerie. Download- und QR-Links
+                            auf einzelne Fotos funktionieren weiter.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -212,6 +230,10 @@ export async function render(container, state) {
         row.style.display = e.target.value === 'recent' ? 'block' : 'none';
     });
 
+    container.querySelector('#privacy-blur')?.addEventListener('change', (e) => {
+        container.querySelector('#privacy-idle-row').style.display = e.target.checked ? 'block' : 'none';
+    });
+
     // Save all settings
     container.querySelector('#btn-save-all')?.addEventListener('click', async () => {
         const status = container.querySelector('#save-status');
@@ -225,6 +247,9 @@ export async function render(container, state) {
             { key: 'gallery.enabled', value: container.querySelector('#gallery-enabled').checked },
             { key: 'gallery.delete_mode', value: container.querySelector('#delete-mode-select').value },
             { key: 'gallery.delete_recent_minutes', value: parseInt(container.querySelector('#delete-minutes').value) || 5 },
+            { key: 'gallery.privacy_blur', value: container.querySelector('#privacy-blur').checked },
+            { key: 'gallery.privacy_idle_minutes',
+              value: Math.max(1, Math.min(240, parseInt(container.querySelector('#privacy-idle').value) || 10)) },
         ];
 
         try {

@@ -139,6 +139,12 @@ class RemoteGallerySync:
             await self._queue.put((int(pid), False))   # new photo → always upload
             self._state["queued"] = self._queue.qsize()
 
+    async def request_manifest_refresh(self) -> None:
+        """photos.json neu hochladen, ohne dass ein Foto dazukam."""
+        if self._enabled:
+            await self._queue.put((None, False))
+            self._state["queued"] = self._queue.qsize()
+
     # ── worker ─────────────────────────────────────────────────────────────
     async def _worker(self) -> None:
         while True:
@@ -146,6 +152,16 @@ class RemoteGallerySync:
             pid, skip_existing = item if isinstance(item, tuple) else (item, False)
             self._state["queued"] = self._queue.qsize()
             if not self._enabled:
+                continue
+            if pid is None:
+                # Nur das Manifest (Galerie-Sichtschutz: eine Runde ist ohne
+                # neues Foto abgelaufen). Über dieselbe Schlange, damit nie zwei
+                # Uploads gleichzeitig laufen.
+                try:
+                    await asyncio.to_thread(self._push_manifest)
+                except Exception as e:
+                    logger.exception("remote_gallery: manifest refresh failed")
+                    self._state["last_error"] = str(e)
                 continue
             try:
                 ok = await asyncio.to_thread(self._sync_photo, pid, skip_existing)
@@ -201,7 +217,16 @@ class RemoteGallerySync:
         return True
 
     def _build_manifest(self) -> dict:
+        return self._build_manifest_and_blurred()[0]
+
+    def _build_manifest_and_blurred(self) -> tuple[dict, list]:
+        """Manifest plus die Fotos, die darin nur unscharf vorkommen (deren
+        weichgezeichnete Kopie muss vor dem Manifest oben liegen)."""
         import json as _json
+        from datetime import datetime, timedelta
+
+        from app.config import get_config
+        from app.services import gallery_privacy
 
         from app.database import get_engine
         from app.models import Event, Photo, PhotoSession
@@ -210,7 +235,7 @@ class RemoteGallerySync:
         with Session(get_engine()) as session:
             event = session.exec(select(Event).where(Event.is_active == True)).first()
             if event is None:
-                return {"event": None, "photos": []}
+                return {"event": None, "photos": []}, []
             rows = session.exec(
                 select(Photo).join(PhotoSession)
                 .where(PhotoSession.event_id == event.id)
@@ -227,20 +252,41 @@ class RemoteGallerySync:
                 if meta.get("collage"):
                     source_ids.update(int(i) for i in (meta.get("source_photo_ids") or []))
             photos = [p for p in rows if p.id not in source_ids]
-            return {
-                "event": event.name,
-                "photos": [
-                    {"url": f"{REMOTE_IMG_DIR}/{Path(p.filename).name}",
-                     "thumb": f"{REMOTE_IMG_DIR}/{Path(p.thumbnail).name}" if p.thumbnail else None,
-                     "gif": f"{REMOTE_IMG_DIR}/{Path(p.gif_filename).name}" if p.gif_filename else None,
-                     "name": p.filename,
-                     "ts": p.captured_at.isoformat() if p.captured_at else None}
-                    for p in photos
-                ],
-            }
+
+            # Sichtschutz: Runden rechnen über ALLE Fotos (auch die Rohbilder
+            # eines Sets), sonst risse eine lange Collage-Session die Runde auf.
+            cfg = get_config()
+            cutoff = None
+            if gallery_privacy.is_enabled(cfg):
+                idle = timedelta(minutes=gallery_privacy.idle_minutes(cfg))
+                cutoff = gallery_privacy.sharp_cutoff(
+                    (p.captured_at for p in rows), idle, datetime.utcnow())
+            blurred = [p for p in photos if gallery_privacy.is_enabled(cfg)
+                       and gallery_privacy.is_blurred(p.captured_at, cutoff)]
+            blurred_ids = {p.id for p in blurred}
+            for p in blurred:
+                session.expunge(p)
+
+            def entry(p) -> dict:
+                ts = p.captured_at.isoformat() if p.captured_at else None
+                if p.id in blurred_ids:
+                    # Nur die unscharfe Kopie — kein Link aufs Original, kein
+                    # Dateiname. Das Original bleibt unter img/<name> liegen,
+                    # damit QR- und Download-Links der Gäste weiter gehen.
+                    return {"thumb": f"{REMOTE_IMG_DIR}/{gallery_privacy.blur_name(p)}",
+                            "blurred": True, "ts": ts}
+                return {"url": f"{REMOTE_IMG_DIR}/{Path(p.filename).name}",
+                        "thumb": f"{REMOTE_IMG_DIR}/{Path(p.thumbnail).name}" if p.thumbnail else None,
+                        "gif": f"{REMOTE_IMG_DIR}/{Path(p.gif_filename).name}" if p.gif_filename else None,
+                        "name": p.filename,
+                        "ts": ts}
+
+            return {"event": event.name, "photos": [entry(p) for p in photos]}, blurred
 
     def _push_manifest(self) -> None:
-        data = json.dumps(self._build_manifest(), ensure_ascii=False)
+        manifest, blurred = self._build_manifest_and_blurred()
+        self._upload_blurred(blurred)
+        data = json.dumps(manifest, ensure_ascii=False)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
             f.write(data)
             tmp = f.name
@@ -248,6 +294,42 @@ class RemoteGallerySync:
             self._upload(tmp, MANIFEST_NAME)
         finally:
             Path(tmp).unlink(missing_ok=True)
+
+    def _upload_blurred(self, photos: list) -> None:
+        """Unscharfe Kopien hochladen, die online noch fehlen.
+
+        Welche schon oben liegen, steht in blur/.remote_uploaded.json (Name →
+        mtime): Nach einem Neustart sonst jede einzeln erneut hochzuladen, hielte
+        die Schlange bei 1000 Fotos minutenlang auf. Eine neu gerenderte Fassung
+        (Gästebuch) hat eine neue mtime und geht deshalb wieder hoch."""
+        if not photos:
+            return
+        from app.config import get_config
+        from app.services import gallery_privacy
+
+        storage = Path(get_config()["photos"]["storage_path"])
+        record_path = storage / gallery_privacy.BLUR_DIR / ".remote_uploaded.json"
+        try:
+            done = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            done = {}
+        changed = False
+        try:
+            for p in photos:
+                local = gallery_privacy.ensure_blur(storage, p)
+                if local is None:
+                    continue
+                mtime = int(local.stat().st_mtime)
+                if done.get(local.name) == mtime:
+                    continue
+                self._ensure_remote_dir(REMOTE_IMG_DIR)
+                self._upload(str(local), f"{REMOTE_IMG_DIR}/{local.name}")
+                done[local.name] = mtime
+                changed = True
+        finally:
+            if changed:
+                record_path.parent.mkdir(parents=True, exist_ok=True)
+                record_path.write_text(json.dumps(done), encoding="utf-8")
 
     def _push_viewer(self) -> None:
         from app.services.viewer_assets import live_viewer_html
@@ -375,6 +457,15 @@ class RemoteGallerySync:
             return {"status": "error", "message": "Remote-Galerie ist deaktiviert."}
         self._viewer_pushed = False
         self._state["skipped"] = 0
+        # Neu synchronisieren heißt auch: unscharfe Kopien nicht für vorhanden halten
+        # (der Server könnte geleert worden sein).
+        try:
+            from app.config import get_config
+            from app.services import gallery_privacy
+            (Path(get_config()["photos"]["storage_path"]) / gallery_privacy.BLUR_DIR
+             / ".remote_uploaded.json").unlink(missing_ok=True)
+        except OSError:
+            pass
         with Session(get_engine()) as session:
             event = session.exec(select(Event).where(Event.is_active == True)).first()
             if event is None:

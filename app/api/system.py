@@ -885,6 +885,10 @@ def get_display_config():
         "gallery_enabled": get_nested(cfg, "gallery.enabled", True),
         "gallery_delete_mode": get_nested(cfg, "gallery.delete_mode", "off"),
         "gallery_delete_recent_minutes": get_nested(cfg, "gallery.delete_recent_minutes", 5),
+        # Sichtschutz (siehe app/services/gallery_privacy.py): die Galerie fragt
+        # damit regelmäßig nach, ob eine Runde abgelaufen ist.
+        "gallery_privacy_blur": bool(get_nested(cfg, "gallery.privacy_blur", False)),
+        "gallery_privacy_idle_minutes": get_nested(cfg, "gallery.privacy_idle_minutes", 10),
         # Aspect of a single photo's print output — the booth frames the live
         # preview + crop guide to this so what you see matches what prints.
         "output_aspect": _output_aspect(cfg),

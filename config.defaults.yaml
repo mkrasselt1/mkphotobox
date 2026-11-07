@@ -272,6 +272,14 @@ gallery:
   live_card: "auto"
   delete_mode: "off"           # off | recent | all — recent = nur Fotos der letzten 5 Min
   delete_recent_minutes: 5     # Zeitfenster für "recent"-Modus
+  # Sichtschutz für größere Feiern: Wer gerade fotografiert, sieht seine Bilder,
+  # die Fotos früherer Gruppen zeigt die Galerie nur weichgezeichnet (Kiosk,
+  # Handys im WLAN und Online-Galerie). Eine „Runde“ endet, sobald so viele
+  # Minuten lang kein Foto kam — danach ist auch sie unscharf, damit die
+  # nächste Gruppe sie nicht sieht. Nur Sichtschutz: Download- und QR-Links
+  # auf einzelne Fotos funktionieren weiter.
+  privacy_blur: false
+  privacy_idle_minutes: 10
 
 share:                        # QR-Code-Links für Gäste-Handys (Foto/GIF/Galerie)
   base_url: ""                # feste öffentliche Basis-URL (überschreibt alles); leer = LAN-IP

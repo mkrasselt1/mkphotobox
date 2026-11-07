@@ -139,6 +139,12 @@ async def lifespan(app: FastAPI):
     await remote_gallery_svc.start(bus)
     app.state.remote_gallery = remote_gallery_svc
 
+    # Galerie-Sichtschutz: läuft immer mit (billig) und tut nur etwas, wenn
+    # gallery.privacy_blur an ist — so greift das Einschalten im Admin sofort.
+    from app.services.gallery_privacy import get_watcher
+    privacy_watcher = get_watcher()
+    privacy_watcher.start()
+
     # Telegram notifications (help calls, printer-out-of-paper alerts)
     from app.services.telegram_service import get_telegram
     telegram_svc = get_telegram()
@@ -170,6 +176,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
+    await privacy_watcher.stop()
     await remote_gallery_svc.stop()
     await gif_service.stop_buffering()
     await cameras.shutdown_all()

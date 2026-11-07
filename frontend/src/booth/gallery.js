@@ -13,12 +13,18 @@ export function render(container, state) {
     let shareBase = location.origin;
     let remoteGallery = null;   // {active, gallery_url, image_base} when off-box gallery is live
     let availableOutputs = [];
+    let privacyBlur = false;    // gallery.privacy_blur: ältere Runden kommen unscharf vom Server
+    let privacyTimer = null;
+    let eventSlug = '';
 
     container.innerHTML = `
     <div style="display:flex;flex-direction:column;height:100%;padding:1.5rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
             <h1 style="font-size:1.6rem;font-weight:700;">${i18n.t('gallery.title')}</h1>
             <a href="#/booth" class="gallery-back">&larr; Zur&uuml;ck</a>
+        </div>
+        <div id="gallery-privacy" class="gallery-privacy" hidden>
+            &#128274; &Auml;ltere Fotos sind ausgeblendet &mdash; hier erscheinen die Bilder eurer Runde.
         </div>
         <div id="gallery-grid" style="
             display:grid;
@@ -55,6 +61,20 @@ export function render(container, state) {
             width:100%;height:100%;object-fit:cover; transition:transform 0.3s;
         }
         .gallery-item:hover img { transform:scale(1.06); }
+        /* Sichtschutz: das Bild ist schon serverseitig weichgezeichnet (CSS-Blur
+           ließe sich abschalten); hier nur Optik und „nicht anklickbar“. */
+        .gallery-item.blurred { cursor:default; }
+        .gallery-item.blurred:hover { transform:none; box-shadow:0 4px 14px rgba(0,0,0,0.30); }
+        .gallery-item.blurred:hover img { transform:none; }
+        .gallery-item.blurred::after {
+            content:'\\1F512'; position:absolute; inset:0; display:flex;
+            align-items:center; justify-content:center; font-size:2rem; opacity:0.7;
+        }
+        .gallery-privacy {
+            margin:-0.75rem 0 1rem; padding:0.6rem 1rem; border-radius:10px;
+            background:var(--pb-color-surface-2,#232c4a); color:var(--pb-color-text-muted);
+            font-size:0.95rem;
+        }
         .gallery-item .gif-badge {
             position:absolute; top:6px; right:6px; background:rgba(108,140,255,0.92);
             color:#fff; font-size:0.8rem; font-weight:700; padding:6px 10px;
@@ -96,6 +116,7 @@ export function render(container, state) {
                 const cfg = await configRes.json();
                 deleteMode = cfg.gallery_delete_mode || 'off';
                 deleteRecentMinutes = cfg.gallery_delete_recent_minutes || 5;
+                privacyBlur = !!cfg.gallery_privacy_blur;
             }
 
             try {
@@ -113,8 +134,13 @@ export function render(container, state) {
                 return;
             }
 
+            eventSlug = event.slug;
             const res = await fetch(`/api/v1/gallery/${event.slug}?limit=100`);
             photos = await res.json();
+            // Steht die Galerie offen, während eine Runde abläuft, soll sie nicht
+            // bis zum nächsten Aufruf scharf bleiben — die nächste Gruppe steht
+            // dann schon davor.
+            if (privacyBlur && !privacyTimer) privacyTimer = setInterval(recheckPrivacy, 30000);
 
             if (!photos.length) {
                 grid.innerHTML = `<p style="color:var(--pb-color-text-muted);grid-column:1/-1;text-align:center;padding:2rem;">${i18n.t('gallery.empty')}</p>`;
@@ -127,8 +153,41 @@ export function render(container, state) {
         }
     }
 
+    const privacySignature = (list) => list.map(p => `${p.id}:${p.blurred ? 1 : 0}`).join(',');
+
+    async function recheckPrivacy() {
+        if (!eventSlug || !document.getElementById('gallery-grid')) return;
+        try {
+            const res = await fetch(`/api/v1/gallery/${eventSlug}?limit=100`);
+            if (!res.ok) return;
+            const next = await res.json();
+            if (privacySignature(next) === privacySignature(photos)) return;
+            photos = next;
+            // Die offene Ansicht könnte ein Foto zeigen, das jetzt ausgeblendet ist.
+            if (lightbox) { try { lightbox.close(); } catch {} }
+            const grid = document.getElementById('gallery-grid');
+            if (!grid) return;
+            if (photos.length) renderGrid(grid);
+            else grid.innerHTML = `<p style="color:var(--pb-color-text-muted);grid-column:1/-1;text-align:center;padding:2rem;">${i18n.t('gallery.empty')}</p>`;
+        } catch {}
+    }
+
+    // Nur scharfe Fotos kommen in die Großansicht — sonst ließen sich per
+    // Wischen doch die Originale älterer Runden ansehen.
+    const sharpPhotos = () => photos.filter(p => !p.blurred);
+
     function renderGrid(grid) {
+        const hint = document.getElementById('gallery-privacy');
+        if (hint) hint.hidden = !photos.some(p => p.blurred);
         grid.innerHTML = photos.map((p, idx) => {
+            if (p.blurred) {
+                // Keine Aktionen, kein onerror-Rückfall auf /file: lieber eine
+                // leere Kachel als das scharfe Original.
+                return `
+            <div class="gallery-item blurred" data-idx="${idx}">
+                <img src="/api/v1/photos/${p.id}/thumb?blur=1" alt="Ausgeblendetes Foto" loading="lazy">
+            </div>`;
+            }
             const fileUrl = `/api/v1/photos/${p.id}/file`;
             const thumbUrl = `/api/v1/photos/${p.id}/thumb`;
             const gifUrl = `/api/v1/photos/${p.id}/gif`;
@@ -141,8 +200,8 @@ export function render(container, state) {
             </div>`;
         }).join('');
 
-        grid.querySelectorAll('.gallery-item').forEach(item => {
-            item.addEventListener('click', () => openLightbox(parseInt(item.dataset.idx)));
+        grid.querySelectorAll('.gallery-item:not(.blurred)').forEach(item => {
+            item.addEventListener('click', () => openLightbox(sharpPhotos().indexOf(photos[parseInt(item.dataset.idx)])));
             // GIF items: hover-play on desktop + a tappable badge to toggle on touch
             if (item.dataset.gif) {
                 const img = item.querySelector('img');
@@ -174,7 +233,7 @@ export function render(container, state) {
     }
 
     function openLightbox(startIdx) {
-        const slides = photos.map(p => ({
+        const slides = sharpPhotos().map(p => ({
             href: p.gif_filename ? `/api/v1/photos/${p.id}/gif` : `/api/v1/photos/${p.id}/file`,
             type: 'image',
             description: buildActions(p),
@@ -343,6 +402,7 @@ export function render(container, state) {
 
     // Cleanup on route change
     window.addEventListener('hashchange', () => {
+        if (privacyTimer) clearInterval(privacyTimer);
         if (lightbox) lightbox.destroy();
         document.removeEventListener('click', onActionClick);
     }, { once: true });

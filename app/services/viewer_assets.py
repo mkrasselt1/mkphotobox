@@ -52,6 +52,15 @@ _HEAD = """<!doctype html>
           letter-spacing:.4px; box-shadow:0 2px 8px rgba(0,0,0,.35); }
   .tile .gif-badge.playing { background:rgba(231,76,60,.95); }
   #empty { padding:3rem 1rem; text-align:center; color:#8a93a6; }
+  /* Galerie-Sichtschutz: ältere Runden kommen schon unscharf vom Server, hier
+     nur der Hinweis und „nicht anklickbar“. */
+  .tile.blurred { cursor:default; }
+  .tile.blurred:hover img { transform:none; }
+  .tile.blurred::after { content:"\\1F512"; position:absolute; inset:0; display:flex;
+          align-items:center; justify-content:center; font-size:1.6rem; opacity:.75; }
+  #privacy { display:none; margin:6px 6px 0; padding:.6rem .9rem; border-radius:10px;
+             background:#1a2030; color:#aeb6c8; font-size:.85rem; }
+  #privacy.on { display:block; }
   /* Lightbox */
   #lb { position:fixed; inset:0; z-index:50; display:none; background:rgba(0,0,0,.93);
         align-items:center; justify-content:center; }
@@ -85,6 +94,7 @@ _INNER = """
   <span id="count"></span>
   <span class="live" id="liveBadge"><span class="dot"></span> Live</span>
 </header>
+<div id="privacy">Ältere Fotos sind ausgeblendet — hier erscheinen die Bilder der aktuellen Runde.</div>
 <div id="empty">Noch keine Fotos.</div>
 <div id="grid"></div>
 <div id="lb">
@@ -109,12 +119,14 @@ _INNER = """
   var lb = document.getElementById('lb'), lbImg = document.getElementById('lbImg');
   var lbName = document.getElementById('lbName'), lbDl = document.getElementById('lbDl');
   var lbGif = document.getElementById('lbGif');
+  var privacyEl = document.getElementById('privacy');
   var cur = 0, gifOn = false;
 
   function norm(p){
-    if (typeof p === 'string') return { src:p, full:p, name:p, gif:null };
+    if (typeof p === 'string') return { src:p, full:p, name:p, gif:null, blurred:false };
+    if (p.blurred) return { src:p.thumb, full:null, name:'', gif:null, blurred:true };
     var full = p.url || p.src || p.thumb;
-    return { src:(p.thumb || full), full:full, name:(p.name || full), gif:(p.gif || null) };
+    return { src:(p.thumb || full), full:full, name:(p.name || full), gif:(p.gif || null), blurred:false };
   }
   function add(list, prepend){
     var added = 0;
@@ -127,13 +139,38 @@ _INNER = """
     });
     return added;
   }
+  // Nur scharfe Fotos lassen sich öffnen und durchblättern — sonst käme man
+  // per Wischen doch an die Originale der älteren Runden.
+  function sharp(){ return items.filter(function(it){ return !it.blurred; }); }
+  // Live: Läuft eine Runde ab, wird aus einem scharfen Eintrag ein unscharfer
+  // mit anderem Bild — dann (oder wenn Fotos gelöscht wurden) alles neu
+  // aufbauen statt nur Neues vorne anzufügen.
+  function replaceAll(list){
+    var next = [], keys = {};
+    (list||[]).forEach(function(raw){
+      var it = norm(raw);
+      if (!it.src || keys[it.src]) return;
+      keys[it.src] = 1; next.push(it);
+    });
+    var gone = items.some(function(it){ return !keys[it.src]; });
+    if (!gone) return false;
+    var open_ = lb.classList.contains('on') ? sharp()[cur] : null;
+    items = next; seen = keys;
+    renderAll();
+    if (open_) {
+      var still = sharp().filter(function(it){ return it.src === open_.src; })[0];
+      if (still) { cur = sharp().indexOf(still); show(); } else close();
+    }
+    return true;
+  }
   function tileEl(it, isNew){
     var d = document.createElement('div');
-    d.className = 'tile' + (isNew ? ' new' : '');
+    d.className = 'tile' + (isNew ? ' new' : '') + (it.blurred ? ' blurred' : '');
     var img = document.createElement('img');
-    img.loading = 'lazy'; img.src = it.src; img.alt = it.name;
+    img.loading = 'lazy'; img.src = it.src; img.alt = it.name || 'Ausgeblendetes Foto';
     d.appendChild(img);
-    d.addEventListener('click', function(){ open(items.indexOf(it)); });
+    if (it.blurred) return d;
+    d.addEventListener('click', function(){ open(sharp().indexOf(it)); });
     if (it.gif) {
       var b = document.createElement('button');
       b.className = 'gif-badge'; b.type = 'button'; b.textContent = 'GIF ▶';
@@ -160,11 +197,12 @@ _INNER = """
   function refresh(){
     countEl.textContent = items.length + (items.length === 1 ? ' Foto' : ' Fotos');
     emptyEl.style.display = items.length ? 'none' : '';
+    privacyEl.classList.toggle('on', items.some(function(it){ return it.blurred; }));
   }
   // Lightbox
   function open(i){ cur = i; gifOn = false; show(); lb.classList.add('on'); }
   function show(){
-    var it = items[cur]; if (!it) return;
+    var it = sharp()[cur]; if (!it) return;
     var showGif = gifOn && it.gif;
     lbImg.src = showGif ? it.gif : (it.full || it.src);
     lbName.textContent = it.name;
@@ -173,7 +211,7 @@ _INNER = """
     lbGif.textContent = showGif ? 'Foto' : 'GIF ▶';
   }
   function close(){ lb.classList.remove('on'); }
-  function step(d){ if(!items.length) return; cur = (cur + d + items.length) % items.length; gifOn = false; show(); }
+  function step(d){ var n = sharp().length; if(!n) return; cur = (cur + d + n) % n; gifOn = false; show(); }
   lbGif.onclick = function(){ gifOn = !gifOn; show(); };
   document.getElementById('lbClose').onclick = close;
   document.getElementById('lbPrev').onclick = function(){ step(-1); };
@@ -205,7 +243,7 @@ _INNER = """
             add(list, false);
             renderAll();
             firstPoll = false;
-          } else {
+          } else if (!replaceAll(list)) {
             var n = add(list, true);
             if (n) prependNew(n);
           }

@@ -95,6 +95,8 @@ class PhotoResponse(BaseModel):
     captured_at: datetime
     camera_module: Optional[str]
     sequence_index: int
+    # Galerie-Sichtschutz: Foto einer älteren Runde, /thumb liefert es unscharf.
+    blurred: bool = False
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────
