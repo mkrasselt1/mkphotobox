@@ -208,15 +208,22 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
     # JETZT festgehalten, gebaut wird im Hintergrund: das Bauen dauerte 7–20 s,
     # und so lange stand „Foto wird verarbeitet“ da und der nächste Countdown
     # eines Sets wartete. Bis es fertig ist, antwortet /photos/{id}/gif mit 404.
+    #
+    # Teilaufnahmen eines Sets (part_of_set) bekommen kein eigenes GIF: ihre
+    # Bilder laufen nachher als kleiner Film in ihrem Slot im GIF der Collage
+    # (/templates/render). Ein eigenes GIF wäre doppelt und kostete Rechenzeit
+    # genau während des nächsten Countdowns samt Live-Bild.
     gif_filename = None
     gif_job = None
+    gif_frames = []
+    look = filter_id if filter_id and photo_filters.is_enabled(cfg) else None
     gif_service = getattr(app.state, "gif_service", None)
     if gif_service and gif_service.enabled:
         gif_frames = gif_service.snapshot()
-        if len(gif_frames) >= 3:
+        if len(gif_frames) >= 3 and not part_of_set:
             gif_filename = f"{filepath.stem}.gif"
             comment = exif_service.gif_comment(meta, now) if meta else None
-            gif_job = (gif_service, gif_frames, photo_dir, filepath.stem, comment)
+            gif_job = (gif_service, gif_frames, photo_dir, filepath.stem, comment, look)
 
     # Save to DB
     photo = Photo(
@@ -232,6 +239,9 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
     session.add(photo)
     session.commit()
     session.refresh(photo)
+    if gif_service and len(gif_frames) >= 3:
+        # Für ein evtl. folgendes /templates/render festhalten (Collage-GIF)
+        gif_service.remember(photo.id, gif_frames)
 
     await bus.emit("capture.completed", {
         "photo_id": photo.id, "filename": filename, "gif": gif_filename,
@@ -247,19 +257,24 @@ async def capture_photo(request: Request, body: dict = Body(default={}),
 _gif_tasks: set[asyncio.Task] = set()   # Referenz halten, sonst räumt der GC sie weg
 
 
-async def _build_gif_later(bus, photo_id: int, gif_service, frames, photo_dir, base, comment):
+async def _build_gif_later(bus, photo_id: int, gif_service, frames, photo_dir, base, comment,
+                           look=None):
     """GIF nach dem Foto im Hintergrund bauen. Scheitert es, wird der schon
     eingetragene Dateiname wieder entfernt, damit niemand auf ein GIF wartet,
     das nie kommt."""
     path = None
     try:
-        path = await gif_service.create_gif(photo_dir, base, comment=comment, frames=frames)
+        path = await gif_service.create_gif(photo_dir, base, comment=comment, frames=frames,
+                                            look=look)
     except Exception:
         logger.exception("GIF für Foto %s fehlgeschlagen", photo_id)
     from app.database import get_engine
     if path:
         with Session(get_engine()) as s:
-            if s.get(Photo, photo_id) is None:   # inzwischen verworfen („Nochmal“)
+            p = s.get(Photo, photo_id)
+            # Inzwischen verworfen („Nochmal“), oder das GIF steckt schon im
+            # GIF der Collage (Einzel-Rahmen, /templates/render war schneller)
+            if p is None or p.gif_filename != path.name:
                 path.unlink(missing_ok=True)
                 return
         await bus.emit("photo.gif_ready", {"photo_id": photo_id, "gif": path.name})
@@ -881,7 +896,8 @@ DISCARD_MINUTES = 10
 
 
 @router.post("/photos/{photo_id}/discard")
-async def discard_photo(photo_id: int, session: Session = Depends(get_session)):
+async def discard_photo(photo_id: int, request: Request,
+                        session: Session = Depends(get_session)):
     """„Nochmal“ am Booth: das gerade gemachte Foto verwerfen — bei einer
     Collage samt ihren Einzelaufnahmen. Wer „Nochmal“ drückt, will das Bild
     nicht; vorher blieb es in Galerie, Online-Galerie und auf der Platte.
@@ -917,6 +933,10 @@ async def discard_photo(photo_id: int, session: Session = Depends(get_session)):
             _remove_photo(session, src, storage)
     session.commit()
     logger.info("Verworfen („Nochmal“): %s", gone)
+    gif_service = getattr(request.app.state, "gif_service", None)
+    if gif_service is not None:
+        for pid in gone:
+            gif_service.forget(pid)   # Clips fürs Collage-GIF nicht länger halten
 
     # Online-Galerie: Manifest ohne die verworfenen Fotos neu hochladen
     try:

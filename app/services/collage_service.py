@@ -284,11 +284,19 @@ def _open_asset(asset_id: Optional[int]):
 
 
 def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
-           jpeg_quality: int = 90, exif: bytes | None = None) -> dict[str, Any]:
+           jpeg_quality: int = 90, exif: bytes | None = None,
+           anim: dict[str, Any] | None = None) -> dict[str, Any]:
     """Render *template* with *photo_paths* into *out_path* (JPEG).
 
     ``exif`` is an optional serialised EXIF block (see
-    :mod:`app.services.exif_service`) written into the result."""
+    :mod:`app.services.exif_service`) written into the result.
+
+    ``anim`` = {"photo_indices": {...}, "max_edge": 640}: zusätzlich die Ebenen
+    fürs Collage-GIF liefern (Ergebnis-Schlüssel ``"anim"``, siehe
+    _AnimLayers) — Slots dieser Aufnahmen bekommen dort pro GIF-Bild den Clip
+    ihrer Aufnahme. Alles Übrige wird dafür hier EINMAL in voller Größe
+    gezeichnet (gleiche Optik wie die Collage) und dann verkleinert; pro
+    GIF-Bild bleibt nur noch Einsetzen."""
     from PIL import Image
 
     cw = int(template.get("canvas_width", 1200))
@@ -307,6 +315,8 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
     bg = _open_asset(template.get("background_asset_id"))
     if bg is not None:
         canvas.alpha_composite(_fit_image(bg, cw, ch, "cover").convert("RGBA"))
+
+    gl = _AnimLayers(canvas, anim) if anim else None
 
     # 2) Photos into slots. A slot may reference an earlier shot via
     # ``photo_index`` (default = its own position), so the same photo can appear
@@ -341,17 +351,24 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
                 tile = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
                 tile.alpha_composite(fitted, (sw // 2 - fitted.width // 2,
                                               sh // 2 - fitted.height // 2))
-                canvas.alpha_composite(tile, (int(slot["x"]), int(slot["y"])))
+                piece, pos = tile, (int(slot["x"]), int(slot["y"]))
             else:
-                canvas.alpha_composite(fitted, (cx - fitted.width // 2,
-                                                cy - fitted.height // 2))
+                piece, pos = fitted, (cx - fitted.width // 2, cy - fitted.height // 2)
+            canvas.alpha_composite(piece, pos)
+            if gl is not None:
+                gl.slot(slot, idx, piece, pos)
         except Exception:
             logger.exception("Failed to place photo in slot %d", i)
+
+    # Alles ab hier liegt über den Fotos. Fürs GIF auf eine eigene, durch-
+    # sichtige Ebene (die „Deckschicht“), die dann über jedes GIF-Bild kommt;
+    # ohne GIF wie bisher direkt auf die Leinwand.
+    top = gl.deck if gl is not None else canvas
 
     # 3) Full-canvas frame overlay
     frame = _open_asset(template.get("overlay_asset_id"))
     if frame is not None:
-        canvas.alpha_composite(_fit_image(frame, cw, ch, "cover").convert("RGBA"))
+        top.alpha_composite(_fit_image(frame, cw, ch, "cover").convert("RGBA"))
 
     # 4) Positioned overlays (logos / stickers)
     for ov in overlays:
@@ -365,7 +382,7 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         rot = ov.get("rotation", 0)
         if rot:
             placed = placed.rotate(-rot, expand=True, resample=Image.BICUBIC)
-        canvas.alpha_composite(placed.convert("RGBA"), (cx - placed.width // 2, cy - placed.height // 2))
+        top.alpha_composite(placed.convert("RGBA"), (cx - placed.width // 2, cy - placed.height // 2))
 
     # 4b) Emojis — aus Vektorgrafiken in der Zielgröße gerendert (scharf im Druck).
     # Box wie bei Overlays (x/y/w/h), das Emoji füllt das Quadrat der kürzeren Seite.
@@ -375,7 +392,7 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
         for em in emojis:
             try:
                 w, h = int(em.get("w", 200)), int(em.get("h", 200))
-                emoji_service.place(canvas, str(em.get("emoji", "")),
+                emoji_service.place(top, str(em.get("emoji", "")),
                                     int(em.get("x", 0)) + w / 2, int(em.get("y", 0)) + h / 2,
                                     min(w, h), em.get("rotation", 0) or 0)
             except Exception:
@@ -390,16 +407,94 @@ def render(template: dict[str, Any], photo_paths: list[str], out_path: Path,
             rot = txt.get("rotation", 0)
             if rot:
                 layer = layer.rotate(-rot, expand=True, resample=Image.BICUBIC)
-            canvas.alpha_composite(layer, (cx - layer.width // 2, cy - layer.height // 2))
+            top.alpha_composite(layer, (cx - layer.width // 2, cy - layer.height // 2))
         except Exception:
             logger.exception("Failed to render text element")
+
+    anim_layers = None
+    if gl is not None:
+        canvas.alpha_composite(gl.deck)
+        try:
+            anim_layers = gl.finish()
+        except Exception:
+            logger.exception("GIF-Ebenen der Collage fehlgeschlagen")
 
     # Flatten onto white and save JPEG
     out_path.parent.mkdir(parents=True, exist_ok=True)
     flat = Image.new("RGB", canvas.size, (255, 255, 255))
     flat.paste(canvas, mask=canvas.split()[-1])
     flat.save(out_path, "JPEG", quality=jpeg_quality, **({"exif": exif} if exif else {}))
-    return {"path": str(out_path), "width": cw, "height": ch, "slots": len(slots)}
+    return {"path": str(out_path), "width": cw, "height": ch, "slots": len(slots),
+            "anim": anim_layers}
+
+
+class _AnimLayers:
+    """Sammelt beim Rendern die Ebenen fürs Collage-GIF.
+
+    - ``base``: Hintergrund + alle Slots ohne Clip (RGB, GIF-Größe)
+    - ``ops``: was pro GIF-Bild in Reihenfolge eingesetzt wird — Slots mit Clip
+      ("anim", Geometrie verkleinert, dazu das fertige Foto als Ersatz) und
+      stille Slots, die einen davor liegenden Clip-Slot überdecken ("still";
+      gedrehte, überlappende Polaroids müssen über dem Film liegen bleiben)
+    - ``deck``: Rahmen, Sticker, Emojis, Text (RGB + Maske)
+
+    Alles in voller Größe gezeichnet und erst dann verkleinert: Schrift und
+    Rahmen sehen aus wie in der Collage, und es passiert nur einmal."""
+
+    def __init__(self, canvas, anim: dict[str, Any]):
+        from PIL import Image
+
+        cw, ch = canvas.size
+        edge = int(anim.get("max_edge") or 640)
+        self.s = min(1.0, edge / max(cw, ch))
+        self.size = (max(1, round(cw * self.s)), max(1, round(ch * self.s)))
+        self.indices = set(anim.get("photo_indices") or ())
+        self.base = canvas.copy()            # Hintergrund, stille Slots folgen
+        self.deck = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+        self.ops: list[dict[str, Any]] = []
+        self._anim_boxes: list[tuple[int, int, int, int]] = []
+
+    def _small(self, piece, pos):
+        """Teilbild + Position auf GIF-Maß (für paste: RGB, Maske, Position)."""
+        from PIL import Image
+
+        s = self.s
+        w, h = max(1, round(piece.width * s)), max(1, round(piece.height * s))
+        # vormultipliziert verkleinern, sonst bekommen transparente Ränder
+        # (gedrehte Fotos) einen dunklen Saum
+        small = piece.convert("RGBa").resize((w, h), Image.BILINEAR).convert("RGBA")
+        return small.convert("RGB"), small.getchannel("A"), (round(pos[0] * s), round(pos[1] * s))
+
+    def slot(self, slot: dict, idx: int, piece, pos) -> None:
+        box = (pos[0], pos[1], pos[0] + piece.width, pos[1] + piece.height)
+        if idx in self.indices:
+            s = self.s
+            self._anim_boxes.append(box)
+            self.ops.append({
+                "kind": "anim", "photo_index": idx,
+                "x": round(int(slot["x"]) * s), "y": round(int(slot["y"]) * s),
+                "w": max(1, round(int(slot["w"]) * s)), "h": max(1, round(int(slot["h"]) * s)),
+                "fit": slot.get("fit", "cover"), "rotation": slot.get("rotation", 0) or 0,
+                "clip": bool(slot.get("clip", True)),
+                "still": self._small(piece, pos),   # falls der Clip fehlt
+            })
+        elif any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3]
+                 for b in self._anim_boxes):
+            self.ops.append({"kind": "still", "piece": self._small(piece, pos)})
+        else:
+            # überdeckt keinen Film: Reihenfolge egal, also gleich in die Basis
+            self.base.alpha_composite(piece, pos)
+
+    def finish(self) -> dict[str, Any]:
+        from PIL import Image
+
+        base = self.base.convert("RGB").resize(self.size, Image.BILINEAR)
+        deck = None, None
+        if self.deck.getbbox():
+            small = self.deck.convert("RGBa").resize(self.size, Image.BILINEAR).convert("RGBA")
+            deck = small.convert("RGB"), small.getchannel("A")
+        self.base = self.deck = None
+        return {"size": self.size, "base": base, "ops": self.ops, "deck": deck}
 
 
 def render_set_gif(photo_paths: list[str], out_path: Path,

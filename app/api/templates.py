@@ -343,11 +343,12 @@ async def render_collage(body: dict, request: Request,
     cfg = request.app.state.config
     storage = Path(cfg["photos"]["storage_path"])
 
-    photo_paths, session_id = [], None
+    photo_paths, sources, session_id = [], [], None
     for pid in photo_ids:
         p = session.get(Photo, pid)
         if p:
             photo_paths.append(str(storage / p.filename))
+            sources.append(p)
             if session_id is None:
                 session_id = p.session_id
     if session_id is None:
@@ -379,16 +380,35 @@ async def render_collage(body: dict, request: Request,
         exif_blob = exif_service.exif_bytes(meta, now)
         gif_comment = exif_service.gif_comment(meta, now)
 
+    # Collage-GIF: jeder Slot zeigt den kurzen Film seiner Aufnahme (die
+    # Sekunden vor dem Auslösen, festgehalten vom gif_service), mit Look,
+    # Rahmen, Text und Emojis der Vorlage. Aufnahmen ohne Film (Neustart
+    # dazwischen, GIF aus) stehen still als Foto im Slot.
+    clips = _collect_clips(request.app, cfg, sources)
+
     quality = cfg.get("photos", {}).get("jpeg_quality", 90)
-    await asyncio.to_thread(collage_service.render, template, photo_paths, out, quality,
-                            exif_blob)
+    anim = None
+    if clips:
+        gif_cfg = cfg.get("gif", {}) or {}
+        anim = {"photo_indices": set(clips),
+                "max_edge": max(int(gif_cfg.get("width", 640)), int(gif_cfg.get("height", 640)))}
+    result = await asyncio.to_thread(collage_service.render, template, photo_paths, out,
+                                     quality, exif_blob, anim)
+    layers = (result or {}).get("anim")
 
     thumb_rel = await asyncio.to_thread(_make_collage_thumb, out, storage,
                                         tuple(cfg["photos"]["thumbnail_size"]))
 
-    # A set/arrangement still gets an animated GIF — a slideshow of its shots.
     gif_filename = None
-    if len(photo_paths) >= 2:
+    gif_job = None
+    if layers:
+        # Gebaut wird im Hintergrund wie bei der Einzelaufnahme; bis dahin
+        # antwortet /photos/{id}/gif mit 404.
+        gif_filename = f"{out.stem}_anim.gif"
+        gif_job = (request.app.state.gif_service, layers, clips, storage,
+                   f"{out.stem}_anim", gif_comment, [sources[i].id for i in clips])
+    elif len(photo_paths) >= 2:
+        # Ohne Filme: wie bisher eine Diashow der Aufnahmen
         gif_out = storage / f"{out.stem}_anim.gif"
         gif_path = await asyncio.to_thread(collage_service.render_set_gif, photo_paths,
                                            gif_out, comment=gif_comment)
@@ -413,7 +433,72 @@ async def render_collage(body: dict, request: Request,
     await request.app.state.bus.emit("capture.completed", {
         "photo_id": photo.id, "filename": fname, "collage": True, "gif": gif_filename,
     })
+    if gif_job:
+        task = asyncio.create_task(_build_collage_gif_later(request.app.state.bus, photo.id,
+                                                            *gif_job))
+        _gif_tasks.add(task)
+        task.add_done_callback(_gif_tasks.discard)
     return {"id": photo.id, "filename": fname, "thumbnail": thumb_rel, "gif": gif_filename}
+
+
+def _collect_clips(app, cfg: dict, sources: list) -> dict[int, tuple]:
+    """photo_index -> (Vorschaubilder, Look) für die Aufnahmen, deren Film
+    der gif_service noch hält."""
+    gif_service = getattr(app.state, "gif_service", None)
+    if gif_service is None or not gif_service.enabled:
+        return {}
+    from app.services import photo_filters
+    looks_on = photo_filters.is_enabled(cfg)
+    clips = {}
+    for i, p in enumerate(sources):
+        frames = gif_service.clip_for(p.id)
+        if not frames:
+            continue
+        try:
+            look = json.loads(p.metadata_json or "{}").get("filter")
+        except (ValueError, TypeError, AttributeError):
+            look = None
+        clips[i] = (frames, look if looks_on else None)
+    return clips
+
+
+_gif_tasks: set[asyncio.Task] = set()   # Referenz halten, sonst räumt der GC sie weg
+
+
+async def _build_collage_gif_later(bus, collage_id: int, gif_service, layers, clips, storage: Path,
+                                   base: str, comment, source_ids: list[int]):
+    """Collage-GIF im Hintergrund bauen. Danach brauchen die Aufnahmen, deren
+    Film jetzt in der Collage läuft, kein eigenes GIF mehr: ihre Filme stecken
+    vollständig (gleiche Bilder, gleicher Look) im Collage-GIF, die Rohbilder
+    sind nur Quellen der Collage. Bei einem Einzel-Rahmen läuft das Roh-GIF
+    evtl. noch — _build_gif_later räumt es dann selbst weg, weil sein Name
+    nicht mehr eingetragen ist."""
+    path = None
+    try:
+        path = await gif_service.create_collage_gif(layers, clips, storage, base, comment)
+    except Exception:
+        logger.exception("Collage-GIF für Foto %s fehlgeschlagen", collage_id)
+    with Session(get_engine()) as s:
+        c = s.get(Photo, collage_id)
+        if path is None:
+            if c is not None:
+                c.gif_filename = None
+                s.add(c)
+                s.commit()
+            return
+        if c is None or c.gif_filename != path.name:   # inzwischen verworfen („Nochmal“)
+            path.unlink(missing_ok=True)
+            return
+        for sid in source_ids:
+            src = s.get(Photo, sid)
+            if src is not None and src.gif_filename:
+                (storage / src.gif_filename).unlink(missing_ok=True)
+                src.gif_filename = None
+                s.add(src)
+        s.commit()
+    for sid in source_ids:
+        gif_service.forget(sid)
+    await bus.emit("photo.gif_ready", {"photo_id": collage_id, "gif": path.name})
 
 
 def _make_collage_thumb(src: Path, storage: Path, size: tuple) -> str | None:
